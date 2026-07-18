@@ -47,15 +47,13 @@ class GameEngine(private val rng: Random = Random.Default) {
         const val MAX_WALL_SPEARS = 6
         const val MAX_ATTACKERS = 69
         const val ANIM_INTERVAL_MS = 110L   // original timer1.Interval
+        const val TICK_MS = 45L             // mobile pace: 1.5x slower than the old Chill preset
     }
 
     enum class Phase { READY, PLAYING, PAUSED, LOST }
 
     /** idx matches the original get_dificolty() mapping (200/320/400 -> 0/1/2). */
     enum class Difficulty(val idx: Int) { EASY(0), MEDIUM(1), HARD(2) }
-
-    /** Base tick length. ORIGINAL matches the WinForms build's effective rate. */
-    enum class Speed(val tickMs: Long) { ORIGINAL(16L), SLOWER(22L), CHILL(30L) }
 
     /** Shared 0->1->2->1->0 sparkle animation state (original toggle_fig_pics). */
     open class Anim {
@@ -112,8 +110,7 @@ class GameEngine(private val rng: Random = Random.Default) {
     private val roomLeft = BooleanArray(ROWS)
     private val roomRight = BooleanArray(ROWS)
 
-    var difficulty = Difficulty.MEDIUM
-    var speed = Speed.ORIGINAL
+    var difficulty = Difficulty.HARD
 
     var phase = Phase.READY; private set
     var score = 0; private set

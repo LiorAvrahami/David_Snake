@@ -81,7 +81,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             val phase = engine.phase
             if (phase == GameEngine.Phase.PLAYING || phase == GameEngine.Phase.LOST) {
                 tickAccMs += dtMs
-                val tickMs = engine.speed.tickMs
+                val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
                     engine.tick()
                     tickAccMs -= tickMs

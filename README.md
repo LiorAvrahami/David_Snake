@@ -30,8 +30,7 @@ zigzags in one continuous drag. Tap to start, pause, resume, or retry.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
 oldest falls out). When you're pressed against a wall you get a beat to
-swipe away before it's over: three ticks on easy, two on medium, one on
-hard. Attackers always throw from the wall on your far side, aiming one
+swipe away before it's over. Attackers always throw from the wall on your far side, aiming one
 cell ahead of you. Waves come faster and larger the longer you survive.
 
 And yes — after you fall, they keep throwing. The original did that too.
@@ -41,8 +40,9 @@ And yes — after you fall, they keep throwing. The original did that too.
 Plain Kotlin with zero dependencies: one Activity, a custom Canvas view,
 and all UI built in code (no layout XML). The game logic lives in
 `GameEngine.kt`, a line-faithful port of the original's `Form1.cs`,
-`figure.cs`, `attaker.cs` and `math.cs`, preserving its timing (16 ms base
-tick; the snake steps every 5th tick, spears every tick) and its quirks —
+`figure.cs`, `attaker.cs` and `math.cs`, preserving its tick structure
+(the snake steps every 5th tick, spears move every tick) at a relaxed
+mobile pace, locked to the original's hard difficulty, and its quirks —
 including the difficulty-scaled wall-grace window and the post-death spear
 rain. One genuine bug in the original was fixed (the harp could briefly
 respawn under the first tail segment) and is flagged with a comment. The

@@ -18,8 +18,8 @@ import android.widget.TextView
 
 /**
  * Single fullscreen activity. All UI is built in code (no layout XML):
- * the GameView underneath, and a centered overlay panel for the start,
- * pause and lose screens with difficulty and speed choices.
+ * the GameView underneath and a centered overlay panel for the start,
+ * pause and lose screens.
  */
 class MainActivity : Activity() {
 
@@ -27,9 +27,6 @@ class MainActivity : Activity() {
     private lateinit var panel: LinearLayout
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
-    private lateinit var settingsBlock: LinearLayout
-    private val diffButtons = ArrayList<TextView>()
-    private val speedButtons = ArrayList<TextView>()
 
     private lateinit var prefs: SharedPreferences
 
@@ -96,7 +93,7 @@ class MainActivity : Activity() {
         panel = LinearLayout(this)
         panel.orientation = LinearLayout.VERTICAL
         panel.gravity = Gravity.CENTER_HORIZONTAL
-        panel.setPadding(dp(30), dp(20), dp(30), dp(20))
+        panel.setPadding(dp(32), dp(22), dp(32), dp(22))
         val bg = GradientDrawable()
         bg.cornerRadius = dp(18).toFloat()
         bg.setColor(Color.argb(235, 255, 255, 255))
@@ -114,31 +111,8 @@ class MainActivity : Activity() {
         subtitleView.textSize = 15f
         subtitleView.setTextColor(inkSoft)
         subtitleView.gravity = Gravity.CENTER
-        subtitleView.setPadding(0, dp(6), 0, 0)
+        subtitleView.setPadding(0, dp(8), 0, 0)
         panel.addView(subtitleView)
-
-        settingsBlock = LinearLayout(this)
-        settingsBlock.orientation = LinearLayout.VERTICAL
-        settingsBlock.gravity = Gravity.CENTER_HORIZONTAL
-        settingsBlock.setPadding(0, dp(8), 0, 0)
-        settingsBlock.addView(makeLabel(R.string.difficulty))
-        settingsBlock.addView(
-            makeChoiceRow(diffButtons, listOf(R.string.easy, R.string.medium, R.string.hard)) { i ->
-                gameView.engine.difficulty = GameEngine.Difficulty.values()[i]
-                refreshChoices()
-            }
-        )
-        settingsBlock.addView(makeLabel(R.string.speed))
-        settingsBlock.addView(
-            makeChoiceRow(
-                speedButtons,
-                listOf(R.string.speed_original, R.string.speed_slower, R.string.speed_chill)
-            ) { i ->
-                gameView.engine.speed = GameEngine.Speed.values()[i]
-                refreshChoices()
-            }
-        )
-        panel.addView(settingsBlock)
 
         root.addView(
             panel,
@@ -150,66 +124,6 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun makeLabel(textRes: Int): TextView {
-        val v = TextView(this)
-        v.text = getString(textRes)
-        v.textSize = 13f
-        v.setTextColor(inkSoft)
-        v.gravity = Gravity.CENTER
-        v.setPadding(0, dp(10), 0, dp(4))
-        return v
-    }
-
-    private fun makeChoiceRow(
-        store: ArrayList<TextView>,
-        labels: List<Int>,
-        onPick: (Int) -> Unit
-    ): LinearLayout {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER
-        labels.forEachIndexed { idx, resId ->
-            val b = TextView(this)
-            b.text = getString(resId)
-            b.textSize = 14f
-            b.setTypeface(Typeface.DEFAULT_BOLD)
-            b.gravity = Gravity.CENTER
-            b.setPadding(dp(16), dp(8), dp(16), dp(8))
-            b.setOnClickListener { onPick(idx) }
-            val lp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            if (idx > 0) lp.marginStart = dp(8)
-            row.addView(b, lp)
-            store.add(b)
-        }
-        return row
-    }
-
-    private fun styleChoice(v: TextView, selected: Boolean) {
-        val bg = GradientDrawable()
-        bg.cornerRadius = dp(10).toFloat()
-        if (selected) {
-            bg.setColor(ink)
-            v.setTextColor(Color.WHITE)
-        } else {
-            bg.setColor(Color.TRANSPARENT)
-            bg.setStroke(dp(1), ink)
-            v.setTextColor(ink)
-        }
-        v.background = bg
-    }
-
-    private fun refreshChoices() {
-        for (i in diffButtons.indices) {
-            styleChoice(diffButtons[i], gameView.engine.difficulty.ordinal == i)
-        }
-        for (i in speedButtons.indices) {
-            styleChoice(speedButtons[i], gameView.engine.speed.ordinal == i)
-        }
-    }
-
     // --------------------------------------------------------- phase handling
 
     private fun onPhase(phase: GameEngine.Phase) {
@@ -217,18 +131,14 @@ class MainActivity : Activity() {
             GameEngine.Phase.PLAYING -> panel.visibility = View.GONE
             GameEngine.Phase.READY -> {
                 panel.visibility = View.VISIBLE
-                settingsBlock.visibility = View.VISIBLE
                 titleView.text = getString(R.string.app_name)
                 subtitleView.text =
                     getString(R.string.swipe_hint) + "\n" + getString(R.string.tap_to_start)
-                refreshChoices()
             }
             GameEngine.Phase.PAUSED -> {
                 panel.visibility = View.VISIBLE
-                settingsBlock.visibility = View.VISIBLE
                 titleView.text = getString(R.string.paused)
                 subtitleView.text = getString(R.string.resume_hint)
-                refreshChoices()
             }
             GameEngine.Phase.LOST -> {
                 val score = gameView.engine.score
@@ -237,7 +147,6 @@ class MainActivity : Activity() {
                     prefs.edit().putInt("best", score).apply()
                 }
                 panel.visibility = View.VISIBLE
-                settingsBlock.visibility = View.GONE
                 titleView.text = getString(R.string.you_lost)
                 subtitleView.text =
                     getString(R.string.final_score, score, gameView.bestScore) +
