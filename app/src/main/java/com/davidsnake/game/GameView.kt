@@ -28,6 +28,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         private const val VIRTUAL_H = 726f
         private const val CELL = 48
         private const val BOARD_OFF = 51f       // original x*48 + 48 + 3
+        private const val NO_SWIPE = -1
         private val FIELD_COLOR = Color.rgb(166, 202, 240)
         private val HUD_COLOR = Color.rgb(40, 60, 90)
     }
@@ -168,11 +169,12 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - anchorX
-                val dy = event.y - anchorY
-                if (abs(dx) >= swipeThreshold || abs(dy) >= swipeThreshold) {
-                    engine.onSwipe(directionOf(dx, dy))
-                    // re-anchor so a continued drag can chain zigzag turns
+                val dir = classifySwipe(event.x - anchorX, event.y - anchorY, swipeThreshold)
+                if (dir != NO_SWIPE) {
+                    engine.onSwipe(dir)
+                    // re-anchor so a continued drag can chain turns; the
+                    // heading has changed, so the rest of the same gesture is
+                    // measured against the new perpendicular axis
                     anchorX = event.x; anchorY = event.y
                     swiped = true
                 }
@@ -180,15 +182,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             }
             MotionEvent.ACTION_UP -> {
                 if (!swiped) {
-                    val dx = event.x - downX
-                    val dy = event.y - downY
-                    if (abs(dx) > flickMin || abs(dy) > flickMin) {
-                        // Short flick: never crossed the drag threshold but is
-                        // clearly directional -- register it on lift.
-                        engine.onSwipe(directionOf(dx, dy))
-                    } else {
-                        performClick()
-                    }
+                    // Short flick: never crossed the drag threshold but is
+                    // clearly directional -- register it on lift.
+                    val dir = classifySwipe(event.x - downX, event.y - downY, flickMin)
+                    if (dir != NO_SWIPE) engine.onSwipe(dir) else performClick()
                 }
                 return true
             }
@@ -202,12 +199,35 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return true
     }
 
-    private fun directionOf(dx: Float, dy: Float): Int =
-        if (abs(dx) > abs(dy)) {
-            if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
+    /**
+     * Interpret a gesture relative to David's heading. Only two turns are
+     * ever meaningful (left or right of travel), so the swipe component
+     * perpendicular to the heading decides -- a diagonal "back and a bit to
+     * the right" swipe still turns right. The along-heading component is used
+     * only when there is no meaningful perpendicular part; the engine ignores
+     * it except for the tailless reversal the original allowed.
+     */
+    private fun classifySwipe(dx: Float, dy: Float, threshold: Float): Int {
+        val horizontal =
+            engine.headDir == GameEngine.LEFT || engine.headDir == GameEngine.RIGHT
+        val perp = if (horizontal) dy else dx
+        val para = if (horizontal) dx else dy
+        return if (abs(perp) >= threshold) {
+            if (horizontal) {
+                if (perp > 0) GameEngine.DOWN else GameEngine.UP
+            } else {
+                if (perp > 0) GameEngine.RIGHT else GameEngine.LEFT
+            }
+        } else if (abs(para) >= threshold) {
+            if (horizontal) {
+                if (para > 0) GameEngine.RIGHT else GameEngine.LEFT
+            } else {
+                if (para > 0) GameEngine.DOWN else GameEngine.UP
+            }
         } else {
-            if (dy > 0) GameEngine.DOWN else GameEngine.UP
+            NO_SWIPE
         }
+    }
 }
 
 /** Loads the original 48px sprites and pre-rotates them like the WinForms build. */
