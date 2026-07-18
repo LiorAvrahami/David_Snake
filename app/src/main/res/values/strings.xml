@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">David Snake</string>
+    <string name="you_lost">You lost</string>
+    <string name="try_again">Tap to try again</string>
+    <string name="paused">Paused</string>
+    <string name="tap_to_start">Tap to start</string>
+    <string name="swipe_hint">Swipe to steer David</string>
+    <string name="resume_hint">Tap to resume</string>
+    <string name="difficulty">Difficulty</string>
+    <string name="easy">Easy</string>
+    <string name="medium">Medium</string>
+    <string name="hard">Hard</string>
+    <string name="speed">Speed</string>
+    <string name="speed_original">Original</string>
+    <string name="speed_slower">Slower</string>
+    <string name="speed_chill">Chill</string>
+    <string name="best">Best: %1$d</string>
+    <string name="final_score">Notes: %1$d · Best: %2$d</string>
+</resources>

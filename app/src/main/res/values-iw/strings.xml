@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="you_lost">הפסדת</string>
+    <string name="try_again">נסה שנית — הקש על המסך</string>
+    <string name="paused">הפסקה</string>
+    <string name="tap_to_start">הקש כדי להתחיל</string>
+    <string name="swipe_hint">החלק את האצבע כדי לכוון את דוד</string>
+    <string name="resume_hint">הקש כדי להמשיך</string>
+    <string name="difficulty">רמת קושי</string>
+    <string name="easy">קל</string>
+    <string name="medium">בינוני</string>
+    <string name="hard">קשה</string>
+    <string name="speed">מהירות</string>
+    <string name="speed_original">מקורית</string>
+    <string name="speed_slower">איטית</string>
+    <string name="speed_chill">רגועה</string>
+    <string name="best">שיא: %1$d</string>
+    <string name="final_score">תווים: %1$d · שיא: %2$d</string>
+</resources>

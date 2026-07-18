@@ -1,0 +1,512 @@
+package com.davidsnake.game
+
+import kotlin.math.sqrt
+import kotlin.random.Random
+
+/**
+ * Faithful port of the original 2012 "david_snake" WinForms game logic
+ * (Form1.cs / figure.cs / attaker.cs / math.cs), with the original's
+ * timing structure preserved:
+ *
+ *  - one base tick ~= one WinForms timer tick (~16 ms at the original's
+ *    default "speed molt" of 0.1, which floored both game timers to the
+ *    ~15.6 ms system timer resolution)
+ *  - the snake steps every 5th base tick ("counter" 4..0)
+ *  - spears move 1 cell every base tick (5x snake speed)
+ *  - attackers wind up 7 ticks, hold the throw pose for 10 ticks, then
+ *    linger for `attackerCountGoal` ticks before vanishing
+ *  - a new wave spawns every `attackerCountGoal` ticks; the goal ramps
+ *    from 60 down to 19 and the wave size is (200 / goal - 2)
+ *
+ * Deliberately preserved quirks of the original:
+ *  - a direction press performs an immediate extra step (snappy turns)
+ *  - at a wall the snake presses against it for a small, difficulty-based
+ *    grace window (easy 3 / medium 2 / hard 1 extra ticks) before dying
+ *  - attackers aim one cell ahead of you with +/-1 jitter, and always
+ *    reflect to the wall on your far side
+ *  - wall room claims ("bool2") are never released during a run
+ *  - after you die, attackers keep spawning and hurling spears at the
+ *    spot where you fell; spears that reach the corpse freeze in it
+ */
+class GameEngine(private val rng: Random = Random.Default) {
+
+    companion object {
+        const val COLS = 21
+        const val ROWS = 13
+
+        const val EMPTY = 0
+        const val HEAD = 1
+        const val TAIL = 2
+        const val HARP = 3
+
+        const val UP = 0
+        const val RIGHT = 1
+        const val DOWN = 2
+        const val LEFT = 3
+
+        const val MAX_WALL_SPEARS = 6
+        const val MAX_ATTACKERS = 69
+        const val ANIM_INTERVAL_MS = 110L   // original timer1.Interval
+    }
+
+    enum class Phase { READY, PLAYING, PAUSED, LOST }
+
+    /** idx matches the original get_dificolty() mapping (200/320/400 -> 0/1/2). */
+    enum class Difficulty(val idx: Int) { EASY(0), MEDIUM(1), HARD(2) }
+
+    /** Base tick length. ORIGINAL matches the WinForms build's effective rate. */
+    enum class Speed(val tickMs: Long) { ORIGINAL(16L), SLOWER(22L), CHILL(30L) }
+
+    /** Shared 0->1->2->1->0 sparkle animation state (original toggle_fig_pics). */
+    open class Anim {
+        var frame = 0
+        var frameUp = true
+
+        fun toggleFrame() {
+            when (frame) {
+                2 -> { frame = 1; frameUp = false }
+                0 -> { frame = 1; frameUp = true }
+                1 -> frame += if (frameUp) 1 else -1
+            }
+        }
+    }
+
+    class Segment(var x: Int, var y: Int) : Anim()
+
+    class Spear(var x: Int, var y: Int, var dir: Int) {
+        var stuck = false
+    }
+
+    class Attacker(var wall: Int, var pos: Int) {
+        var throwing = false
+        var vanishing = false
+        var count = 7               // original attaker.count initial value
+    }
+
+    // ------------------------------------------------------------------ state
+
+    val blocks = Array(COLS) { IntArray(ROWS) }
+
+    var headX = 10; private set
+    var headY = 6; private set
+    var headDir = UP; private set
+
+    /** tail[0] is the segment right behind the head. */
+    val tail = ArrayList<Segment>()
+
+    var harpX = 3; private set
+    var harpY = 5; private set
+    val harpAnim = Anim()
+
+    /** Flying spears (plus any frozen in the corpse after a loss). */
+    val spears = ArrayList<Spear>()
+
+    /** Spears stuck in the walls, oldest first, capped at [MAX_WALL_SPEARS]. */
+    val wallSpears = ArrayList<Spear>()
+
+    val attackers = ArrayList<Attacker>()
+
+    // "bool2" wall room claims -- intentionally never cleared during a run.
+    private val roomTop = BooleanArray(COLS)
+    private val roomBottom = BooleanArray(COLS)
+    private val roomLeft = BooleanArray(ROWS)
+    private val roomRight = BooleanArray(ROWS)
+
+    var difficulty = Difficulty.MEDIUM
+    var speed = Speed.ORIGINAL
+
+    var phase = Phase.READY; private set
+    var score = 0; private set
+
+    /** Notified on every phase change (READY / PLAYING / PAUSED / LOST). */
+    var listener: ((Phase) -> Unit)? = null
+
+    private var stepCounter = 4         // original 'counter'
+    private var keyCommand = false      // original 'key_commad'
+    private var attackerCount = 60      // ticks until the next wave
+    private var attackerCountGoal = 60  // ramps 60 -> 19
+    private var cont3 = 0               // original 'timer_2_cont_to_3'
+
+    init {
+        reset()
+    }
+
+    // ------------------------------------------------------------- lifecycle
+
+    /** Original Form1.Reset(): fresh board, harp at (3,5), head at (10,6)
+     *  facing up, and the opening attacker on the right wall at row 6. */
+    fun reset() {
+        for (col in blocks) col.fill(EMPTY)
+        tail.clear()
+        spears.clear()
+        wallSpears.clear()
+        attackers.clear()
+        roomTop.fill(false); roomBottom.fill(false)
+        roomLeft.fill(false); roomRight.fill(false)
+
+        attackerCountGoal = 60
+        attackerCount = attackerCountGoal
+        stepCounter = 4
+        keyCommand = false
+        cont3 = 0
+        score = 0
+
+        harpX = 3; harpY = 5
+        harpAnim.frame = 0; harpAnim.frameUp = true
+        blocks[harpX][harpY] = HARP
+
+        headX = 10; headY = 6
+        headDir = UP
+        blocks[headX][headY] = HEAD
+
+        attackers.add(Attacker(RIGHT, 6))
+
+        setPhase(Phase.READY)
+    }
+
+    /** Original Space-key behavior: start / pause / resume / restart. */
+    fun tapAction() {
+        when (phase) {
+            Phase.LOST -> reset()
+            Phase.READY -> setPhase(Phase.PLAYING)
+            Phase.PLAYING -> setPhase(Phase.PAUSED)
+            Phase.PAUSED -> setPhase(Phase.PLAYING)
+        }
+    }
+
+    fun pauseIfPlaying() {
+        if (phase == Phase.PLAYING) setPhase(Phase.PAUSED)
+    }
+
+    private fun setPhase(p: Phase) {
+        phase = p
+        listener?.invoke(p)
+    }
+
+    // ----------------------------------------------------------------- input
+
+    /**
+     * Original Form1_KeyDown: ignore the current direction, block a reversal
+     * while there is a tail, flush any pending command as an immediate step,
+     * then arm keyCommand so the very next tick performs a step.
+     */
+    fun onSwipe(dir: Int) {
+        if (phase != Phase.PLAYING) return
+        if (dir == headDir) return
+        if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
+        if (keyCommand) {
+            step(true)
+            if (phase == Phase.LOST) return
+        }
+        headDir = dir
+        keyCommand = true
+    }
+
+    // ----------------------------------------------------------------- ticks
+
+    /** One base tick. Runs while PLAYING, and keeps running after a loss
+     *  (spears keep flying and attackers keep pelting the corpse). */
+    fun tick() {
+        if (phase != Phase.PLAYING && phase != Phase.LOST) return
+        movementTick()
+        attackerTick()
+    }
+
+    /** Original timer1 (110 ms): sparkle animation for the notes and harp. */
+    fun animTick() {
+        for (seg in tail) seg.toggleFrame()
+        harpAnim.toggleFrame()
+    }
+
+    /** Original movment_Tick(sender, e). */
+    private fun movementTick() {
+        if ((stepCounter <= 0 || keyCommand) && phase == Phase.PLAYING) {
+            val nx = nextX(headX, headDir)
+            val ny = nextY(headY, headDir)
+            // Wall grace: past the wall, the step is withheld until the
+            // counter sinks to -(3 - difficulty), giving a last-moment out.
+            if (inBounds(nx, ny) || stepCounter <= -(3 - difficulty.idx)) {
+                step(true)
+                stepCounter = 4
+            }
+        }
+        stepCounter--
+        moveSpears()
+    }
+
+    /** Original movment_Tick(bool delet_last): one snake step. */
+    private fun step(deleteLastIn: Boolean) {
+        keyCommand = false
+        if (phase == Phase.LOST) return
+        var deleteLast = deleteLastIn
+
+        val lastX = headX
+        val lastY = headY
+        blocks[headX][headY] = if (tail.isNotEmpty()) TAIL else EMPTY
+
+        headX = nextX(headX, headDir)
+        headY = nextY(headY, headDir)
+        if (!inBounds(headX, headY)) {
+            lose()
+            return
+        }
+        if (blocks[headX][headY] == HARP) {
+            deleteLast = false
+            score++
+            respawnHarp()
+        }
+        if (blocks[headX][headY] == TAIL) {
+            lose()
+            return
+        }
+        blocks[headX][headY] = HEAD
+
+        if (deleteLast) {
+            if (tail.isNotEmpty()) {
+                val last = tail.removeAt(tail.size - 1)
+                blocks[last.x][last.y] = EMPTY
+                val seg = Segment(lastX, lastY)
+                tail.add(0, seg)
+                if (tail.size > 1) {
+                    // The new neck segment inherits its neighbor's animation
+                    // frame, advanced once (original snake_tail[0] copy).
+                    seg.frame = tail[1].frame
+                    seg.frameUp = tail[1].frameUp
+                    seg.toggleFrame()
+                }
+            }
+        } else {
+            tail.add(0, Segment(lastX, lastY))
+            // The original leaves this cell marked EMPTY when the very first
+            // segment grows (it tests the tail length before inserting),
+            // briefly letting the harp respawn under the tail tip. Marking it
+            // TAIL here fixes that without changing anything else.
+            blocks[lastX][lastY] = TAIL
+        }
+    }
+
+    /** Original harp respawn: a free cell strictly farther than 4 from the
+     *  head. Guarded against the (near-impossible) full-board case. */
+    private fun respawnHarp() {
+        var attempts = 0
+        while (attempts < 5000) {
+            val x = rng.nextInt(COLS)
+            val y = rng.nextInt(ROWS)
+            val dx = (x - headX).toDouble()
+            val dy = (y - headY).toDouble()
+            if (blocks[x][y] == EMPTY && sqrt(dx * dx + dy * dy) > 4.0) {
+                harpX = x; harpY = y
+                blocks[x][y] = HARP
+                return
+            }
+            attempts++
+        }
+        // Fallback: any free cell at all.
+        for (x in 0 until COLS) {
+            for (y in 0 until ROWS) {
+                if (blocks[x][y] == EMPTY) {
+                    harpX = x; harpY = y
+                    blocks[x][y] = HARP
+                    return
+                }
+            }
+        }
+        harpX = -1; harpY = -1  // board is full -- nothing left to place
+    }
+
+    /** Original move_progectiles / figure.move_progectil. */
+    private fun moveSpears() {
+        var i = 0
+        while (i < spears.size) {
+            val s = spears[i]
+            var removed = false
+            if (blocks[s.x][s.y] != HEAD) {
+                s.x = nextX(s.x, s.dir)
+                s.y = nextY(s.y, s.dir)
+                if (blocks[s.x][s.y] == HEAD && phase != Phase.LOST) lose()
+                if (!inBounds(nextX(s.x, s.dir), nextY(s.y, s.dir))) {
+                    stickSpear(s)
+                    spears.removeAt(i)
+                    removed = true
+                }
+            } else if (phase != Phase.LOST) {
+                lose()
+            }
+            // else: the spear sits frozen in the corpse cell, as in the
+            // original -- the fallen player slowly becomes a porcupine.
+            if (!removed) i++
+        }
+    }
+
+    private fun stickSpear(s: Spear) {
+        s.stuck = true
+        if (wallSpears.size >= MAX_WALL_SPEARS) {
+            wallSpears.removeAt(0)
+        }
+        wallSpears.add(s)
+    }
+
+    /** Original timer2_Tick: wave scheduling + per-attacker state machine. */
+    private fun attackerTick() {
+        cont3 = if (cont3 < 3) cont3 + 1 else 0
+        if (attackerCount == 0) {
+            if (attackerCountGoal >= 20 && cont3 % (3 - difficulty.idx) == 0) {
+                attackerCountGoal--
+            }
+            attackerCount = attackerCountGoal
+            spawnWave(200 / attackerCountGoal - 2)
+        } else {
+            attackerCount--
+        }
+
+        var i = 0
+        while (i < attackers.size) {
+            val a = attackers[i]
+            var removed = false
+            if (a.count > 0) {
+                a.count--
+            } else {
+                if (!a.vanishing && !a.throwing) {
+                    a.throwing = true
+                    a.count = 10
+                } else if (!a.vanishing) {
+                    a.throwing = false
+                    a.vanishing = true
+                    a.count = attackerCountGoal
+                    spears.add(spearFrom(a))
+                } else {
+                    attackers.removeAt(i)
+                    removed = true
+                }
+            }
+            if (!removed) i++
+        }
+    }
+
+    /** Original attaker.To_fig(): the spear starts on the attacker's edge
+     *  cell, flying into the board. */
+    private fun spearFrom(a: Attacker): Spear = when (a.wall) {
+        UP -> Spear(a.pos, 0, DOWN)
+        RIGHT -> Spear(COLS - 1, a.pos, LEFT)
+        DOWN -> Spear(a.pos, ROWS - 1, UP)
+        else -> Spear(0, a.pos, RIGHT)
+    }
+
+    /** Original ceat_random_attakers: aim ahead of the player with jitter,
+     *  reflect to the far wall, claim a wall slot, avoid facing the wave's
+     *  first attacker head-on -- with the original's retry relaxations. */
+    private fun spawnWave(n: Int) {
+        var waveFirstWall = 10  // original dir_1 sentinel
+        for (round in 1..n) {
+            var wall = 0
+            var point = 0
+            if (attackers.size < MAX_ATTACKERS) {
+                var trys = 0
+                while (true) {
+                    wall = rng.nextInt(4)
+                    var aimX = nextX(headX, headDir)
+                    var aimY = nextY(headY, headDir)
+                    if (phase == Phase.LOST) {
+                        var inB = true
+                        if (headX <= -1) { aimX = 0; inB = false }
+                        if (headX >= COLS) { aimX = COLS - 1; inB = false }
+                        if (headY <= -1) { aimY = 0; inB = false }
+                        if (headY >= ROWS) { aimY = ROWS - 1; inB = false }
+                        if (inB) { aimX = headX; aimY = headY }
+                    }
+                    point = if (wall == UP || wall == DOWN) {
+                        if (headX != aimX) aimX + rng.nextInt(-1, 2) else aimX
+                    } else {
+                        if (headY != aimY) aimY + rng.nextInt(-1, 2) else aimY
+                    }
+                    if (trys >= 600) {
+                        point = 5
+                        wall = DOWN
+                    }
+                    if (isPointLegal(point, wall)) {
+                        if (phase != Phase.LOST) wall = reflectIfNeeded(wall)
+                        if ((!claimRoom(point, wall) && (wall + 2) % 4 != waveFirstWall) ||
+                            trys >= 30
+                        ) {
+                            if (round == 1) waveFirstWall = wall
+                            break
+                        }
+                    }
+                    trys++
+                }
+            }
+            attackers.add(Attacker(wall, point))
+        }
+    }
+
+    /** Original math.Reflect_dir_if_needed: if the player is in this wall's
+     *  half of the board, attack from the opposite wall instead. */
+    private fun reflectIfNeeded(wall: Int): Int = when (wall) {
+        UP -> {
+            var py = headY
+            if (headDir == UP) py--
+            if (py < ROWS / 2) DOWN else UP
+        }
+        RIGHT -> {
+            var px = headX
+            if (headDir == RIGHT) px++
+            if (px > COLS / 2) LEFT else RIGHT
+        }
+        DOWN -> {
+            var py = headY
+            if (headDir == DOWN) py++
+            if (py > ROWS / 2) UP else DOWN
+        }
+        LEFT -> {
+            var px = headX
+            if (headDir == LEFT) px--
+            if (px < COLS / 2) RIGHT else LEFT
+        }
+        else -> UP
+    }
+
+    /** Original is_attacker_room_tacken: claim-on-check, never released. */
+    private fun claimRoom(point: Int, wall: Int): Boolean {
+        val arr = when (wall) {
+            UP -> roomTop
+            RIGHT -> roomRight
+            DOWN -> roomBottom
+            else -> roomLeft
+        }
+        return if (arr[point]) {
+            true
+        } else {
+            arr[point] = true
+            false
+        }
+    }
+
+    private fun isPointLegal(point: Int, wall: Int): Boolean =
+        if (wall == UP || wall == DOWN) point in 0 until COLS
+        else point in 0 until ROWS
+
+    private fun lose() {
+        if (phase == Phase.LOST) return
+        // The original wipes the board bitmap on death; pre-death wall spears
+        // are never redrawn, so they vanish with the player.
+        wallSpears.clear()
+        setPhase(Phase.LOST)
+    }
+
+    // --------------------------------------------------------------- helpers
+
+    private fun nextX(x: Int, dir: Int): Int = when (dir) {
+        RIGHT -> x + 1
+        LEFT -> x - 1
+        else -> x
+    }
+
+    private fun nextY(y: Int, dir: Int): Int = when (dir) {
+        DOWN -> y + 1
+        UP -> y - 1
+        else -> y
+    }
+
+    private fun inBounds(x: Int, y: Int): Boolean =
+        x in 0 until COLS && y in 0 until ROWS
+}
