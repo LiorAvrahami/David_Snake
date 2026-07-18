@@ -50,7 +50,7 @@ class GameEngine(private val rng: Random = Random.Default) {
         const val TICK_MS = 45L             // mobile pace: 1.5x slower than the old Chill preset
     }
 
-    enum class Phase { READY, PLAYING, PAUSED, LOST }
+    enum class Phase { READY, PLAYING, LOST }
 
     /** idx matches the original get_dificolty() mapping (200/320/400 -> 0/1/2). */
     enum class Difficulty(val idx: Int) { EASY(0), MEDIUM(1), HARD(2) }
@@ -115,7 +115,7 @@ class GameEngine(private val rng: Random = Random.Default) {
     var phase = Phase.READY; private set
     var score = 0; private set
 
-    /** Notified on every phase change (READY / PLAYING / PAUSED / LOST). */
+    /** Notified on every phase change (READY / PLAYING / LOST). */
     var listener: ((Phase) -> Unit)? = null
 
     private var stepCounter = 4         // original 'counter'
@@ -161,18 +161,13 @@ class GameEngine(private val rng: Random = Random.Default) {
         setPhase(Phase.READY)
     }
 
-    /** Original Space-key behavior: start / pause / resume / restart. */
+    /** Tap: start on the title screen, retry after a loss. */
     fun tapAction() {
         when (phase) {
             Phase.LOST -> reset()
             Phase.READY -> setPhase(Phase.PLAYING)
-            Phase.PLAYING -> setPhase(Phase.PAUSED)
-            Phase.PAUSED -> setPhase(Phase.PLAYING)
+            Phase.PLAYING -> Unit  // no pause on mobile
         }
-    }
-
-    fun pauseIfPlaying() {
-        if (phase == Phase.PLAYING) setPhase(Phase.PAUSED)
     }
 
     private fun setPhase(p: Phase) {

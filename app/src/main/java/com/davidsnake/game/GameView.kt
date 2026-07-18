@@ -56,7 +56,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     // touch state
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val swipeThreshold = 42f * context.resources.displayMetrics.density
+    private val swipeThreshold = 22f * context.resources.displayMetrics.density
+    private val flickMin = touchSlop.toFloat()
     private var downX = 0f
     private var downY = 0f
     private var anchorX = 0f
@@ -170,12 +171,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 val dx = event.x - anchorX
                 val dy = event.y - anchorY
                 if (abs(dx) >= swipeThreshold || abs(dy) >= swipeThreshold) {
-                    val dir = if (abs(dx) > abs(dy)) {
-                        if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
-                    } else {
-                        if (dy > 0) GameEngine.DOWN else GameEngine.UP
-                    }
-                    engine.onSwipe(dir)
+                    engine.onSwipe(directionOf(dx, dy))
                     // re-anchor so a continued drag can chain zigzag turns
                     anchorX = event.x; anchorY = event.y
                     swiped = true
@@ -183,10 +179,16 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                val dx = event.x - downX
-                val dy = event.y - downY
-                if (!swiped && abs(dx) <= touchSlop * 2 && abs(dy) <= touchSlop * 2) {
-                    performClick()
+                if (!swiped) {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    if (abs(dx) > flickMin || abs(dy) > flickMin) {
+                        // Short flick: never crossed the drag threshold but is
+                        // clearly directional -- register it on lift.
+                        engine.onSwipe(directionOf(dx, dy))
+                    } else {
+                        performClick()
+                    }
                 }
                 return true
             }
@@ -196,9 +198,16 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     override fun performClick(): Boolean {
         super.performClick()
-        engine.tapAction()  // original Space key: start / pause / resume / retry
+        engine.tapAction()  // start on the title screen, retry after a loss
         return true
     }
+
+    private fun directionOf(dx: Float, dy: Float): Int =
+        if (abs(dx) > abs(dy)) {
+            if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
+        } else {
+            if (dy > 0) GameEngine.DOWN else GameEngine.UP
+        }
 }
 
 /** Loads the original 48px sprites and pre-rotates them like the WinForms build. */

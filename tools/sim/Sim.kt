@@ -122,19 +122,17 @@ fun main() {
         println("eat + reversal-block OK, harp respawned at (${e.harpX},${e.harpY})")
     }
 
-    // 6) Pause freezes the world.
+    // 6) Tap during play is a no-op (pause was removed for mobile).
     run {
         val e = GameEngine(Random(5))
         e.tapAction()
         repeat(7) { e.tick() }
         val hy = e.headY
-        e.tapAction() // pause
-        repeat(100) { e.tick() }
-        check(e.headY == hy && e.phase == GameEngine.Phase.PAUSED, "pause leaks ticks")
         e.tapAction()
+        check(e.phase == GameEngine.Phase.PLAYING, "tap changed phase mid-game")
         repeat(2) { e.tick() } // counter was mid-cycle at 1 -> step on 2nd tick
-        check(e.headY == hy - 1, "resume broken")
-        println("pause/resume OK")
+        check(e.headY == hy - 1, "game did not continue")
+        println("tap no-op OK")
     }
 
     // 7) Determinism: same seed + same script => identical outcome.

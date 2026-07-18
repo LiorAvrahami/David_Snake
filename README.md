@@ -26,7 +26,7 @@ straight over the old one — no uninstalling.
 ## How to play
 
 Swipe anywhere to steer — turns take effect instantly, and you can chain
-zigzags in one continuous drag. Tap to start, pause, resume, or retry.
+zigzags in one continuous drag. Tap to start, and to retry after a loss.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
 oldest falls out). When you're pressed against a wall you get a beat to

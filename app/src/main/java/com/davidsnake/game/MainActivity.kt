@@ -63,11 +63,6 @@ class MainActivity : Activity() {
         onPhase(gameView.engine.phase)
     }
 
-    override fun onPause() {
-        super.onPause()
-        gameView.engine.pauseIfPlaying()
-    }
-
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
@@ -134,11 +129,6 @@ class MainActivity : Activity() {
                 titleView.text = getString(R.string.app_name)
                 subtitleView.text =
                     getString(R.string.swipe_hint) + "\n" + getString(R.string.tap_to_start)
-            }
-            GameEngine.Phase.PAUSED -> {
-                panel.visibility = View.VISIBLE
-                titleView.text = getString(R.string.paused)
-                subtitleView.text = getString(R.string.resume_hint)
             }
             GameEngine.Phase.LOST -> {
                 val score = gameView.engine.score
