@@ -11,7 +11,7 @@ import kotlin.random.Random
  *  - one base tick ~= one WinForms timer tick (~16 ms at the original's
  *    default "speed molt" of 0.1, which floored both game timers to the
  *    ~15.6 ms system timer resolution)
- *  - the snake steps every 5th base tick ("counter" 4..0)
+ *  - the snake steps every 4th base tick (the "counter" cycle)
  *  - spears move 1 cell every base tick (5x snake speed)
  *  - attackers wind up 7 ticks, hold the throw pose for 10 ticks, then
  *    linger for `attackerCountGoal` ticks before vanishing
@@ -19,7 +19,11 @@ import kotlin.random.Random
  *    from 60 down to 19 and the wave size is (200 / goal - 2)
  *
  * Deliberately preserved quirks of the original:
- *  - a direction press performs an immediate extra step (snappy turns)
+ *  - a direction press performs an immediate step (snappy turns), but --
+ *    deviating from the original -- it is charged time-neutrally against
+ *    the step schedule so zigzag-mashing cannot raise the average speed,
+ *    and the input window between steps is strict: the first swipe moves,
+ *    the second only steers, anything further is disregarded
  *  - at a wall the snake presses against it for a small, difficulty-based
  *    grace window (easy 3 / medium 2 / hard 1 extra ticks) before dying
  *  - attackers aim one cell ahead of you with +/-1 jitter, and always
@@ -120,6 +124,7 @@ class GameEngine(private val rng: Random = Random.Default) {
 
     private var stepCounter = 4         // original 'counter'
     private var keyCommand = false      // original 'key_commad'
+    private var pendingDir = -1         // 2nd input of the window: steering only
     private var attackerCount = 60      // ticks until the next wave
     private var attackerCountGoal = 60  // ramps 60 -> 19
     private var cont3 = 0               // original 'timer_2_cont_to_3'
@@ -145,6 +150,7 @@ class GameEngine(private val rng: Random = Random.Default) {
         attackerCount = attackerCountGoal
         stepCounter = 4
         keyCommand = false
+        pendingDir = -1
         cont3 = 0
         score = 0
 
@@ -178,20 +184,34 @@ class GameEngine(private val rng: Random = Random.Default) {
     // ----------------------------------------------------------------- input
 
     /**
-     * Original Form1_KeyDown: ignore the current direction, block a reversal
-     * while there is a tail, flush any pending command as an immediate step,
-     * then arm keyCommand so the very next tick performs a step.
+     * The input window between executed steps is strict:
+     *  - the 1st swipe turns and arms an immediate (time-neutral) step
+     *  - the 2nd swipe only steers: it becomes the heading right after the
+     *    armed step lands, or redirects it if it is pinned against a wall
+     *  - anything further before the next step is disregarded
+     * Same-direction input never counts; reversals are blocked while there
+     * is a tail (checked when the steering input is actually applied).
      */
     fun onSwipe(dir: Int) {
         if (phase != Phase.PLAYING) return
         if (dir == headDir) return
-        if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
-        if (keyCommand) {
-            step(true)
-            if (phase == Phase.LOST) return
+        if (!keyCommand) {
+            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
+            headDir = dir
+            keyCommand = true
+        } else if (pendingDir < 0) {
+            pendingDir = dir
         }
-        headDir = dir
-        keyCommand = true
+        // else: window is full -- disregard
+    }
+
+    private fun applyPendingDir() {
+        val d = pendingDir
+        if (d < 0) return
+        pendingDir = -1
+        if (d != headDir && !(tail.isNotEmpty() && d == (headDir + 2) % 4)) {
+            headDir = d
+        }
     }
 
     // ----------------------------------------------------------------- ticks
@@ -219,7 +239,10 @@ class GameEngine(private val rng: Random = Random.Default) {
             // counter sinks to -(3 - difficulty), giving a last-moment out.
             if (inBounds(nx, ny) || stepCounter <= -(3 - difficulty.idx)) {
                 step(true)
-                stepCounter = 4
+            } else {
+                // The armed step is pinned at a wall: let the queued steering
+                // input redirect it instead of waiting out the grace window.
+                applyPendingDir()
             }
         }
         stepCounter--
@@ -230,6 +253,12 @@ class GameEngine(private val rng: Random = Random.Default) {
     private fun step(deleteLastIn: Boolean) {
         keyCommand = false
         if (phase == Phase.LOST) return
+        // Time-neutral stepping: an early (swipe-driven) step is charged
+        // against the schedule, so the following step waits out the ticks
+        // that were skipped. Turns stay instant; the average pace does not.
+        // The cap bounds how much debt frantic input can bank, so the worst
+        // post-mash stall is ~half a second rather than open-ended.
+        stepCounter = if (stepCounter > 0) minOf(stepCounter + 4, 12) else 4
         var deleteLast = deleteLastIn
 
         val lastX = headX
@@ -267,6 +296,7 @@ class GameEngine(private val rng: Random = Random.Default) {
                     seg.toggleFrame()
                 }
             }
+            applyPendingDir()
         } else {
             tail.add(0, Segment(lastX, lastY))
             // The original leaves this cell marked EMPTY when the very first
@@ -274,6 +304,7 @@ class GameEngine(private val rng: Random = Random.Default) {
             // briefly letting the harp respawn under the tail tip. Marking it
             // TAIL here fixes that without changing anything else.
             blocks[lastX][lastY] = TAIL
+            applyPendingDir()
         }
     }
 
