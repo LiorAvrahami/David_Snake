@@ -41,8 +41,9 @@ Plain Kotlin with zero dependencies: one Activity, a custom Canvas view,
 and all UI built in code (no layout XML). The game logic lives in
 `GameEngine.kt`, a line-faithful port of the original's `Form1.cs`,
 `figure.cs`, `attaker.cs` and `math.cs`, preserving its tick structure
-(the snake steps every 4th tick, spears move every tick, and swipe-turns
-execute immediately but time-neutrally) at a relaxed
+(the snake steps every 4th tick, spears move every tick, and a swipe
+rotates the head instantly while movement stays on the step schedule)
+at a relaxed
 mobile pace, locked to the original's hard difficulty, and its quirks —
 including the difficulty-scaled wall-grace window and the post-death spear
 rain. One genuine bug in the original was fixed (the harp could briefly
