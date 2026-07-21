@@ -67,51 +67,34 @@ fun main() {
         println("grace-window escape OK (head now at ${e.headX},${e.headY})")
     }
 
-    // 3) Swipe causes an immediate step on the very next tick.
+    // 3) A swipe rotates instantly; movement waits for the metronome.
     run {
         val e = GameEngine(Random(1))
         e.tapAction()
         e.onSwipe(GameEngine.RIGHT)
-        e.tick()
-        check(e.headX == 11 && e.headY == 6, "immediate step missing (${e.headX},${e.headY})")
-        println("immediate-step swipe OK")
+        check(e.headDir == GameEngine.RIGHT, "rotation not instant")
+        repeat(4) { e.tick() }
+        check(e.headX == 10 && e.headY == 6, "moved before the metronome (${e.headX},${e.headY})")
+        e.tick()  // t5: the scheduled step
+        check(e.headX == 11 && e.headY == 6, "scheduled step missing (${e.headX},${e.headY})")
+        println("instant rotation + metronome movement OK")
     }
 
-    // 3b) ...and it is time-neutral: the early step consumes the scheduled
-    //     one, so the next step lands exactly where the metronome says.
+    // 3b) No queue: the last swipe before a step decides its direction.
     run {
         val e = GameEngine(Random(1))
         e.tapAction()
-        repeat(2) { e.tick() }          // counter now mid-cycle at 2
         e.onSwipe(GameEngine.RIGHT)
-        e.tick()                        // early step fires at t3 (was due t5)
-        check(e.headX == 11, "early step missing")
-        repeat(5) { e.tick() }          // t4..t8: charged -- must not move
-        check(e.headX == 11, "time-neutral charge missing (moved early)")
-        e.tick()                        // t9: the metronome's next slot
-        check(e.headX == 12, "step late after charge")
-        println("time-neutral charge OK (early t3, next exactly t9)")
+        e.onSwipe(GameEngine.UP)
+        e.onSwipe(GameEngine.LEFT)
+        check(e.headDir == GameEngine.LEFT, "last swipe must win (dir=${e.headDir})")
+        repeat(5) { e.tick() }
+        check(e.headX == 9 && e.headY == 6, "step went wrong (${e.headX},${e.headY})")
+        println("no-queue steering OK (last swipe wins)")
     }
 
-    // 3c) Input window: 1st swipe steps instantly, 2nd only steers, 3rd is
-    //     disregarded until the armed step executes.
-    run {
-        val e = GameEngine(Random(1))
-        e.tapAction()
-        e.onSwipe(GameEngine.RIGHT)  // 1st: instant movement
-        e.onSwipe(GameEngine.UP)     // 2nd: steering only
-        e.onSwipe(GameEngine.LEFT)   // 3rd: must be ignored
-        e.tick()
-        check(e.headX == 11 && e.headY == 6, "armed step must land RIGHT (${e.headX},${e.headY})")
-        check(e.headDir == GameEngine.UP, "steering input not applied (dir=${e.headDir})")
-        repeat(7) { e.tick() }       // charged wait: no extra immediate step
-        check(e.headX == 11 && e.headY == 6, "steering must not add movement")
-        e.tick()                     // metronome slot
-        check(e.headY == 5, "metronome step went wrong (${e.headX},${e.headY})")
-        println("input window OK (move, steer, disregard)")
-    }
-
-    // 3d) A step armed into the wall can be rescued by the steering input.
+    // 3c) Aiming into the wall is survivable: the step is withheld by the
+    //     grace window and an instant rotation lets the next tick step out.
     run {
         val e = GameEngine(Random(1))
         e.tapAction()
@@ -119,15 +102,19 @@ fun main() {
         while (e.headY != 0 && t < 60) { e.tick(); t++ }
         check(e.phase == GameEngine.Phase.PLAYING, "died reaching the wall")
         e.onSwipe(GameEngine.LEFT)
-        e.tick()                     // now cruising along the top wall
+        var t2 = 0
+        val x0 = e.headX
+        while (e.headX == x0 && t2 < 10) { e.tick(); t2++ }  // wait out one step
         val x = e.headX
-        e.onSwipe(GameEngine.UP)     // 1st input: armed straight into the wall
-        e.tick()                     // withheld -- pinned
-        e.onSwipe(GameEngine.DOWN)   // 2nd input: redirect (legal, no tail)
-        repeat(2) { e.tick() }       // promote, then the armed step fires
+        e.onSwipe(GameEngine.UP)     // deliberately aimed at the wall
+        repeat(4) { e.tick() }       // step comes due and is withheld (grace)
+        check(e.phase == GameEngine.Phase.PLAYING && e.headY == 0,
+            "grace withhold failed (phase=${e.phase} y=${e.headY})")
+        e.onSwipe(GameEngine.DOWN)   // instant rotation away (no tail: legal)
+        e.tick()                     // the overdue step fires immediately
         check(e.phase == GameEngine.Phase.PLAYING && e.headY == 1 && e.headX == x,
-            "wall rescue failed (phase=${e.phase} ${e.headX},${e.headY})")
-        println("wall rescue via steering input OK")
+            "wall steer-away failed (phase=${e.phase} ${e.headX},${e.headY})")
+        println("wall grace steer-away OK")
     }
 
     // 4) Opening spear kills the head that lingers in row 6.

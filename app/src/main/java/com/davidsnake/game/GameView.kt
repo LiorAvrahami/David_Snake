@@ -13,6 +13,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.min
 
 /**
@@ -55,14 +56,18 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var tickAccMs = 0L
     private var animAccMs = 0L
 
-    // touch state
+    // touch state. Two thresholds: a deliberate drag must travel a solid
+    // distance before it registers (robust against wobble), while a short
+    // fast flick is caught on finger-up with a much smaller one.
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val swipeThreshold = 22f * context.resources.displayMetrics.density
+    private val swipeThreshold = 42f * context.resources.displayMetrics.density
     private val flickMin = touchSlop.toFloat()
     private var downX = 0f
     private var downY = 0f
     private var anchorX = 0f
     private var anchorY = 0f
+    private var lastX = 0f
+    private var lastY = 0f
     private var swiped = false
 
     override fun onAttachedToWindow() {
@@ -165,10 +170,26 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x; downY = event.y
                 anchorX = event.x; anchorY = event.y
+                lastX = event.x; lastY = event.y
                 swiped = false
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                // Elbow detection: if the finger's current motion bends away
+                // sharply (>60 degrees) from the drag so far, that is a new
+                // gesture -- measure it from the bend instead of averaging
+                // it into the old direction.
+                val segX = event.x - lastX
+                val segY = event.y - lastY
+                val accX = lastX - anchorX
+                val accY = lastY - anchorY
+                val segLen = hypot(segX, segY)
+                val accLen = hypot(accX, accY)
+                if (segLen >= flickMin && accLen >= flickMin &&
+                    segX * accX + segY * accY < 0.5f * segLen * accLen
+                ) {
+                    anchorX = lastX; anchorY = lastY
+                }
                 val dir = classifySwipe(event.x - anchorX, event.y - anchorY, swipeThreshold)
                 if (dir != NO_SWIPE) {
                     engine.onSwipe(dir)
@@ -178,13 +199,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     anchorX = event.x; anchorY = event.y
                     swiped = true
                 }
+                lastX = event.x; lastY = event.y
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 if (!swiped) {
                     // Short flick: never crossed the drag threshold but is
-                    // clearly directional -- register it on lift.
-                    val dir = classifySwipe(event.x - downX, event.y - downY, flickMin)
+                    // clearly directional -- register it on lift. Measured
+                    // from the last elbow so only the final leg counts.
+                    val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
                     if (dir != NO_SWIPE) engine.onSwipe(dir) else performClick()
                 }
                 return true
