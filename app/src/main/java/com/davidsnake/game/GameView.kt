@@ -69,6 +69,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private val density = context.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val fireDist = 12f * density        // gesture length to classify
+    private val confirmDist = 20f * density     // ...for successor gestures
     private val estDist = 10f * density         // freezes the established dir
     private val sampleDist = 6f * density       // polyline decimation step
     private val jitterEps = 3f * density        // below this is "in place"
@@ -90,6 +91,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var downX = 0f
     private var gOutcome = ""                   // what this gesture fired
     private var gAngleAtFire = 0                // angle when it fired
+    private var gRotLine = ""                   // rotation line, logged after
+    private var firstGesture = true             // no elbow/stop yet this touch
 
     // debug overlay (toggled by dragging across the top edge of the title
     // screen); tap the panel to copy the whole log to the clipboard
@@ -148,7 +151,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         canvas.drawColor(FIELD_COLOR)
         val scale = min(width / VIRTUAL_W, height / VIRTUAL_H)
         canvas.save()
-        canvas.translate((width - VIRTUAL_W * scale) / 2f, (height - VIRTUAL_H * scale) / 2f)
+        // Board shifted left by up to 20% of the screen so the right side
+        // stays vacant for gestures, without ever clipping the play area.
+        val ox = maxOf(0f, (width - VIRTUAL_W * scale) / 2f - width * 0.2f)
+        canvas.translate(ox, (height - VIRTUAL_H * scale) / 2f)
         canvas.scale(scale, scale)
 
         canvas.drawBitmap(sprites.background, 0f, 0f, bitmapPaint)
@@ -207,6 +213,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                firstGesture = true
                 newGesture(event.x, event.y)
                 stopRefX = event.x; stopRefY = event.y
                 lastProgressT = event.eventTime
@@ -224,6 +231,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (event.eventTime - lastProgressT >= stopMs) {
                         logGesture("stop", stopRefX, stopRefY)
                         newGesture(stopRefX, stopRefY)
+                        firstGesture = false
                     }
                     stopRefX = event.x; stopRefY = event.y
                     lastProgressT = event.eventTime
@@ -242,6 +250,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     ) {
                         logGesture("elbow", sampX, sampY)
                         newGesture(sampX, sampY)
+                        firstGesture = false
                     }
                     sampX = event.x; sampY = event.y
                 }
@@ -254,12 +263,13 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // One gesture, one direction change: after firing, the rest
                 // of this gesture is ignored until something ends it.
                 if (!spent && !topBand) {
-                    val dir = classifySwipe(gx, gy, fireDist)
+                    val need = if (firstGesture) fireDist else confirmDist
+                    val dir = classifySwipe(gx, gy, need)
                     if (dir != NO_SWIPE) {
                         gAngleAtFire = angleFromForward(gx, gy)
                         val pre = engine.headDir
                         val res = engine.onSwipe(dir)
-                        if (res == "turn") logRotation(pre, dir, deq = false)
+                        if (res == "turn") gRotLine = rotLine(pre, dir, deq = false)
                         gOutcome = dirName(dir) + resTag(res)
                         spent = true
                         swiped = true
@@ -284,13 +294,13 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
                 // (1) lift ends the gesture; a short directional flick that
                 // never reached the fire distance registers here.
-                if (!swiped && !topBand) {
+                if (!swiped && !topBand && firstGesture) {
                     val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
                     if (dir != NO_SWIPE) {
                         gAngleAtFire = angleFromForward(event.x - anchorX, event.y - anchorY)
                         val pre = engine.headDir
                         val res = engine.onSwipe(dir)
-                        if (res == "turn") logRotation(pre, dir, deq = false)
+                        if (res == "turn") gRotLine = rotLine(pre, dir, deq = false)
                         gOutcome = dirName(dir) + resTag(res)
                     } else if (gOutcome.isEmpty()) performClick()
                 }
@@ -308,6 +318,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         estSet = false
         spent = false
         gOutcome = ""
+        gRotLine = ""
     }
 
     /** Signed angle (degrees) of a vector relative to David's forward:
@@ -344,15 +355,20 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     }
 
     /** One line per physical rotation of the head: which way it turned,
-     *  the compass direction it now faces, and whether it was dequeued. */
-    private fun logRotation(from: Int, to: Int, deq: Boolean) {
-        if (!debugMode) return
+     *  the compass direction it now faces, and whether it was dequeued.
+     *  Instant rotations are emitted right AFTER their gesture's line. */
+    private fun rotLine(from: Int, to: Int, deq: Boolean): String {
         val word = when (to) {
             (from + 1) % 4 -> "turn right"
             (from + 3) % 4 -> "turn left"
             else -> "reverse"
         }
-        dlog("$word to ${compass(to)}" + if (deq) " (deq)" else "")
+        return "$word to ${compass(to)}" + if (deq) " (deq)" else ""
+    }
+
+    private fun logRotation(from: Int, to: Int, deq: Boolean) {
+        if (!debugMode) return
+        dlog(rotLine(from, to, deq))
     }
 
     /** One line per completed gesture: the reason it completed (elbow /
@@ -368,6 +384,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val a = if (gOutcome.isEmpty()) angleFromForward(gx, gy) else gAngleAtFire
         val sign = if (a >= 0) "+" else ""
         dlog("$reason $sign$a $len ${gOutcome.ifEmpty { "-" }}")
+        if (gRotLine.isNotEmpty()) {
+            dlog(gRotLine)
+            gRotLine = ""
+        }
     }
 
     private fun dirName(d: Int) = when (d) {
