@@ -10,12 +10,12 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.os.SystemClock
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.min
 
@@ -88,6 +88,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var lastProgressT = 0L
     private var topBand = false                 // debug-toggle drag tracking
     private var downX = 0f
+    private var gOutcome = ""                   // what this gesture fired
+    private var gAngleAtFire = 0                // angle when it fired
 
     // debug overlay (toggled by dragging across the top edge of the title
     // screen); tap the panel to copy the whole log to the clipboard
@@ -121,21 +123,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 tickAccMs += dtMs
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
-                    if (debugMode) {
-                        val px = engine.headX
-                        val py = engine.headY
-                        val pd = engine.headDir
-                        engine.tick()
-                        if (engine.headX != px || engine.headY != py) {
-                            val turn = if (engine.headDir != pd)
-                                " deq->" + dirName(engine.headDir) else ""
-                            dlog("step ${engine.headX},${engine.headY} ${dirName(pd)}$turn")
-                        } else if (engine.headDir != pd) {
-                            dlog("rescue ->${dirName(engine.headDir)}")
-                        }
-                    } else {
-                        engine.tick()
-                    }
+                    engine.tick()
                     tickAccMs -= tickMs
                 }
             } else {
@@ -230,7 +218,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // a while and then moves again, the dwell ended the gesture.
                 if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
                     if (event.eventTime - lastProgressT >= stopMs) {
-                        if (debugMode) dlog("stop ${event.eventTime - lastProgressT}ms")
+                        logGesture("S", stopRefX, stopRefY)
                         newGesture(stopRefX, stopRefY)
                     }
                     stopRefX = event.x; stopRefY = event.y
@@ -248,7 +236,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (estSet &&
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
-                        if (debugMode) dlog("elbow")
+                        logGesture("E", sampX, sampY)
                         newGesture(sampX, sampY)
                     }
                     sampX = event.x; sampY = event.y
@@ -261,42 +249,43 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
                 // One gesture, one direction change: after firing, the rest
                 // of this gesture is ignored until something ends it.
-                if (!spent) {
+                if (!spent && !topBand) {
                     val dir = classifySwipe(gx, gy, fireDist)
                     if (dir != NO_SWIPE) {
+                        gAngleAtFire = angleFromForward(gx, gy)
                         val res = engine.onSwipe(dir)
+                        gOutcome = dirName(dir) + resTag(res)
                         spent = true
                         swiped = true
-                        if (debugMode) dlog("fire ${dirName(dir)} -> $res")
                     }
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                // debug toggle: a drag along the top edge of the title
+                // debug toggle, any time: a drag along the top edge of the
                 // screen, spanning from one side (<10%) to the other (>90%)
-                if (engine.phase == GameEngine.Phase.READY && topBand &&
-                    event.y < height * 0.1f &&
+                if (topBand && event.y < height * 0.1f &&
                     minOf(downX, event.x) < width * 0.1f &&
                     maxOf(downX, event.x) > width * 0.9f
                 ) {
                     debugMode = !debugMode
-                    dlog(if (debugMode) "debug on" else "debug off")
+                    if (debugMode) dlog("on E/S/U ang len out")
                     return true
                 }
-                if (!swiped) {
-                    if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
-                        copyLog()
-                        return true
-                    }
-                    // (1) lift ends the gesture; a short directional flick
-                    // that never reached the fire distance registers here.
+                if (!swiped && debugMode && event.x >= panelLeft && event.y >= panelTop) {
+                    copyLog()
+                    return true
+                }
+                // (1) lift ends the gesture; a short directional flick that
+                // never reached the fire distance registers here.
+                if (!swiped && !topBand) {
                     val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
                     if (dir != NO_SWIPE) {
-                        val res = engine.onSwipe(dir)
-                        if (debugMode) dlog("flick ${dirName(dir)} -> $res")
-                    } else performClick()
+                        gAngleAtFire = angleFromForward(event.x - anchorX, event.y - anchorY)
+                        gOutcome = dirName(dir) + resTag(engine.onSwipe(dir))
+                    } else if (gOutcome.isEmpty()) performClick()
                 }
+                logGesture("U", event.x, event.y)
                 return true
             }
         }
@@ -309,6 +298,46 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         sampX = ax; sampY = ay
         estSet = false
         spent = false
+        gOutcome = ""
+    }
+
+    /** Signed angle (degrees) of a vector relative to David's forward:
+     *  positive is to his right, negative to his left, +-180 is backward. */
+    private fun angleFromForward(dx: Float, dy: Float): Int {
+        val fx: Float
+        val fy: Float
+        when (engine.headDir) {
+            GameEngine.RIGHT -> { fx = 1f; fy = 0f }
+            GameEngine.LEFT -> { fx = -1f; fy = 0f }
+            GameEngine.DOWN -> { fx = 0f; fy = 1f }
+            else -> { fx = 0f; fy = -1f }
+        }
+        val dot = fx * dx + fy * dy
+        val cross = fx * dy - fy * dx
+        return Math.toDegrees(atan2(cross.toDouble(), dot.toDouble())).toInt()
+    }
+
+    private fun resTag(res: String) = when (res) {
+        "turn" -> "!"     // rotated instantly
+        "queued" -> "q"   // took the queue slot
+        "rev-block" -> "x"// reversal blocked by the tail
+        "same" -> "="     // already that heading
+        else -> "."       // engine not playing
+    }
+
+    /** One line per completed gesture: reason (E elbow / S stop / U lift),
+     *  signed angle from forward, length in dp, and what it fired ("-" if
+     *  nothing). Fired gestures report the angle at the moment they fired,
+     *  since firing itself rotates the reference frame. */
+    private fun logGesture(reason: String, endX: Float, endY: Float) {
+        if (!debugMode) return
+        val gx = endX - anchorX
+        val gy = endY - anchorY
+        val len = (hypot(gx, gy) / density).toInt()
+        if (len < 3 && gOutcome.isEmpty()) return  // taps and touch noise
+        val a = if (gOutcome.isEmpty()) angleFromForward(gx, gy) else gAngleAtFire
+        val sign = if (a >= 0) "+" else ""
+        dlog("$reason $sign$a $len ${gOutcome.ifEmpty { "-" }}")
     }
 
     private fun dirName(d: Int) = when (d) {
@@ -320,16 +349,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     }
 
     private fun dlog(msg: String) {
-        val t = (SystemClock.uptimeMillis() / 100) % 10000  // tenths of a second
-        dbg.addLast("$t $msg")
+        dbg.addLast(msg)
         while (dbg.size > 300) dbg.removeFirst()
     }
 
     private fun drawDebugPanel(canvas: Canvas) {
-        dbgText.textSize = 11f * density
+        dbgText.textSize = 9f * density
         val lh = dbgText.textSize * 1.3f
         val shown = 12
-        val w = width * 0.40f
+        val w = width * 0.20f
         val h = lh * shown + lh * 0.6f
         panelLeft = width - w
         panelTop = height - h
