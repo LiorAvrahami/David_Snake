@@ -21,8 +21,8 @@ import kotlin.random.Random
  * Deliberately preserved quirks of the original:
  *  - deviating from the original's step-on-keypress: a turn intent only
  *    rotates the head instantly, movement happens strictly on the step
- *    schedule, and turns queue at depth two (one instant, one applied
- *    right after the next step; refinements never spend the queue)
+ *    schedule, and turns queue at depth two: one instant rotation per
+ *    movement (a hard rule), plus one queued turn applied at the step
  *  - at a wall the snake presses against it for a small, difficulty-based
  *    grace window (easy 3 / medium 2 / hard 1 extra ticks) before dying
  *  - attackers aim one cell ahead of you with +/-1 jitter, and always
@@ -183,32 +183,31 @@ class GameEngine(private val rng: Random = Random.Default) {
     // ----------------------------------------------------------------- input
 
     /**
-     * A turn intent rotates the head instantly; movement happens strictly
-     * on the step schedule. Turns queue at depth two: the first intent of
-     * an inter-step window turns the head at once, and a further NEW intent
-     * (an elbow in the gesture, or a fresh gesture) takes the single queue
-     * slot -- last one wins -- becoming the heading right after the next
-     * step lands. A non-new call only refines the most recent intent: the
-     * queued turn if one is waiting, otherwise the rotation this window
-     * already made. A straight drag therefore never spends the queue, and
-     * a new intent matching the current heading cancels a queued turn.
-     * Same-direction input is otherwise ignored and reversals are blocked
-     * while there is a tail (original rule), checked when a turn applies.
+     * HARD RULE: the head physically rotates at most once per movement.
+     * The first turn intent of an inter-step window rotates the head at
+     * once; every further intent before David moves goes to the single
+     * queue slot (last one wins) and becomes the heading right after the
+     * next step lands. The one documented exception is the wall rescue in
+     * movementTick, where the spent heading points out of bounds and the
+     * queued turn redirects it to break an otherwise fatal deadlock.
+     * Same-direction input is ignored and reversals are blocked while
+     * there is a tail (original rule), checked when a turn applies.
+     * Returns a short tag describing what happened, for the debug log.
      */
-    fun onSwipe(dir: Int, newIntent: Boolean = true) {
-        if (phase != Phase.PLAYING) return
+    fun onSwipe(dir: Int): String {
+        if (phase != Phase.PLAYING) return "off"
         if (!rotatedSinceStep) {
-            if (dir == headDir) return
-            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
+            if (dir == headDir) return "same"
+            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return "rev-block"
             headDir = dir
             rotatedSinceStep = true
-        } else if (newIntent || pendingDir >= 0) {
-            if (dir != headDir || pendingDir >= 0) pendingDir = dir
-        } else {
-            if (dir == headDir) return
-            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
-            headDir = dir
+            return "turn"
         }
+        if (dir != headDir) {
+            pendingDir = dir
+            return "queued"
+        }
+        return "same"
     }
 
     /** Promote the queued turn to the heading, if legal right now. */

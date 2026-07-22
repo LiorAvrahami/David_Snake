@@ -1,5 +1,7 @@
 package com.davidsnake.game
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -8,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
@@ -56,24 +59,47 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var tickAccMs = 0L
     private var animAccMs = 0L
 
-    // touch state. The gesture is a polyline sampled every few dp so drag
-    // speed does not matter; a sharp bend (elbow) starts a new segment.
-    // Each segment's average direction is classified against David's
-    // heading after a short fire distance, so small deliberate strokes
-    // register. A segment's first classification is a new turn intent; if
-    // its estimate later shifts, that only refines the same intent.
+    // touch state. Input is split into GESTURES; one gesture produces at
+    // most ONE direction change. A gesture ends (and a new one begins) on
+    // exactly three events: the finger lifting, the finger stopping in
+    // place, or a clear elbow in the trajectory. Elbows are measured on a
+    // speed-independent polyline against the gesture's ESTABLISHED
+    // direction (frozen from its first few dp), so a rounded thumb corner
+    // still reads as one clean bend.
     private val density = context.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val fireDist = 12f * density        // segment length to classify
+    private val fireDist = 12f * density        // gesture length to classify
+    private val estDist = 10f * density         // freezes the established dir
     private val sampleDist = 6f * density       // polyline decimation step
+    private val jitterEps = 3f * density        // below this is "in place"
+    private val stopMs = 150L                   // dwell that ends a gesture
     private val flickMin = touchSlop.toFloat()  // finger-up flick minimum
-    private var anchorX = 0f                    // segment start
+    private var anchorX = 0f                    // gesture start
     private var anchorY = 0f
     private var sampX = 0f                      // last polyline sample
     private var sampY = 0f
-    private var firedDir = NO_SWIPE             // classification sent so far
-    private var firedThisSegment = false
-    private var swiped = false
+    private var estX = 0f                       // established direction
+    private var estY = 0f
+    private var estSet = false
+    private var spent = false                   // this gesture already fired
+    private var swiped = false                  // anything fired this touch
+    private var stopRefX = 0f                   // stop-in-place watchdog
+    private var stopRefY = 0f
+    private var lastProgressT = 0L
+    private var topBand = false                 // debug-toggle drag tracking
+    private var downX = 0f
+
+    // debug overlay (toggled by dragging across the top edge of the title
+    // screen); tap the panel to copy the whole log to the clipboard
+    private var debugMode = false
+    private val dbg = ArrayDeque<String>()
+    private var panelLeft = 0f
+    private var panelTop = 0f
+    private val dbgBg = Paint().apply { color = Color.argb(170, 0, 0, 0) }
+    private val dbgText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(130, 255, 130)
+        typeface = Typeface.MONOSPACE
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -95,7 +121,21 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 tickAccMs += dtMs
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
-                    engine.tick()
+                    if (debugMode) {
+                        val px = engine.headX
+                        val py = engine.headY
+                        val pd = engine.headDir
+                        engine.tick()
+                        if (engine.headX != px || engine.headY != py) {
+                            val turn = if (engine.headDir != pd)
+                                " deq->" + dirName(engine.headDir) else ""
+                            dlog("step ${engine.headX},${engine.headY} ${dirName(pd)}$turn")
+                        } else if (engine.headDir != pd) {
+                            dlog("rescue ->${dirName(engine.headDir)}")
+                        }
+                    } else {
+                        engine.tick()
+                    }
                     tickAccMs -= tickMs
                 }
             } else {
@@ -145,6 +185,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             }
         }
         canvas.restore()
+
+        if (debugMode) drawDebugPanel(canvas)
     }
 
     private fun drawCellSprite(canvas: Canvas, bmp: Bitmap, cx: Int, cy: Int) {
@@ -173,52 +215,137 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                anchorX = event.x; anchorY = event.y
-                sampX = event.x; sampY = event.y
-                firedDir = NO_SWIPE
-                firedThisSegment = false
+                newGesture(event.x, event.y)
+                stopRefX = event.x; stopRefY = event.y
+                lastProgressT = event.eventTime
                 swiped = false
+                topBand = event.y < height * 0.1f
+                downX = event.x
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (event.y >= height * 0.1f) topBand = false
+
+                // (2) stop-in-place: if the finger made no real progress for
+                // a while and then moves again, the dwell ended the gesture.
+                if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
+                    if (event.eventTime - lastProgressT >= stopMs) {
+                        if (debugMode) dlog("stop ${event.eventTime - lastProgressT}ms")
+                        newGesture(stopRefX, stopRefY)
+                    }
+                    stopRefX = event.x; stopRefY = event.y
+                    lastProgressT = event.eventTime
+                }
+
+                // (3) elbow: on the decimated polyline, a stroke bending
+                // more than 60 degrees away from the gesture's established
+                // direction ends it -- the corner radius does not matter,
+                // because the reference direction is frozen, not a running
+                // average that drifts around the bend.
                 val mx = event.x - sampX
                 val my = event.y - sampY
                 if (hypot(mx, my) >= sampleDist) {
-                    // Elbow detection on the decimated polyline: if the
-                    // newest stroke bends away sharply (>60 degrees) from
-                    // the segment so far, a new segment starts at the bend
-                    // regardless of how fast the finger is moving.
-                    val ax = sampX - anchorX
-                    val ay = sampY - anchorY
-                    if (hypot(ax, ay) >= sampleDist &&
-                        mx * ax + my * ay < 0.5f * hypot(mx, my) * hypot(ax, ay)
+                    if (estSet &&
+                        mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
-                        anchorX = sampX; anchorY = sampY
-                        firedDir = NO_SWIPE
-                        firedThisSegment = false
+                        if (debugMode) dlog("elbow")
+                        newGesture(sampX, sampY)
                     }
                     sampX = event.x; sampY = event.y
                 }
-                val dir = classifySwipe(event.x - anchorX, event.y - anchorY, fireDist)
-                if (dir != NO_SWIPE && dir != firedDir) {
-                    engine.onSwipe(dir, newIntent = !firedThisSegment)
-                    firedDir = dir
-                    firedThisSegment = true
-                    swiped = true
+
+                val gx = event.x - anchorX
+                val gy = event.y - anchorY
+                if (!estSet && hypot(gx, gy) >= estDist) {
+                    estX = gx; estY = gy; estSet = true
+                }
+                // One gesture, one direction change: after firing, the rest
+                // of this gesture is ignored until something ends it.
+                if (!spent) {
+                    val dir = classifySwipe(gx, gy, fireDist)
+                    if (dir != NO_SWIPE) {
+                        val res = engine.onSwipe(dir)
+                        spent = true
+                        swiped = true
+                        if (debugMode) dlog("fire ${dirName(dir)} -> $res")
+                    }
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                // debug toggle: a drag along the top edge of the title
+                // screen, spanning from one side (<10%) to the other (>90%)
+                if (engine.phase == GameEngine.Phase.READY && topBand &&
+                    event.y < height * 0.1f &&
+                    minOf(downX, event.x) < width * 0.1f &&
+                    maxOf(downX, event.x) > width * 0.9f
+                ) {
+                    debugMode = !debugMode
+                    dlog(if (debugMode) "debug on" else "debug off")
+                    return true
+                }
                 if (!swiped) {
-                    // Short flick: too small to fire mid-drag but clearly
-                    // directional -- register it on lift.
+                    if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
+                        copyLog()
+                        return true
+                    }
+                    // (1) lift ends the gesture; a short directional flick
+                    // that never reached the fire distance registers here.
                     val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
-                    if (dir != NO_SWIPE) engine.onSwipe(dir) else performClick()
+                    if (dir != NO_SWIPE) {
+                        val res = engine.onSwipe(dir)
+                        if (debugMode) dlog("flick ${dirName(dir)} -> $res")
+                    } else performClick()
                 }
                 return true
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    /** Begin a fresh gesture at the given point (finger down / elbow / stop). */
+    private fun newGesture(ax: Float, ay: Float) {
+        anchorX = ax; anchorY = ay
+        sampX = ax; sampY = ay
+        estSet = false
+        spent = false
+    }
+
+    private fun dirName(d: Int) = when (d) {
+        GameEngine.UP -> "U"
+        GameEngine.DOWN -> "D"
+        GameEngine.LEFT -> "L"
+        GameEngine.RIGHT -> "R"
+        else -> "?"
+    }
+
+    private fun dlog(msg: String) {
+        val t = (SystemClock.uptimeMillis() / 100) % 10000  // tenths of a second
+        dbg.addLast("$t $msg")
+        while (dbg.size > 300) dbg.removeFirst()
+    }
+
+    private fun drawDebugPanel(canvas: Canvas) {
+        dbgText.textSize = 11f * density
+        val lh = dbgText.textSize * 1.3f
+        val shown = 12
+        val w = width * 0.40f
+        val h = lh * shown + lh * 0.6f
+        panelLeft = width - w
+        panelTop = height - h
+        canvas.drawRect(panelLeft, panelTop, width.toFloat(), height.toFloat(), dbgBg)
+        var y = panelTop + lh
+        val start = maxOf(0, dbg.size - shown)
+        for (i in start until dbg.size) {
+            canvas.drawText(dbg.elementAt(i), panelLeft + 6f * density, y, dbgText)
+            y += lh
+        }
+    }
+
+    private fun copyLog() {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("david-snake-debug", dbg.joinToString("\n")))
+        dlog("copied ${dbg.size} lines")
     }
 
     override fun performClick(): Boolean {

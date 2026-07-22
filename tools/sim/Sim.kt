@@ -118,37 +118,46 @@ fun main() {
         println("queued wall rescue OK")
     }
 
-    // 3b3) Refinement: a non-new intent updates the latest turn in place --
-    //      the rotation if nothing is queued, else the queue slot.
+    // 3b3) HARD RULE: once the head has rotated, it cannot physically
+    //      rotate again until David actually moves. The single documented
+    //      exception is the wall rescue, which only fires while the spent
+    //      heading points out of bounds.
     run {
-        val e = GameEngine(Random(1))
+        val e = GameEngine(Random(13))
         e.tapAction()
-        e.onSwipe(GameEngine.RIGHT)
-        e.onSwipe(GameEngine.UP, newIntent = false)    // refine the rotation
-        check(e.headDir == GameEngine.UP, "rotation not refined (dir=${e.headDir})")
-        repeat(5) { e.tick() }
-        check(e.headX == 10 && e.headY == 5, "refined step wrong (${e.headX},${e.headY})")
-
-        val f = GameEngine(Random(1))
-        f.tapAction()
-        f.onSwipe(GameEngine.RIGHT)                    // instant turn
-        f.onSwipe(GameEngine.DOWN)                     // elbow: queued
-        f.onSwipe(GameEngine.UP, newIntent = false)    // refine the queue slot
-        repeat(5) { f.tick() }
-        check(f.headX == 11 && f.headY == 6 && f.headDir == GameEngine.UP,
-            "queue not refined (${f.headX},${f.headY} dir=${f.headDir})")
-        repeat(4) { f.tick() }
-        check(f.headX == 11 && f.headY == 5, "refined queued step wrong (${f.headX},${f.headY})")
-
-        val g = GameEngine(Random(1))
-        g.tapAction()
-        g.onSwipe(GameEngine.RIGHT)                    // instant turn
-        g.onSwipe(GameEngine.DOWN)                     // elbow: queued
-        g.onSwipe(GameEngine.RIGHT)                    // new intent = current heading: cancel
-        repeat(5) { g.tick() }
-        check(g.headDir == GameEngine.RIGHT && g.headX == 11 && g.headY == 6,
-            "queued turn not cancelled (${g.headX},${g.headY} dir=${g.headDir})")
-        println("refinement OK (rotation, queue slot, cancel)")
+        val script = Random(7)
+        var ld = e.headDir
+        var rotations = 0
+        repeat(20000) {
+            repeat(script.nextInt(4)) {
+                e.onSwipe(script.nextInt(4))
+                if (e.headDir != ld) {
+                    rotations++
+                    ld = e.headDir
+                    check(rotations <= 1, "head rotated twice without moving (input)")
+                }
+            }
+            val px = e.headX
+            val py = e.headY
+            val pd = e.headDir
+            e.tick()
+            if (e.headX != px || e.headY != py) {
+                ld = e.headDir
+                rotations = 0
+            } else if (e.headDir != pd) {
+                val nx = px + when (pd) { GameEngine.RIGHT -> 1; GameEngine.LEFT -> -1; else -> 0 }
+                val ny = py + when (pd) { GameEngine.DOWN -> 1; GameEngine.UP -> -1; else -> 0 }
+                check(nx < 0 || nx >= 21 || ny < 0 || ny >= 13,
+                    "head rotated in a tick while not pinned at a wall")
+                ld = e.headDir
+            }
+            if (e.phase == GameEngine.Phase.LOST) {
+                e.tapAction(); e.tapAction()
+                ld = e.headDir
+                rotations = 0
+            }
+        }
+        println("rotation invariant OK (one rotation per movement; rescue only at walls)")
     }
 
     // 3c) Aiming into the wall is survivable: the step is withheld by the
