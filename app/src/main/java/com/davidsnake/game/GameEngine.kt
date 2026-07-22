@@ -121,6 +121,8 @@ class GameEngine(private val rng: Random = Random.Default) {
     var listener: ((Phase) -> Unit)? = null
 
     private var stepCounter = 4         // original 'counter'
+    private var rotatedSinceStep = false // the instant turn of this window is used
+    private var pendingDir = -1         // one queued turn, applied after the step
     private var attackerCount = 60      // ticks until the next wave
     private var attackerCountGoal = 60  // ramps 60 -> 19
     private var cont3 = 0               // original 'timer_2_cont_to_3'
@@ -145,6 +147,8 @@ class GameEngine(private val rng: Random = Random.Default) {
         attackerCountGoal = 60
         attackerCount = attackerCountGoal
         stepCounter = 4
+        rotatedSinceStep = false
+        pendingDir = -1
         cont3 = 0
         score = 0
 
@@ -179,15 +183,35 @@ class GameEngine(private val rng: Random = Random.Default) {
 
     /**
      * A swipe rotates the head instantly; movement happens strictly on the
-     * step schedule. There is no input queue: the last swipe before a step
-     * decides its direction. Same-direction input is ignored and reversals
-     * are blocked while there is a tail (original rule).
+     * step schedule. Turns are queued at depth two: the first swipe of an
+     * inter-step window turns the head at once, a further swipe is stored
+     * (last one wins the single slot) and becomes the heading right after
+     * the next step lands -- so a fast elbow gesture yields two turns, one
+     * now and one next step. Same-direction input is ignored and reversals
+     * are blocked while there is a tail (original rule), checked against
+     * the heading at the moment each turn actually applies.
      */
     fun onSwipe(dir: Int) {
         if (phase != Phase.PLAYING) return
-        if (dir == headDir) return
-        if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
-        headDir = dir
+        if (!rotatedSinceStep) {
+            if (dir == headDir) return
+            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
+            headDir = dir
+            rotatedSinceStep = true
+        } else if (dir != headDir) {
+            pendingDir = dir
+        }
+    }
+
+    /** Promote the queued turn to the heading, if legal right now. */
+    private fun promotePendingDir() {
+        val d = pendingDir
+        if (d < 0) return
+        pendingDir = -1
+        if (d != headDir && !(tail.isNotEmpty() && d == (headDir + 2) % 4)) {
+            headDir = d
+            rotatedSinceStep = true
+        }
     }
 
     // ----------------------------------------------------------------- ticks
@@ -209,8 +233,15 @@ class GameEngine(private val rng: Random = Random.Default) {
     /** Original movment_Tick(sender, e). */
     private fun movementTick() {
         if (stepCounter <= 0 && phase == Phase.PLAYING) {
-            val nx = nextX(headX, headDir)
-            val ny = nextY(headY, headDir)
+            var nx = nextX(headX, headDir)
+            var ny = nextY(headY, headDir)
+            if (!inBounds(nx, ny)) {
+                // Pinned at the wall: promote the queued turn before the
+                // grace verdict so a corrective gesture is never wasted.
+                promotePendingDir()
+                nx = nextX(headX, headDir)
+                ny = nextY(headY, headDir)
+            }
             // Wall grace: past the wall, the step is withheld until the
             // counter sinks to -(3 - difficulty), giving a last-moment out.
             // A swipe during the grace rotates the head instantly, so the
@@ -272,6 +303,11 @@ class GameEngine(private val rng: Random = Random.Default) {
             // TAIL here fixes that without changing anything else.
             blocks[lastX][lastY] = TAIL
         }
+
+        // A fresh inter-step window begins; the queued turn (if any) becomes
+        // the new heading now, one step after the instant turn.
+        rotatedSinceStep = false
+        promotePendingDir()
     }
 
     /** Original harp respawn: a free cell strictly farther than 4 from the

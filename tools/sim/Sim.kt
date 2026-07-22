@@ -80,17 +80,42 @@ fun main() {
         println("instant rotation + metronome movement OK")
     }
 
-    // 3b) No queue: the last swipe before a step decides its direction.
+    // 3b) Depth-two queue: the first swipe turns instantly, a further swipe
+    //     is queued (last one wins the slot) and applies right after the step.
     run {
         val e = GameEngine(Random(1))
         e.tapAction()
-        e.onSwipe(GameEngine.RIGHT)
-        e.onSwipe(GameEngine.UP)
+        e.onSwipe(GameEngine.RIGHT)  // instant turn
+        e.onSwipe(GameEngine.DOWN)   // queued...
+        e.onSwipe(GameEngine.UP)     // ...and overwritten (last wins)
+        check(e.headDir == GameEngine.RIGHT, "only the first swipe turns now (dir=${e.headDir})")
+        repeat(5) { e.tick() }       // the scheduled step lands
+        check(e.headX == 11 && e.headY == 6, "step went wrong (${e.headX},${e.headY})")
+        check(e.headDir == GameEngine.UP, "queued turn not applied (dir=${e.headDir})")
+        repeat(4) { e.tick() }       // next metronome step follows the queued turn
+        check(e.headX == 11 && e.headY == 5, "queued step went wrong (${e.headX},${e.headY})")
+        println("depth-two queue OK (instant turn, queued turn after the step)")
+    }
+
+    // 3b2) Aimed into the wall with the instant turn spent, the queued turn
+    //      rescues the head before the grace window runs out.
+    run {
+        val e = GameEngine(Random(1))
+        e.tapAction()
+        var t = 0
+        while (e.headY != 0 && t < 60) { e.tick(); t++ }
+        check(e.phase == GameEngine.Phase.PLAYING, "died reaching the wall")
         e.onSwipe(GameEngine.LEFT)
-        check(e.headDir == GameEngine.LEFT, "last swipe must win (dir=${e.headDir})")
-        repeat(5) { e.tick() }
-        check(e.headX == 9 && e.headY == 6, "step went wrong (${e.headX},${e.headY})")
-        println("no-queue steering OK (last swipe wins)")
+        var t2 = 0
+        val x0 = e.headX
+        while (e.headX == x0 && t2 < 10) { e.tick(); t2++ }  // cruise one step
+        val x = e.headX
+        e.onSwipe(GameEngine.UP)     // instant turn, straight into the wall
+        e.onSwipe(GameEngine.DOWN)   // queued rescue
+        repeat(5) { e.tick() }       // withheld step -> rescue -> step out
+        check(e.phase == GameEngine.Phase.PLAYING && e.headY == 1 && e.headX == x,
+            "queued wall rescue failed (phase=${e.phase} ${e.headX},${e.headY})")
+        println("queued wall rescue OK")
     }
 
     // 3c) Aiming into the wall is survivable: the step is withheld by the
