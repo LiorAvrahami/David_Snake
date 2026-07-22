@@ -123,7 +123,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 tickAccMs += dtMs
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
+                    val pd = engine.headDir
                     engine.tick()
+                    if (debugMode && engine.headDir != pd) {
+                        logRotation(pd, engine.headDir, deq = true)
+                    }
                     tickAccMs -= tickMs
                 }
             } else {
@@ -218,7 +222,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // a while and then moves again, the dwell ended the gesture.
                 if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
                     if (event.eventTime - lastProgressT >= stopMs) {
-                        logGesture("S", stopRefX, stopRefY)
+                        logGesture("stop", stopRefX, stopRefY)
                         newGesture(stopRefX, stopRefY)
                     }
                     stopRefX = event.x; stopRefY = event.y
@@ -236,7 +240,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (estSet &&
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
-                        logGesture("E", sampX, sampY)
+                        logGesture("elbow", sampX, sampY)
                         newGesture(sampX, sampY)
                     }
                     sampX = event.x; sampY = event.y
@@ -253,7 +257,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     val dir = classifySwipe(gx, gy, fireDist)
                     if (dir != NO_SWIPE) {
                         gAngleAtFire = angleFromForward(gx, gy)
+                        val pre = engine.headDir
                         val res = engine.onSwipe(dir)
+                        if (res == "turn") logRotation(pre, dir, deq = false)
                         gOutcome = dirName(dir) + resTag(res)
                         spent = true
                         swiped = true
@@ -269,7 +275,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     maxOf(downX, event.x) > width * 0.9f
                 ) {
                     debugMode = !debugMode
-                    if (debugMode) dlog("on E/S/U ang len out")
+                    if (debugMode) dlog("debug on")
                     return true
                 }
                 if (!swiped && debugMode && event.x >= panelLeft && event.y >= panelTop) {
@@ -282,10 +288,13 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
                     if (dir != NO_SWIPE) {
                         gAngleAtFire = angleFromForward(event.x - anchorX, event.y - anchorY)
-                        gOutcome = dirName(dir) + resTag(engine.onSwipe(dir))
+                        val pre = engine.headDir
+                        val res = engine.onSwipe(dir)
+                        if (res == "turn") logRotation(pre, dir, deq = false)
+                        gOutcome = dirName(dir) + resTag(res)
                     } else if (gOutcome.isEmpty()) performClick()
                 }
-                logGesture("U", event.x, event.y)
+                logGesture("lift", event.x, event.y)
                 return true
             }
         }
@@ -318,17 +327,38 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     }
 
     private fun resTag(res: String) = when (res) {
-        "turn" -> "!"     // rotated instantly
-        "queued" -> "q"   // took the queue slot
-        "rev-block" -> "x"// reversal blocked by the tail
-        "same" -> "="     // already that heading
-        else -> "."       // engine not playing
+        "turn" -> "!"      // rotated instantly
+        "queued" -> "q"    // took the queue slot
+        "rev-block" -> "x" // reversal blocked by the tail
+        "wall-block" -> "w"// turn faced the wall: disregarded
+        "tail-block" -> "t"// turn faced mid-tail: disregarded
+        "same" -> "="      // already that heading
+        else -> "."        // engine not playing
     }
 
-    /** One line per completed gesture: reason (E elbow / S stop / U lift),
-     *  signed angle from forward, length in dp, and what it fired ("-" if
-     *  nothing). Fired gestures report the angle at the moment they fired,
-     *  since firing itself rotates the reference frame. */
+    private fun compass(d: Int) = when (d) {
+        GameEngine.UP -> "north"
+        GameEngine.RIGHT -> "east"
+        GameEngine.DOWN -> "south"
+        else -> "west"
+    }
+
+    /** One line per physical rotation of the head: which way it turned,
+     *  the compass direction it now faces, and whether it was dequeued. */
+    private fun logRotation(from: Int, to: Int, deq: Boolean) {
+        if (!debugMode) return
+        val word = when (to) {
+            (from + 1) % 4 -> "turn right"
+            (from + 3) % 4 -> "turn left"
+            else -> "reverse"
+        }
+        dlog("$word to ${compass(to)}" + if (deq) " (deq)" else "")
+    }
+
+    /** One line per completed gesture: the reason it completed (elbow /
+     *  stop / lift), signed angle from forward, length in dp, and what it
+     *  fired ("-" if nothing). Fired gestures report the angle at the
+     *  moment they fired, since firing rotates the reference frame. */
     private fun logGesture(reason: String, endX: Float, endY: Float) {
         if (!debugMode) return
         val gx = endX - anchorX

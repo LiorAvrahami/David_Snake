@@ -21,8 +21,9 @@ import kotlin.random.Random
  * Deliberately preserved quirks of the original:
  *  - deviating from the original's step-on-keypress: a turn intent only
  *    rotates the head instantly, movement happens strictly on the step
- *    schedule, and turns queue at depth two: one instant rotation per
- *    movement (a hard rule), plus one queued turn applied at the step
+ *    schedule, turns queue at depth two (one instant rotation per
+ *    movement -- a hard rule -- plus one queued turn applied at the
+ *    step), and a turn can never aim at a wall or into the tail
  *  - at a wall the snake presses against it for a small, difficulty-based
  *    grace window (easy 3 / medium 2 / hard 1 extra ticks) before dying
  *  - attackers aim one cell ahead of you with +/-1 jitter, and always
@@ -183,22 +184,26 @@ class GameEngine(private val rng: Random = Random.Default) {
     // ----------------------------------------------------------------- input
 
     /**
-     * HARD RULE: the head physically rotates at most once per movement.
-     * The first turn intent of an inter-step window rotates the head at
-     * once; every further intent before David moves goes to the single
-     * queue slot (last one wins) and becomes the heading right after the
-     * next step lands. The one documented exception is the wall rescue in
-     * movementTick, where the spent heading points out of bounds and the
-     * queued turn redirects it to break an otherwise fatal deadlock.
-     * Same-direction input is ignored and reversals are blocked while
-     * there is a tail (original rule), checked when a turn applies.
-     * Returns a short tag describing what happened, for the debug log.
+     * HARD RULE: the head physically rotates at most once per movement,
+     * with no exceptions. The first turn intent of an inter-step window
+     * rotates the head at once; every further intent before David moves
+     * goes to the single queue slot (last one wins) and becomes the
+     * heading right after the next step lands. A turn that would face a
+     * wall or the snake's own tail -- except its last, vacating bit -- is
+     * disregarded, so a rotation can never aim at certain death; the same
+     * checks run again when a queued turn is promoted. Same-direction
+     * input is ignored and reversals are blocked while there is a tail
+     * (original rule). Returns a short tag for the debug log.
      */
     fun onSwipe(dir: Int): String {
         if (phase != Phase.PLAYING) return "off"
         if (!rotatedSinceStep) {
             if (dir == headDir) return "same"
             if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return "rev-block"
+            val nx = nextX(headX, dir)
+            val ny = nextY(headY, dir)
+            if (!inBounds(nx, ny)) return "wall-block"
+            if (isTailBlock(nx, ny)) return "tail-block"
             headDir = dir
             rotatedSinceStep = true
             return "turn"
@@ -210,12 +215,24 @@ class GameEngine(private val rng: Random = Random.Default) {
         return "same"
     }
 
+    /** A cell blocks a turn if it holds the tail, unless it is the very
+     *  last tail bit, which will have vacated by the time the step lands. */
+    private fun isTailBlock(nx: Int, ny: Int): Boolean {
+        if (blocks[nx][ny] != TAIL) return false
+        val last = tail.lastOrNull() ?: return true
+        return !(last.x == nx && last.y == ny)
+    }
+
     /** Promote the queued turn to the heading, if legal right now. */
     private fun promotePendingDir() {
         val d = pendingDir
         if (d < 0) return
         pendingDir = -1
-        if (d != headDir && !(tail.isNotEmpty() && d == (headDir + 2) % 4)) {
+        if (d != headDir &&
+            !(tail.isNotEmpty() && d == (headDir + 2) % 4) &&
+            inBounds(nextX(headX, d), nextY(headY, d)) &&
+            !isTailBlock(nextX(headX, d), nextY(headY, d))
+        ) {
             headDir = d
             rotatedSinceStep = true
         }
@@ -240,19 +257,13 @@ class GameEngine(private val rng: Random = Random.Default) {
     /** Original movment_Tick(sender, e). */
     private fun movementTick() {
         if (stepCounter <= 0 && phase == Phase.PLAYING) {
-            var nx = nextX(headX, headDir)
-            var ny = nextY(headY, headDir)
-            if (!inBounds(nx, ny)) {
-                // Pinned at the wall: promote the queued turn before the
-                // grace verdict so a corrective gesture is never wasted.
-                promotePendingDir()
-                nx = nextX(headX, headDir)
-                ny = nextY(headY, headDir)
-            }
+            val nx = nextX(headX, headDir)
+            val ny = nextY(headY, headDir)
             // Wall grace: past the wall, the step is withheld until the
             // counter sinks to -(3 - difficulty), giving a last-moment out.
-            // A swipe during the grace rotates the head instantly, so the
-            // next tick can still step out.
+            // Facing a wall by rotation is impossible, so this state only
+            // arises from travel and the instant rotation is always free
+            // to steer out of it.
             if (inBounds(nx, ny) || stepCounter <= -(3 - difficulty.idx)) {
                 step(true)
             }

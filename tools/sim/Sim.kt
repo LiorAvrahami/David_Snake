@@ -97,31 +97,29 @@ fun main() {
         println("depth-two queue OK (instant turn, queued turn after the step)")
     }
 
-    // 3b2) Aimed into the wall with the instant turn spent, the queued turn
-    //      rescues the head before the grace window runs out.
+    // 3b2) A rotation that would face the wall is disregarded outright.
     run {
         val e = GameEngine(Random(1))
         e.tapAction()
         var t = 0
         while (e.headY != 0 && t < 60) { e.tick(); t++ }
         check(e.phase == GameEngine.Phase.PLAYING, "died reaching the wall")
-        e.onSwipe(GameEngine.LEFT)
+        e.onSwipe(GameEngine.LEFT)          // steer out of the wall press
         var t2 = 0
         val x0 = e.headX
-        while (e.headX == x0 && t2 < 10) { e.tick(); t2++ }  // cruise one step
-        val x = e.headX
-        e.onSwipe(GameEngine.UP)     // instant turn, straight into the wall
-        e.onSwipe(GameEngine.DOWN)   // queued rescue
-        repeat(5) { e.tick() }       // withheld step -> rescue -> step out
-        check(e.phase == GameEngine.Phase.PLAYING && e.headY == 1 && e.headX == x,
-            "queued wall rescue failed (phase=${e.phase} ${e.headX},${e.headY})")
-        println("queued wall rescue OK")
+        while (e.headX == x0 && t2 < 10) { e.tick(); t2++ }
+        check(e.headDir == GameEngine.LEFT, "setup failed")
+        val r = e.onSwipe(GameEngine.UP)    // faces the top wall: ignored
+        check(r == "wall-block" && e.headDir == GameEngine.LEFT,
+            "wall turn not blocked (r=$r dir=${e.headDir})")
+        repeat(12) { e.tick() }
+        check(e.phase == GameEngine.Phase.PLAYING && e.headY == 0 && e.headX < x0,
+            "cruise along the wall broken (${e.headX},${e.headY})")
+        println("wall turn block OK")
     }
 
     // 3b3) HARD RULE: once the head has rotated, it cannot physically
-    //      rotate again until David actually moves. The single documented
-    //      exception is the wall rescue, which only fires while the spent
-    //      heading points out of bounds.
+    //      rotate again until David actually moves. No exceptions.
     run {
         val e = GameEngine(Random(13))
         e.tapAction()
@@ -144,12 +142,8 @@ fun main() {
             if (e.headX != px || e.headY != py) {
                 ld = e.headDir
                 rotations = 0
-            } else if (e.headDir != pd) {
-                val nx = px + when (pd) { GameEngine.RIGHT -> 1; GameEngine.LEFT -> -1; else -> 0 }
-                val ny = py + when (pd) { GameEngine.DOWN -> 1; GameEngine.UP -> -1; else -> 0 }
-                check(nx < 0 || nx >= 21 || ny < 0 || ny >= 13,
-                    "head rotated in a tick while not pinned at a wall")
-                ld = e.headDir
+            } else {
+                check(e.headDir == pd, "head rotated inside a tick without moving")
             }
             if (e.phase == GameEngine.Phase.LOST) {
                 e.tapAction(); e.tapAction()
@@ -157,31 +151,63 @@ fun main() {
                 rotations = 0
             }
         }
-        println("rotation invariant OK (one rotation per movement; rescue only at walls)")
+        println("rotation invariant OK (one rotation per movement, no exceptions)")
     }
 
-    // 3c) Aiming into the wall is survivable: the step is withheld by the
-    //     grace window and an instant rotation lets the next tick step out.
+    // 3c) A rotation that would face a mid-tail cell is disregarded; the
+    //     last, vacating tail bit does not block. Exercised by a
+    //     harp-seeking agent until the situation actually occurs.
     run {
-        val e = GameEngine(Random(1))
+        val e = GameEngine(Random(21))
         e.tapAction()
+        var blockedSeen = 0
+        var lastBitSeen = 0
         var t = 0
-        while (e.headY != 0 && t < 60) { e.tick(); t++ }
-        check(e.phase == GameEngine.Phase.PLAYING, "died reaching the wall")
-        e.onSwipe(GameEngine.LEFT)
-        var t2 = 0
-        val x0 = e.headX
-        while (e.headX == x0 && t2 < 10) { e.tick(); t2++ }  // wait out one step
-        val x = e.headX
-        e.onSwipe(GameEngine.UP)     // deliberately aimed at the wall
-        repeat(4) { e.tick() }       // step comes due and is withheld (grace)
-        check(e.phase == GameEngine.Phase.PLAYING && e.headY == 0,
-            "grace withhold failed (phase=${e.phase} y=${e.headY})")
-        e.onSwipe(GameEngine.DOWN)   // instant rotation away (no tail: legal)
-        e.tick()                     // the overdue step fires immediately
-        check(e.phase == GameEngine.Phase.PLAYING && e.headY == 1 && e.headX == x,
-            "wall steer-away failed (phase=${e.phase} ${e.headX},${e.headY})")
-        println("wall grace steer-away OK")
+        while (t < 300000 && blockedSeen < 5) {
+            if (e.phase == GameEngine.Phase.LOST) { e.tapAction(); e.tapAction() }
+            val px = e.headX
+            val py = e.headY
+            e.tick(); t++
+            val moved = e.headX != px || e.headY != py
+            if (!moved || e.phase != GameEngine.Phase.PLAYING) continue
+            // fresh window: probe any turn that faces the tail
+            if (e.tail.size >= 2) {
+                for (d in 0..3) {
+                    if (d == e.headDir) continue
+                    if (d == (e.headDir + 2) % 4) continue
+                    val nx = e.headX + when (d) { GameEngine.RIGHT -> 1; GameEngine.LEFT -> -1; else -> 0 }
+                    val ny = e.headY + when (d) { GameEngine.DOWN -> 1; GameEngine.UP -> -1; else -> 0 }
+                    val midTail = e.tail.dropLast(1).any { it.x == nx && it.y == ny }
+                    val last = e.tail.last()
+                    val isLast = last.x == nx && last.y == ny
+                    if (midTail) {
+                        val pd = e.headDir
+                        val r = e.onSwipe(d)
+                        check(r == "tail-block" && e.headDir == pd,
+                            "mid-tail turn not blocked (r=$r)")
+                        blockedSeen++
+                        break
+                    } else if (isLast) {
+                        val r = e.onSwipe(d)
+                        check(r == "turn" && e.headDir == d,
+                            "last-bit turn wrongly blocked (r=$r)")
+                        lastBitSeen++
+                        break
+                    }
+                }
+            }
+            // steer toward the harp along the larger delta axis
+            val dx = e.harpX - e.headX
+            val dy = e.harpY - e.headY
+            val want = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) {
+                if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
+            } else {
+                if (dy > 0) GameEngine.DOWN else GameEngine.UP
+            }
+            if (want != e.headDir) e.onSwipe(want)
+        }
+        check(blockedSeen >= 5, "mid-tail block never exercised (t=$t)")
+        println("tail turn block OK (mid-tail blocked x$blockedSeen, last bit allowed x$lastBitSeen, $t ticks)")
     }
 
     // 4) Opening spear kills the head that lingers in row 6.

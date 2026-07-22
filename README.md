@@ -46,7 +46,8 @@ and all UI built in code (no layout XML). The game logic lives in
 `figure.cs`, `attaker.cs` and `math.cs`, preserving its tick structure
 (the snake steps every 4th tick, spears move every tick, and a swipe
 rotates the head instantly while movement stays on the step schedule,
-with at most one physical rotation per movement plus one queued turn)
+with at most one physical rotation per movement plus one queued turn,
+and turns never aiming at a wall or into the tail)
 at a relaxed
 mobile pace, locked to the original's hard difficulty, and its quirks —
 including the difficulty-scaled wall-grace window and the post-death spear
