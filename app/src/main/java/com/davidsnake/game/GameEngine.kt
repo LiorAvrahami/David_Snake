@@ -125,6 +125,10 @@ class GameEngine(private val rng: Random = Random.Default) {
     private var stepCounter = 4         // original 'counter'
     private var rotatedSinceStep = false // the instant turn of this window is used
     private var pendingDir = -1         // one queued turn, applied after the step
+    private var pendingId = -1          // effect id of the queued turn
+    private var rotId = -1              // effect id of the live UNCOMMITTED rotation
+    private var rotPrevDir = 0          // heading to restore if it is canceled
+    private var effectSeq = 0           // effect id source
     private var attackerCount = 60      // ticks until the next wave
     private var attackerCountGoal = 60  // ramps 60 -> 19
     private var cont3 = 0               // original 'timer_2_cont_to_3'
@@ -151,6 +155,8 @@ class GameEngine(private val rng: Random = Random.Default) {
         stepCounter = 4
         rotatedSinceStep = false
         pendingDir = -1
+        pendingId = -1
+        rotId = -1
         cont3 = 0
         score = 0
 
@@ -193,26 +199,61 @@ class GameEngine(private val rng: Random = Random.Default) {
      * disregarded, so a rotation can never aim at certain death; the same
      * checks run again when a queued turn is promoted. Same-direction
      * input is ignored and reversals are blocked while there is a tail
-     * (original rule). Returns a short tag for the debug log.
+     * (original rule). Returns a tag for the debug log plus an effect id
+     * that can revoke the intent via cancelSwipe while it is uncommitted.
+     *
+     * CAUSALITY AND CANCELLATION: an accepted gesture's effect is either a
+     * queued turn or a rotation. It stays revocable until David actually
+     * moves BECAUSE OF it -- i.e. until a step is taken in its direction.
+     * A step taken while the effect still sits in the queue was caused by
+     * the old heading and does not commit it. Canceling a queued turn
+     * clears the slot; canceling an uncommitted rotation restores the
+     * previous heading and refunds the window's rotation, keeping the
+     * hard rule as "at most one NET rotation per movement".
      */
-    fun onSwipe(dir: Int): String {
-        if (phase != Phase.PLAYING) return "off"
+    fun onSwipe(dir: Int): SwipeResult {
+        if (phase != Phase.PLAYING) return SwipeResult("off", -1)
         if (!rotatedSinceStep) {
-            if (dir == headDir) return "same"
-            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return "rev-block"
+            if (dir == headDir) return SwipeResult("same", -1)
+            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return SwipeResult("rev-block", -1)
             val nx = nextX(headX, dir)
             val ny = nextY(headY, dir)
-            if (!inBounds(nx, ny)) return "wall-block"
-            if (isTailBlock(nx, ny)) return "tail-block"
+            if (!inBounds(nx, ny)) return SwipeResult("wall-block", -1)
+            if (isTailBlock(nx, ny)) return SwipeResult("tail-block", -1)
+            rotPrevDir = headDir
             headDir = dir
             rotatedSinceStep = true
-            return "turn"
+            rotId = ++effectSeq
+            return SwipeResult("turn", rotId)
         }
         if (dir != headDir) {
             pendingDir = dir
-            return "queued"
+            pendingId = ++effectSeq
+            return SwipeResult("queued", pendingId)
         }
-        return "same"
+        return SwipeResult("same", -1)
+    }
+
+    data class SwipeResult(val tag: String, val id: Int)
+
+    /** Revoke a gesture's effect if it has not yet caused a movement.
+     *  Returns "cancel-q" (queue slot cleared), "cancel-rot" (heading
+     *  restored, rotation refunded) or "stale" (already committed,
+     *  overwritten, or unknown). */
+    fun cancelSwipe(id: Int): String {
+        if (id < 0 || phase != Phase.PLAYING) return "stale"
+        if (id == pendingId && pendingDir >= 0) {
+            pendingDir = -1
+            pendingId = -1
+            return "cancel-q"
+        }
+        if (id == rotId) {
+            headDir = rotPrevDir
+            rotatedSinceStep = false
+            rotId = -1
+            return "cancel-rot"
+        }
+        return "stale"
     }
 
     /** A cell blocks a turn if it holds the tail, unless it is the very
@@ -226,15 +267,19 @@ class GameEngine(private val rng: Random = Random.Default) {
     /** Promote the queued turn to the heading, if legal right now. */
     private fun promotePendingDir() {
         val d = pendingDir
+        val pid = pendingId
         if (d < 0) return
         pendingDir = -1
+        pendingId = -1
         if (d != headDir &&
             !(tail.isNotEmpty() && d == (headDir + 2) % 4) &&
             inBounds(nextX(headX, d), nextY(headY, d)) &&
             !isTailBlock(nextX(headX, d), nextY(headY, d))
         ) {
+            rotPrevDir = headDir
             headDir = d
             rotatedSinceStep = true
+            rotId = pid  // the queued effect lives on as an uncommitted rotation
         }
     }
 
@@ -276,6 +321,7 @@ class GameEngine(private val rng: Random = Random.Default) {
     private fun step(deleteLastIn: Boolean) {
         if (phase == Phase.LOST) return
         stepCounter = 4
+        rotId = -1  // this step moves in headDir: its rotation is now committed
         var deleteLast = deleteLastIn
 
         val lastX = headX

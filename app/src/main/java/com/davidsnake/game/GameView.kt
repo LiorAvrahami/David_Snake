@@ -68,13 +68,13 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     // still reads as one clean bend.
     private val density = context.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val fireDist = 12f * density        // gesture length to classify
-    private val confirmDist = 20f * density     // ...for successor gestures
+    private val minFloor = 6f * density         // noise floor to classify at all
     private val estDist = 10f * density         // freezes the established dir
     private val sampleDist = 6f * density       // polyline decimation step
     private val jitterEps = 3f * density        // below this is "in place"
     private val stopMs = 150L                   // dwell that ends a gesture
-    private val flickMin = touchSlop.toFloat()  // finger-up flick minimum
+    private val fireThreshold = 0.30f           // score to act on a gesture
+    private val cancelThreshold = 0.25f         // final score below this revokes
     private var anchorX = 0f                    // gesture start
     private var anchorY = 0f
     private var sampX = 0f                      // last polyline sample
@@ -91,7 +91,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var downX = 0f
     private var gOutcome = ""                   // what this gesture fired
     private var gAngleAtFire = 0                // angle when it fired
+    private var gFiredDir = NO_SWIPE            // direction it fired
+    private var gId = -1                        // engine effect id, for cancel
+    private var gScore = 0f                     // latest score, for the log
     private var gRotLine = ""                   // rotation line, logged after
+    private var gCancel = ""                    // cancel line, logged after
     private var firstGesture = true             // no elbow/stop yet this touch
 
     // debug overlay (toggled by dragging across the top edge of the title
@@ -229,7 +233,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // a while and then moves again, the dwell ended the gesture.
                 if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
                     if (event.eventTime - lastProgressT >= stopMs) {
-                        logGesture("stop", stopRefX, stopRefY)
+                        endGesture("stop", stopRefX, stopRefY)
                         newGesture(stopRefX, stopRefY)
                         firstGesture = false
                     }
@@ -248,7 +252,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (estSet &&
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
-                        logGesture("elbow", sampX, sampY)
+                        endGesture("elbow", sampX, sampY)
                         newGesture(sampX, sampY)
                         firstGesture = false
                     }
@@ -263,16 +267,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // One gesture, one direction change: after firing, the rest
                 // of this gesture is ignored until something ends it.
                 if (!spent && !topBand) {
-                    val need = if (firstGesture) fireDist else confirmDist
-                    val dir = classifySwipe(gx, gy, need)
+                    val dir = classifySwipe(gx, gy, minFloor)
                     if (dir != NO_SWIPE) {
-                        gAngleAtFire = angleFromForward(gx, gy)
-                        val pre = engine.headDir
-                        val res = engine.onSwipe(dir)
-                        if (res == "turn") gRotLine = rotLine(pre, dir, deq = false)
-                        gOutcome = dirName(dir) + resTag(res)
-                        spent = true
-                        swiped = true
+                        val a = angleFromForward(gx, gy)
+                        val s = angleScore(a) * lengthScore(hypot(gx, gy) / density)
+                        if (s >= fireThreshold) fire(dir, a, s)
                     }
                 }
                 return true
@@ -288,23 +287,16 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (debugMode) dlog("debug on")
                     return true
                 }
-                if (!swiped && debugMode && event.x >= panelLeft && event.y >= panelTop) {
-                    copyLog()
-                    return true
+                // (1) the lift ends the gesture: full verdict, which may
+                // late-fire it or revoke its effect.
+                endGesture("lift", event.x, event.y)
+                if (!swiped) {
+                    if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
+                        copyLog()
+                        return true
+                    }
+                    performClick()
                 }
-                // (1) lift ends the gesture; a short directional flick that
-                // never reached the fire distance registers here.
-                if (!swiped && !topBand && firstGesture) {
-                    val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
-                    if (dir != NO_SWIPE) {
-                        gAngleAtFire = angleFromForward(event.x - anchorX, event.y - anchorY)
-                        val pre = engine.headDir
-                        val res = engine.onSwipe(dir)
-                        if (res == "turn") gRotLine = rotLine(pre, dir, deq = false)
-                        gOutcome = dirName(dir) + resTag(res)
-                    } else if (gOutcome.isEmpty()) performClick()
-                }
-                logGesture("lift", event.x, event.y)
                 return true
             }
         }
@@ -319,7 +311,79 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         spent = false
         gOutcome = ""
         gRotLine = ""
+        gCancel = ""
+        gFiredDir = NO_SWIPE
+        gId = -1
+        gScore = 0f
     }
+
+    /** Act on a gesture: rotate now or queue, and remember the effect id
+     *  so the ending verdict can still revoke it. */
+    private fun fire(dir: Int, angle: Int, score: Float) {
+        gAngleAtFire = angle
+        gScore = score
+        val pre = engine.headDir
+        val r = engine.onSwipe(dir)
+        if (r.tag == "turn") gRotLine = rotLine(pre, dir, deq = false)
+        gOutcome = dirName(dir) + resTag(r.tag)
+        gFiredDir = dir
+        gId = r.id
+        spent = true
+        swiped = true
+    }
+
+    /**
+     * Final verdict for a completed gesture, now that its ending is known:
+     *  - if it never fired, this is its last chance (late-fire), with the
+     *    ending factored into the score;
+     *  - if it fired, re-score it; a score that sank below the cancel
+     *    threshold revokes its effect -- but only while the engine still
+     *    holds it uncommitted (no movement was caused by it yet).
+     * Then its line (plus rotation / cancel lines) goes to the log.
+     */
+    private fun endGesture(reason: String, endX: Float, endY: Float) {
+        val gx = endX - anchorX
+        val gy = endY - anchorY
+        val lenDp = hypot(gx, gy) / density
+        val ef = endFactor(reason)
+        if (gOutcome.isEmpty()) {
+            val a = angleFromForward(gx, gy)
+            gScore = angleScore(a) * lengthScore(lenDp) * ef
+            val dir = classifySwipe(gx, gy, minFloor)
+            if (dir != NO_SWIPE && !topBand && gScore >= fireThreshold) {
+                fire(dir, a, gScore)
+            }
+        } else {
+            gScore = angleScore(gAngleAtFire) * lengthScore(lenDp) * ef
+            if (gScore < cancelThreshold && gId >= 0) {
+                val c = engine.cancelSwipe(gId)
+                if (c != "stale") {
+                    gCancel = "cancel ${dirName(gFiredDir)} (" +
+                        (if (c == "cancel-q") "q" else "rot") + ")"
+                }
+            }
+        }
+        logGesture(reason, endX, endY)
+    }
+
+    /** Confidence that the angle meant a turn or reversal: its distance
+     *  from the classification boundaries (30 and 150 degrees from
+     *  forward), saturating 30 degrees away. Ambiguity costs points, not
+     *  obliqueness -- a 180 gesture is a perfectly clear reversal. */
+    private fun angleScore(aDeg: Int): Float {
+        val a = kotlin.math.abs(aDeg).toFloat()
+        val d = if (a > 150f) a - 150f else minOf(a - 30f, 150f - a)
+        return (d / 30f).coerceIn(0f, 1f)
+    }
+
+    /** Saturating length confidence: 8dp scores .50, 24dp .75. More length
+     *  is never evidence against. */
+    private fun lengthScore(lenDp: Float) = lenDp / (lenDp + 8f)
+
+    /** A lift ending a successor gesture is the delicate case: liftoff
+     *  flicks fake a direction, so the score is discounted there. */
+    private fun endFactor(reason: String) =
+        if (reason == "lift" && !firstGesture) 0.6f else 1f
 
     /** Signed angle (degrees) of a vector relative to David's forward:
      *  positive is to his right, negative to his left, +-180 is backward. */
@@ -383,10 +447,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (len < 3 && gOutcome.isEmpty()) return  // taps and touch noise
         val a = if (gOutcome.isEmpty()) angleFromForward(gx, gy) else gAngleAtFire
         val sign = if (a >= 0) "+" else ""
-        dlog("$reason $sign$a $len ${gOutcome.ifEmpty { "-" }}")
+        val sc = ".%02d".format((gScore * 100).toInt().coerceIn(0, 99))
+        dlog("$reason $sign$a $len ${gOutcome.ifEmpty { "-" }} $sc")
         if (gRotLine.isNotEmpty()) {
             dlog(gRotLine)
             gRotLine = ""
+        }
+        if (gCancel.isNotEmpty()) {
+            dlog(gCancel)
+            gCancel = ""
         }
     }
 
