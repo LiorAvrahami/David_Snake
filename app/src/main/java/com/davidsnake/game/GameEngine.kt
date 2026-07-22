@@ -19,9 +19,10 @@ import kotlin.random.Random
  *    from 60 down to 19 and the wave size is (200 / goal - 2)
  *
  * Deliberately preserved quirks of the original:
- *  - deviating from the original's step-on-keypress: a swipe only rotates
- *    the head instantly, movement happens strictly on the step schedule,
- *    and the last swipe before a step decides its direction (no queue)
+ *  - deviating from the original's step-on-keypress: a turn intent only
+ *    rotates the head instantly, movement happens strictly on the step
+ *    schedule, and turns queue at depth two (one instant, one applied
+ *    right after the next step; refinements never spend the queue)
  *  - at a wall the snake presses against it for a small, difficulty-based
  *    grace window (easy 3 / medium 2 / hard 1 extra ticks) before dying
  *  - attackers aim one cell ahead of you with +/-1 jitter, and always
@@ -182,24 +183,31 @@ class GameEngine(private val rng: Random = Random.Default) {
     // ----------------------------------------------------------------- input
 
     /**
-     * A swipe rotates the head instantly; movement happens strictly on the
-     * step schedule. Turns are queued at depth two: the first swipe of an
-     * inter-step window turns the head at once, a further swipe is stored
-     * (last one wins the single slot) and becomes the heading right after
-     * the next step lands -- so a fast elbow gesture yields two turns, one
-     * now and one next step. Same-direction input is ignored and reversals
-     * are blocked while there is a tail (original rule), checked against
-     * the heading at the moment each turn actually applies.
+     * A turn intent rotates the head instantly; movement happens strictly
+     * on the step schedule. Turns queue at depth two: the first intent of
+     * an inter-step window turns the head at once, and a further NEW intent
+     * (an elbow in the gesture, or a fresh gesture) takes the single queue
+     * slot -- last one wins -- becoming the heading right after the next
+     * step lands. A non-new call only refines the most recent intent: the
+     * queued turn if one is waiting, otherwise the rotation this window
+     * already made. A straight drag therefore never spends the queue, and
+     * a new intent matching the current heading cancels a queued turn.
+     * Same-direction input is otherwise ignored and reversals are blocked
+     * while there is a tail (original rule), checked when a turn applies.
      */
-    fun onSwipe(dir: Int) {
+    fun onSwipe(dir: Int, newIntent: Boolean = true) {
         if (phase != Phase.PLAYING) return
         if (!rotatedSinceStep) {
             if (dir == headDir) return
             if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
             headDir = dir
             rotatedSinceStep = true
-        } else if (dir != headDir) {
-            pendingDir = dir
+        } else if (newIntent || pendingDir >= 0) {
+            if (dir != headDir || pendingDir >= 0) pendingDir = dir
+        } else {
+            if (dir == headDir) return
+            if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return
+            headDir = dir
         }
     }
 

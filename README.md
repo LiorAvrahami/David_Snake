@@ -25,8 +25,10 @@ straight over the old one — no uninstalling.
 
 ## How to play
 
-Swipe anywhere to steer — turns take effect instantly, and you can chain
-zigzags in one continuous drag. Tap to start, and to retry after a loss.
+Swipe anywhere to steer — the first stroke turns David instantly, and a
+bend in the gesture queues one more turn for right after his next step,
+so you can carve zigzags in one continuous drag. Tap to start, and to
+retry after a loss.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
 oldest falls out). When you're pressed against a wall you get a beat to
@@ -43,7 +45,7 @@ and all UI built in code (no layout XML). The game logic lives in
 `figure.cs`, `attaker.cs` and `math.cs`, preserving its tick structure
 (the snake steps every 4th tick, spears move every tick, and a swipe
 rotates the head instantly while movement stays on the step schedule,
-with one further turn queued for right after the next step)
+with one further turn queued only when the gesture actually bends)
 at a relaxed
 mobile pace, locked to the original's hard difficulty, and its quirks —
 including the difficulty-scaled wall-grace window and the post-death spear

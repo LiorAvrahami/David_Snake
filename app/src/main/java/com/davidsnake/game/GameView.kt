@@ -56,18 +56,23 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var tickAccMs = 0L
     private var animAccMs = 0L
 
-    // touch state. Two thresholds: a deliberate drag must travel a solid
-    // distance before it registers (robust against wobble), while a short
-    // fast flick is caught on finger-up with a much smaller one.
+    // touch state. The gesture is a polyline sampled every few dp so drag
+    // speed does not matter; a sharp bend (elbow) starts a new segment.
+    // Each segment's average direction is classified against David's
+    // heading after a short fire distance, so small deliberate strokes
+    // register. A segment's first classification is a new turn intent; if
+    // its estimate later shifts, that only refines the same intent.
+    private val density = context.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val swipeThreshold = 42f * context.resources.displayMetrics.density
-    private val flickMin = touchSlop.toFloat()
-    private var downX = 0f
-    private var downY = 0f
-    private var anchorX = 0f
+    private val fireDist = 12f * density        // segment length to classify
+    private val sampleDist = 6f * density       // polyline decimation step
+    private val flickMin = touchSlop.toFloat()  // finger-up flick minimum
+    private var anchorX = 0f                    // segment start
     private var anchorY = 0f
-    private var lastX = 0f
-    private var lastY = 0f
+    private var sampX = 0f                      // last polyline sample
+    private var sampY = 0f
+    private var firedDir = NO_SWIPE             // classification sent so far
+    private var firedThisSegment = false
     private var swiped = false
 
     override fun onAttachedToWindow() {
@@ -168,45 +173,45 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = event.x; downY = event.y
                 anchorX = event.x; anchorY = event.y
-                lastX = event.x; lastY = event.y
+                sampX = event.x; sampY = event.y
+                firedDir = NO_SWIPE
+                firedThisSegment = false
                 swiped = false
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                // Elbow detection: if the finger's current motion bends away
-                // sharply (>60 degrees) from the drag so far, that is a new
-                // gesture -- measure it from the bend instead of averaging
-                // it into the old direction.
-                val segX = event.x - lastX
-                val segY = event.y - lastY
-                val accX = lastX - anchorX
-                val accY = lastY - anchorY
-                val segLen = hypot(segX, segY)
-                val accLen = hypot(accX, accY)
-                if (segLen >= flickMin && accLen >= flickMin &&
-                    segX * accX + segY * accY < 0.5f * segLen * accLen
-                ) {
-                    anchorX = lastX; anchorY = lastY
+                val mx = event.x - sampX
+                val my = event.y - sampY
+                if (hypot(mx, my) >= sampleDist) {
+                    // Elbow detection on the decimated polyline: if the
+                    // newest stroke bends away sharply (>60 degrees) from
+                    // the segment so far, a new segment starts at the bend
+                    // regardless of how fast the finger is moving.
+                    val ax = sampX - anchorX
+                    val ay = sampY - anchorY
+                    if (hypot(ax, ay) >= sampleDist &&
+                        mx * ax + my * ay < 0.5f * hypot(mx, my) * hypot(ax, ay)
+                    ) {
+                        anchorX = sampX; anchorY = sampY
+                        firedDir = NO_SWIPE
+                        firedThisSegment = false
+                    }
+                    sampX = event.x; sampY = event.y
                 }
-                val dir = classifySwipe(event.x - anchorX, event.y - anchorY, swipeThreshold)
-                if (dir != NO_SWIPE) {
-                    engine.onSwipe(dir)
-                    // re-anchor so a continued drag can chain turns; the
-                    // heading has changed, so the rest of the same gesture is
-                    // measured against the new perpendicular axis
-                    anchorX = event.x; anchorY = event.y
+                val dir = classifySwipe(event.x - anchorX, event.y - anchorY, fireDist)
+                if (dir != NO_SWIPE && dir != firedDir) {
+                    engine.onSwipe(dir, newIntent = !firedThisSegment)
+                    firedDir = dir
+                    firedThisSegment = true
                     swiped = true
                 }
-                lastX = event.x; lastY = event.y
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 if (!swiped) {
-                    // Short flick: never crossed the drag threshold but is
-                    // clearly directional -- register it on lift. Measured
-                    // from the last elbow so only the final leg counts.
+                    // Short flick: too small to fire mid-drag but clearly
+                    // directional -- register it on lift.
                     val dir = classifySwipe(event.x - anchorX, event.y - anchorY, flickMin)
                     if (dir != NO_SWIPE) engine.onSwipe(dir) else performClick()
                 }
@@ -223,33 +228,29 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     }
 
     /**
-     * Interpret a gesture relative to David's heading. Only two turns are
-     * ever meaningful (left or right of travel), so the swipe component
-     * perpendicular to the heading decides -- a diagonal "back and a bit to
-     * the right" swipe still turns right. The along-heading component is used
-     * only when there is no meaningful perpendicular part; the engine ignores
-     * it except for the tailless reversal the original allowed.
+     * Estimate what the segment direction asks of David, relative to his
+     * heading. Within about 30 degrees of straight ahead: nothing to do.
+     * More than that off-axis: turn toward the perpendicular component
+     * (turn-biased, since diagonals almost always mean a turn). Within
+     * about 30 degrees of straight back: a reversal attempt, which the
+     * engine honors only while there is no tail (original rule).
      */
-    private fun classifySwipe(dx: Float, dy: Float, threshold: Float): Int {
+    private fun classifySwipe(dx: Float, dy: Float, minDist: Float): Int {
+        if (hypot(dx, dy) < minDist) return NO_SWIPE
         val horizontal =
             engine.headDir == GameEngine.LEFT || engine.headDir == GameEngine.RIGHT
         val perp = if (horizontal) dy else dx
         val para = if (horizontal) dx else dy
-        return if (abs(perp) >= threshold) {
-            if (horizontal) {
+        if (abs(perp) >= 0.577f * abs(para)) {
+            return if (horizontal) {
                 if (perp > 0) GameEngine.DOWN else GameEngine.UP
             } else {
                 if (perp > 0) GameEngine.RIGHT else GameEngine.LEFT
             }
-        } else if (abs(para) >= threshold) {
-            if (horizontal) {
-                if (para > 0) GameEngine.RIGHT else GameEngine.LEFT
-            } else {
-                if (para > 0) GameEngine.DOWN else GameEngine.UP
-            }
-        } else {
-            NO_SWIPE
         }
+        val forward =
+            engine.headDir == GameEngine.RIGHT || engine.headDir == GameEngine.DOWN
+        return if ((para > 0) != forward) (engine.headDir + 2) % 4 else NO_SWIPE
     }
 }
 

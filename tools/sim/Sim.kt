@@ -118,6 +118,39 @@ fun main() {
         println("queued wall rescue OK")
     }
 
+    // 3b3) Refinement: a non-new intent updates the latest turn in place --
+    //      the rotation if nothing is queued, else the queue slot.
+    run {
+        val e = GameEngine(Random(1))
+        e.tapAction()
+        e.onSwipe(GameEngine.RIGHT)
+        e.onSwipe(GameEngine.UP, newIntent = false)    // refine the rotation
+        check(e.headDir == GameEngine.UP, "rotation not refined (dir=${e.headDir})")
+        repeat(5) { e.tick() }
+        check(e.headX == 10 && e.headY == 5, "refined step wrong (${e.headX},${e.headY})")
+
+        val f = GameEngine(Random(1))
+        f.tapAction()
+        f.onSwipe(GameEngine.RIGHT)                    // instant turn
+        f.onSwipe(GameEngine.DOWN)                     // elbow: queued
+        f.onSwipe(GameEngine.UP, newIntent = false)    // refine the queue slot
+        repeat(5) { f.tick() }
+        check(f.headX == 11 && f.headY == 6 && f.headDir == GameEngine.UP,
+            "queue not refined (${f.headX},${f.headY} dir=${f.headDir})")
+        repeat(4) { f.tick() }
+        check(f.headX == 11 && f.headY == 5, "refined queued step wrong (${f.headX},${f.headY})")
+
+        val g = GameEngine(Random(1))
+        g.tapAction()
+        g.onSwipe(GameEngine.RIGHT)                    // instant turn
+        g.onSwipe(GameEngine.DOWN)                     // elbow: queued
+        g.onSwipe(GameEngine.RIGHT)                    // new intent = current heading: cancel
+        repeat(5) { g.tick() }
+        check(g.headDir == GameEngine.RIGHT && g.headX == 11 && g.headY == 6,
+            "queued turn not cancelled (${g.headX},${g.headY} dir=${g.headDir})")
+        println("refinement OK (rotation, queue slot, cancel)")
+    }
+
     // 3c) Aiming into the wall is survivable: the step is withheld by the
     //     grace window and an instant rotation lets the next tick step out.
     run {
