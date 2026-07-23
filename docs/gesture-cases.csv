@@ -7,3 +7,6 @@ g005,"stop -99 61 L! .88",no
 g006,"stop +120° 9dp 0ms D! .54",no
 g007,"stop +71° 10dp 50ms U! .57","no (if anything left)"
 g008,"elbow +111° 34dp 30ms R! .81","no (if anything left)"
+g009,"stop -48° 7dp 267ms L! .28",no
+g010,"stop -21° 65dp 283ms - .00",no
+g011,"lift +148° 15dp 201ms - .02",no
