@@ -98,6 +98,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gCancel = ""                    // cancel line, logged after
     private var firstGesture = true             // no elbow/stop yet this touch
     private var gStartT = 0L                    // gesture start time (ms)
+    private var gFireT = 0L                     // when it was recognized
 
     // debug overlay (toggled by dragging across the top edge of the title
     // screen); tap the panel to copy the whole log to the clipboard
@@ -282,7 +283,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (dir != NO_SWIPE) {
                         val a = angleFromForward(gx, gy)
                         val s = angleScore(a) * lengthScore(hypot(gx, gy) / density)
-                        if (s >= fireThreshold) fire(dir, a, s)
+                        if (s >= fireThreshold) fire(dir, a, s, event.eventTime)
                     }
                 }
                 return true
@@ -326,13 +327,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         gFiredDir = NO_SWIPE
         gId = -1
         gScore = 0f
+        gFireT = 0L
     }
 
     /** Act on a gesture: rotate now or queue, and remember the effect id
      *  so the ending verdict can still revoke it. */
-    private fun fire(dir: Int, angle: Int, score: Float) {
+    private fun fire(dir: Int, angle: Int, score: Float, atT: Long) {
         gAngleAtFire = angle
         gScore = score
+        gFireT = atT
         val pre = engine.headDir
         val r = engine.onSwipe(dir)
         if (r.tag == "turn") gRotLine = rotLine(pre, dir, deq = false)
@@ -362,7 +365,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             gScore = angleScore(a) * lengthScore(lenDp) * ef
             val dir = classifySwipe(gx, gy, minFloor)
             if (dir != NO_SWIPE && !topBand && gScore >= fireThreshold) {
-                fire(dir, a, gScore)
+                fire(dir, a, gScore, endT)
             }
         } else {
             gScore = angleScore(gAngleAtFire) * lengthScore(lenDp) * ef
@@ -374,7 +377,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
             }
         }
-        logGesture(reason, endX, endY, endT - gStartT)
+        logGesture(reason, endX, endY, endT)
     }
 
     /** Confidence that the angle meant a turn or reversal: its distance
@@ -450,7 +453,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
      *  stop / lift), signed angle from forward, length in dp, and what it
      *  fired ("-" if nothing). Fired gestures report the angle at the
      *  moment they fired, since firing rotates the reference frame. */
-    private fun logGesture(reason: String, endX: Float, endY: Float, spanMs: Long) {
+    private fun logGesture(reason: String, endX: Float, endY: Float, endT: Long) {
         if (!debugMode) return
         val gx = endX - anchorX
         val gy = endY - anchorY
@@ -459,7 +462,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val a = if (gOutcome.isEmpty()) angleFromForward(gx, gy) else gAngleAtFire
         val sign = if (a >= 0) "+" else ""
         val sc = ".%02d".format((gScore * 100).toInt().coerceIn(0, 99))
-        dlog("$reason $sign$a $len ${spanMs.coerceAtLeast(0)}ms ${gOutcome.ifEmpty { "-" }} $sc")
+        // time from the gesture's start until it was recognized and applied
+        // (for gestures that never fired: until it ended)
+        val ms = ((if (gFireT > 0L) gFireT else endT) - gStartT).coerceAtLeast(0)
+        dlog("$reason $sign$a° ${len}dp ${ms}ms ${gOutcome.ifEmpty { "-" }} $sc")
         if (gRotLine.isNotEmpty()) {
             dlog(gRotLine)
             gRotLine = ""
