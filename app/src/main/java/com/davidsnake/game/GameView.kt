@@ -256,12 +256,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // a while and then moves again, the dwell ended the gesture.
                 if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
                     if (event.eventTime - lastProgressT >= stopMs) {
-                        // the gesture's motion ended when progress stopped
+                        // both gestures meet at the vertex (stop point,
+                        // time progress stopped): the old one ends there and
+                        // the new one starts there -- so the dwell belongs
+                        // to the start of the new gesture
                         endGesture("stop", stopRefX, stopRefY, lastProgressT)
-                        finalizeTraj()
+                        splitTraj(lastProgressT)
                         newGesture(stopRefX, stopRefY)
                         firstGesture = false
-                        gStartT = event.eventTime
+                        gStartT = lastProgressT
                         sampT = lastProgressT
                     }
                     stopRefX = event.x; stopRefY = event.y
@@ -280,7 +283,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
                         endGesture("elbow", sampX, sampY, sampT)
-                        finalizeTraj()
+                        splitTraj(sampT)
                         newGesture(sampX, sampY)
                         firstGesture = false
                         gStartT = sampT
@@ -535,6 +538,23 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             canvas.drawText(dbg.elementAt(i), panelLeft + 6f * density, y, dbgText)
             y += lh
         }
+    }
+
+    /** Split the trajectory at a boundary vertex: deltas recorded after the
+     *  vertex belong to the successor. The predecessor's part is finalized;
+     *  the successor's part becomes the start of the current trajectory, so
+     *  neither gesture holds data from the other's side of the vertex. */
+    private fun splitTraj(vertexT: Long) {
+        var k = curTraj.size
+        var tailDur = 0L
+        while (k > 0 && lastEvT - tailDur > vertexT) {
+            tailDur += curTraj[k - 1].first
+            k--
+        }
+        val tail = ArrayList(curTraj.subList(k, curTraj.size))
+        while (curTraj.size > k) curTraj.removeAt(curTraj.size - 1)
+        finalizeTraj()
+        curTraj.addAll(tail)
     }
 
     /** Move the finished gesture's trajectory into the last-3 ring; taps

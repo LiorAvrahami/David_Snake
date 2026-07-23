@@ -2,7 +2,8 @@
 #   <id>: (dt_ms,dx_dp,dy_dp) (dt_ms,dx_dp,dy_dp) ...
 # exactly as copied from the in-game debug panel.
 # g001-g005 predate trajectory capture and have none.
-# g006 was born at a boundary split: its logged 9dp length includes
+# g006 (recorded before the clean vertex split) was born at a boundary
+# split: its logged 9dp length includes
 # pre-birth movement recorded at the tail of the PREVIOUS gesture's
 # trajectory (boundary-born gestures inherit up to ~12dp this way).
 g006: (17,-0.6,1.2) (17,-0.7,0.7) (16,-0.7,0.5) (13,-0.3,0.1) (16,-0.4,0.1) (8,-0.2,0.1) (25,-0.2,0.3) (25,0.4,-0.2) (1,0.0,-0.0) (47,-0.6,0.2) (2,-0.0,0.0) (25,-0.2,-0.1) (42,0.0,-0.4) (24,-0.4,-0.1) (40,-0.6,-0.6) (10,-0.1,-0.1) (17,-0.2,-0.3)

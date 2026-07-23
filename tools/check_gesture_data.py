@@ -50,8 +50,8 @@ for gid, row in cases.items():
     speed = path / (T / 1000) if T > 0 else float("inf")
     print(f"{label}: disp={disp:.1f}dp path={path:.1f}dp T={T:.0f}ms avg={speed:.0f}dp/s")
     tol = max(4.0, 0.25 * length)
-    hard = max(12.0, 0.25 * length)  # boundary-born gestures inherit up to
-    # ~12dp of pre-birth movement that lives in the previous trajectory
+    hard = max(12.0, 0.25 * length)  # pre-clean-split cases: boundary-born
+    # gestures inherited up to ~12dp recorded in the previous trajectory
     if abs(disp - length) > hard:
         print(f"  MISMATCH: displacement {disp:.1f}dp vs logged {length}dp (tol {hard:.1f})")
         bad += 1
@@ -59,9 +59,9 @@ for gid, row in cases.items():
         print(f"  note: {abs(disp - length):.1f}dp short of logged length -- consistent"
               f" with a boundary-born gesture inheriting pre-birth movement")
     if ms is not None:
-        # boundary-born gestures carry up to ~250ms of pre-birth time in ms
-        # that is not in their own trajectory; stop-ended gestures carry a
-        # recorded dwell tail that is not in ms
+        # allowances for cases recorded before the clean vertex split
+        # (trajectories and clocks now split at the same boundary vertex,
+        # so new cases should not need them)
         slop = max(60, 0.3 * ms)
         if outcome == "-":
             if abs(T - ms) > slop + 250:
