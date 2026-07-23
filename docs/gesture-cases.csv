@@ -26,3 +26,6 @@ g024,"stop -160° 88dp 329ms - .11 p377",yes
 g025,"stop -74° 79dp 148ms L! .90 p535",yes
 g026,"elbow +90° 13dp 117ms - .00 p132",yes
 g027,"stop +176° 78dp 384ms - .21 p318",yes
+g028,"stop -100° 109dp 80ms L! .86 p429",yes
+g029,"elbow +111° 17dp 171ms - .02 p162",yes
+g030,"stop -175° 128dp 168ms - .00 p1132",yes
