@@ -79,6 +79,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var anchorY = 0f
     private var sampX = 0f                      // last polyline sample
     private var sampY = 0f
+    private var sampT = 0L                      // when that sample was set
     private var estX = 0f                       // established direction
     private var estY = 0f
     private var estSet = false
@@ -236,6 +237,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 firstGesture = true
                 newGesture(event.x, event.y)
                 gStartT = event.eventTime
+                sampT = event.eventTime
                 lastEvX = event.x
                 lastEvY = event.y
                 lastEvT = event.eventTime
@@ -260,6 +262,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         newGesture(stopRefX, stopRefY)
                         firstGesture = false
                         gStartT = event.eventTime
+                        sampT = lastProgressT
                     }
                     stopRefX = event.x; stopRefY = event.y
                     lastProgressT = event.eventTime
@@ -276,13 +279,14 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (estSet &&
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
-                        endGesture("elbow", sampX, sampY, event.eventTime)
+                        endGesture("elbow", sampX, sampY, sampT)
                         finalizeTraj()
                         newGesture(sampX, sampY)
                         firstGesture = false
-                        gStartT = event.eventTime
+                        gStartT = sampT
                     }
                     sampX = event.x; sampY = event.y
+                    sampT = event.eventTime
                 }
 
                 // record the raw per-event finger delta for the trajectory
