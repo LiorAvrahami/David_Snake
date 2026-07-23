@@ -102,6 +102,21 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gStartT = 0L                    // gesture start time (ms)
     private var gFireT = 0L                     // when it was recognized
 
+    // decisive-motion and momentum gates (values chosen from the labeled
+    // gesture dataset; see tools/eval_candidate.py)
+    private val speedLo = 250f                  // dp/s: no confidence below
+    private val speedHi = 500f                  // dp/s: full confidence above
+    private val launchLo = 250f
+    private val launchHi = 500f
+    private val peakWinMs = 80L                 // peak-speed window
+    private val launchAgeMs = 50L               // opening-speed span
+    private var gPeakSpeed = 0f                 // best windowed speed so far
+    private var gElbowBorn = false              // born at an elbow vertex
+    private var gLaunchFactor = 1f              // momentum discount
+    private var gLaunchSet = false              // frozen at 50ms of age
+    private var gFwdX = 0f                      // heading frame at fire time
+    private var gFwdY = -1f
+
     // raw finger trajectories (dp deltas per touch event) of the current
     // and the last 3 completed gestures; clipboard-only, never on screen
     private var lastEvX = 0f
@@ -289,6 +304,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         newGesture(sampX, sampY)
                         firstGesture = false
                         gStartT = sampT
+                        gElbowBorn = true
+                        recomputePeak()
                     }
                     sampX = event.x; sampY = event.y
                     sampT = event.eventTime
@@ -305,6 +322,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 lastEvX = event.x
                 lastEvY = event.y
                 lastEvT = event.eventTime
+                updatePeak()
 
                 if (engine.phase == GameEngine.Phase.PLAYING) gWasLive = true
 
@@ -319,7 +337,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     val dir = classifySwipe(gx, gy, minFloor)
                     if (dir != NO_SWIPE) {
                         val a = angleFromForward(gx, gy)
-                        val s = angleScore(a) * lengthScore(hypot(gx, gy) / density)
+                        val s = angleScore(a) *
+                            lengthScore(hypot(gx, gy) / density) *
+                            speedScore(gPeakSpeed) *
+                            launchFactor(gx / density, gy / density,
+                                event.eventTime - gStartT)
                         if (s >= fireThreshold) fire(dir, a, s, event.eventTime)
                     }
                 }
@@ -366,12 +388,18 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         gFiredDir = NO_SWIPE
         gId = -1
         gScore = 0f
+        gPeakSpeed = 0f
+        gElbowBorn = false
+        gLaunchFactor = 1f
+        gLaunchSet = false
         gFireT = 0L
     }
 
     /** Act on a gesture: rotate now or queue, and remember the effect id
      *  so the ending verdict can still revoke it. */
     private fun fire(dir: Int, angle: Int, score: Float, atT: Long) {
+        val f = forward()
+        gFwdX = f.first; gFwdY = f.second
         gAngleAtFire = angle
         gScore = score
         gFireT = atT
@@ -399,15 +427,20 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val gy = endY - anchorY
         val lenDp = hypot(gx, gy) / density
         val ef = endFactor(reason)
+        val sf = speedScore(gPeakSpeed)
+        val lf = launchFactor(gx / density, gy / density, endT - gStartT)
         if (gOutcome.isEmpty()) {
             val a = angleFromForward(gx, gy)
-            gScore = angleScore(a) * lengthScore(lenDp) * ef
+            gScore = angleScore(a) * lengthScore(lenDp) * ef * sf * lf
             val dir = classifySwipe(gx, gy, minFloor)
             if (dir != NO_SWIPE && !topBand && gScore >= fireThreshold) {
                 fire(dir, a, gScore, endT)
             }
         } else {
-            gScore = angleScore(gAngleAtFire) * lengthScore(lenDp) * ef
+            // full-information verdict: judge the final vector, not the
+            // snapshot the gesture happened to fire on
+            val aFinal = relAngle(gFwdX, gFwdY, gx, gy)
+            gScore = angleScore(aFinal) * lengthScore(lenDp) * ef * sf * lf
             if (gScore < cancelThreshold && gId >= 0) {
                 val c = engine.cancelSwipe(gId)
                 if (c != "stale") {
@@ -417,6 +450,69 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             }
         }
         if (gWasLive) logGesture(reason, endX, endY, endT)
+    }
+
+    /** Decisive-motion gate: no confidence below 250 dp/s of windowed
+     *  peak speed, full confidence above 500. Slow drifts and meanders
+     *  never contain a fast moment; commands do. */
+    private fun speedScore(peak: Float) =
+        ((peak - speedLo) / (speedHi - speedLo)).coerceIn(0f, 1f)
+
+    /** Momentum gate for elbow-born gestures: a successor that opens fast
+     *  inherited its speed through the vertex (follow-through of the
+     *  previous stroke); a fresh command launches from near rest. Frozen
+     *  once the gesture is 50ms old. */
+    private fun launchFactor(gxDp: Float, gyDp: Float, age: Long): Float {
+        if (!gElbowBorn) return 1f
+        if (!gLaunchSet && age >= launchAgeMs) {
+            gLaunchFactor = launchOf(hypot(gxDp, gyDp), age)
+            gLaunchSet = true
+        }
+        if (gLaunchSet) return gLaunchFactor
+        return if (age > 0) launchOf(hypot(gxDp, gyDp), age) else 1f
+    }
+
+    private fun launchOf(dispDp: Float, age: Long): Float {
+        val v = dispDp / (age / 1000f)
+        return ((launchHi - v) / (launchHi - launchLo)).coerceIn(0f, 1f)
+    }
+
+    /** Best displacement-over-span speed of any window of at least 80ms
+     *  (shorter only at the very head of the gesture) ending at a recorded
+     *  event. updatePeak folds in the newest event; recomputePeak rebuilds
+     *  after an elbow split carries a trajectory tail over. */
+    private fun updatePeak() {
+        var span = 0L
+        var dx = 0f
+        var dy = 0f
+        var i = curTraj.size - 1
+        while (i >= 0) {
+            span += curTraj[i].first
+            dx += curTraj[i].second
+            dy += curTraj[i].third
+            if (span >= peakWinMs) break
+            i--
+        }
+        if (span > 0) gPeakSpeed = maxOf(gPeakSpeed, hypot(dx, dy) / (span / 1000f))
+    }
+
+    private fun recomputePeak() {
+        gPeakSpeed = 0f
+        val n = curTraj.size
+        for (e in 0 until n) {
+            var span = 0L
+            var dx = 0f
+            var dy = 0f
+            var i = e
+            while (i >= 0) {
+                span += curTraj[i].first
+                dx += curTraj[i].second
+                dy += curTraj[i].third
+                if (span >= peakWinMs) break
+                i--
+            }
+            if (span > 0) gPeakSpeed = maxOf(gPeakSpeed, hypot(dx, dy) / (span / 1000f))
+        }
     }
 
     /** Confidence that the angle meant a turn or reversal: its distance
@@ -440,18 +536,22 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     /** Signed angle (degrees) of a vector relative to David's forward:
      *  positive is to his right, negative to his left, +-180 is backward. */
-    private fun angleFromForward(dx: Float, dy: Float): Int {
-        val fx: Float
-        val fy: Float
-        when (engine.headDir) {
-            GameEngine.RIGHT -> { fx = 1f; fy = 0f }
-            GameEngine.LEFT -> { fx = -1f; fy = 0f }
-            GameEngine.DOWN -> { fx = 0f; fy = 1f }
-            else -> { fx = 0f; fy = -1f }
-        }
+    private fun forward(): Pair<Float, Float> = when (engine.headDir) {
+        GameEngine.RIGHT -> Pair(1f, 0f)
+        GameEngine.LEFT -> Pair(-1f, 0f)
+        GameEngine.DOWN -> Pair(0f, 1f)
+        else -> Pair(0f, -1f)
+    }
+
+    private fun relAngle(fx: Float, fy: Float, dx: Float, dy: Float): Int {
         val dot = fx * dx + fy * dy
         val cross = fx * dy - fy * dx
         return Math.toDegrees(atan2(cross.toDouble(), dot.toDouble())).toInt()
+    }
+
+    private fun angleFromForward(dx: Float, dy: Float): Int {
+        val f = forward()
+        return relAngle(f.first, f.second, dx, dy)
     }
 
     private fun resTag(res: String) = when (res) {
@@ -504,7 +604,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         // time from the gesture's start until it was recognized and applied
         // (for gestures that never fired: until it ended)
         val ms = ((if (gFireT > 0L) gFireT else endT) - gStartT).coerceAtLeast(0)
-        dlog("$reason $sign$a° ${len}dp ${ms}ms ${gOutcome.ifEmpty { "-" }} $sc")
+        dlog("$reason $sign$a° ${len}dp ${ms}ms ${gOutcome.ifEmpty { "-" }} $sc p${gPeakSpeed.toInt()}")
         if (gRotLine.isNotEmpty()) {
             dlog(gRotLine)
             gRotLine = ""
