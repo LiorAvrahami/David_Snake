@@ -10,3 +10,6 @@ g008,"elbow +111° 34dp 30ms R! .81","no (if anything left)"
 g009,"stop -48° 7dp 267ms L! .28",no
 g010,"stop -21° 65dp 283ms - .00",no
 g011,"lift +148° 15dp 201ms - .02",no
+g012,"lift +80° 112dp 139ms L! .93",yes
+g013,"elbow -105° 103dp 46ms D! .92",yes
+g014,"lift +139° 109dp 115ms L! .20 cancel-rot",yes
