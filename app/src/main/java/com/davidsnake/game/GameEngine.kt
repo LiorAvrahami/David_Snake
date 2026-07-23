@@ -331,7 +331,7 @@ class GameEngine(private val rng: Random = Random.Default) {
         headX = nextX(headX, headDir)
         headY = nextY(headY, headDir)
         if (!inBounds(headX, headY)) {
-            lose()
+            lose("hit the wall")
             return
         }
         if (blocks[headX][headY] == HARP) {
@@ -340,7 +340,7 @@ class GameEngine(private val rng: Random = Random.Default) {
             respawnHarp()
         }
         if (blocks[headX][headY] == TAIL) {
-            lose()
+            lose("ran into the tail")
             return
         }
         blocks[headX][headY] = HEAD
@@ -412,14 +412,14 @@ class GameEngine(private val rng: Random = Random.Default) {
             if (blocks[s.x][s.y] != HEAD) {
                 s.x = nextX(s.x, s.dir)
                 s.y = nextY(s.y, s.dir)
-                if (blocks[s.x][s.y] == HEAD && phase != Phase.LOST) lose()
+                if (blocks[s.x][s.y] == HEAD && phase != Phase.LOST) lose("speared")
                 if (!inBounds(nextX(s.x, s.dir), nextY(s.y, s.dir))) {
                     stickSpear(s)
                     spears.removeAt(i)
                     removed = true
                 }
             } else if (phase != Phase.LOST) {
-                lose()
+                lose("speared")
             }
             // else: the spear sits frozen in the corpse cell, as in the
             // original -- the fallen player slowly becomes a porcupine.
@@ -574,8 +574,14 @@ class GameEngine(private val rng: Random = Random.Default) {
         if (wall == UP || wall == DOWN) point in 0 until COLS
         else point in 0 until ROWS
 
-    private fun lose() {
+    /** Why the last game ended ("hit the wall" / "ran into the tail" /
+     *  "speared"); empty while no game has been lost. */
+    var lostReason = ""
+        private set
+
+    private fun lose(reason: String) {
         if (phase == Phase.LOST) return
+        lostReason = reason
         // The original wipes the board bitmap on death; pre-death wall spears
         // are never redrawn, so they vanish with the player.
         wallSpears.clear()

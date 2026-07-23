@@ -97,6 +97,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gRotLine = ""                   // rotation line, logged after
     private var gCancel = ""                    // cancel line, logged after
     private var firstGesture = true             // no elbow/stop yet this touch
+    private var gStartT = 0L                    // gesture start time (ms)
 
     // debug overlay (toggled by dragging across the top edge of the title
     // screen); tap the panel to copy the whole log to the clipboard
@@ -131,9 +132,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
                     val pd = engine.headDir
+                    val pp = engine.phase
                     engine.tick()
                     if (debugMode && engine.headDir != pd) {
                         logRotation(pd, engine.headDir, deq = true)
+                    }
+                    if (debugMode && pp == GameEngine.Phase.PLAYING &&
+                        engine.phase == GameEngine.Phase.LOST
+                    ) {
+                        dlog("GAME END: ${engine.lostReason}")
                     }
                     tickAccMs -= tickMs
                 }
@@ -219,6 +226,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             MotionEvent.ACTION_DOWN -> {
                 firstGesture = true
                 newGesture(event.x, event.y)
+                gStartT = event.eventTime
                 stopRefX = event.x; stopRefY = event.y
                 lastProgressT = event.eventTime
                 swiped = false
@@ -233,9 +241,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // a while and then moves again, the dwell ended the gesture.
                 if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
                     if (event.eventTime - lastProgressT >= stopMs) {
-                        endGesture("stop", stopRefX, stopRefY)
+                        // the gesture's motion ended when progress stopped
+                        endGesture("stop", stopRefX, stopRefY, lastProgressT)
                         newGesture(stopRefX, stopRefY)
                         firstGesture = false
+                        gStartT = event.eventTime
                     }
                     stopRefX = event.x; stopRefY = event.y
                     lastProgressT = event.eventTime
@@ -252,9 +262,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (estSet &&
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
-                        endGesture("elbow", sampX, sampY)
+                        endGesture("elbow", sampX, sampY, event.eventTime)
                         newGesture(sampX, sampY)
                         firstGesture = false
+                        gStartT = event.eventTime
                     }
                     sampX = event.x; sampY = event.y
                 }
@@ -289,7 +300,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
                 // (1) the lift ends the gesture: full verdict, which may
                 // late-fire it or revoke its effect.
-                endGesture("lift", event.x, event.y)
+                endGesture("lift", event.x, event.y, event.eventTime)
                 if (!swiped) {
                     if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
                         copyLog()
@@ -341,7 +352,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
      *    holds it uncommitted (no movement was caused by it yet).
      * Then its line (plus rotation / cancel lines) goes to the log.
      */
-    private fun endGesture(reason: String, endX: Float, endY: Float) {
+    private fun endGesture(reason: String, endX: Float, endY: Float, endT: Long) {
         val gx = endX - anchorX
         val gy = endY - anchorY
         val lenDp = hypot(gx, gy) / density
@@ -363,7 +374,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
             }
         }
-        logGesture(reason, endX, endY)
+        logGesture(reason, endX, endY, endT - gStartT)
     }
 
     /** Confidence that the angle meant a turn or reversal: its distance
@@ -439,7 +450,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
      *  stop / lift), signed angle from forward, length in dp, and what it
      *  fired ("-" if nothing). Fired gestures report the angle at the
      *  moment they fired, since firing rotates the reference frame. */
-    private fun logGesture(reason: String, endX: Float, endY: Float) {
+    private fun logGesture(reason: String, endX: Float, endY: Float, spanMs: Long) {
         if (!debugMode) return
         val gx = endX - anchorX
         val gy = endY - anchorY
@@ -448,7 +459,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val a = if (gOutcome.isEmpty()) angleFromForward(gx, gy) else gAngleAtFire
         val sign = if (a >= 0) "+" else ""
         val sc = ".%02d".format((gScore * 100).toInt().coerceIn(0, 99))
-        dlog("$reason $sign$a $len ${gOutcome.ifEmpty { "-" }} $sc")
+        dlog("$reason $sign$a $len ${spanMs.coerceAtLeast(0)}ms ${gOutcome.ifEmpty { "-" }} $sc")
         if (gRotLine.isNotEmpty()) {
             dlog(gRotLine)
             gRotLine = ""
