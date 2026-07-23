@@ -98,6 +98,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gRotLine = ""                   // rotation line, logged after
     private var gCancel = ""                    // cancel line, logged after
     private var firstGesture = true             // no elbow/stop yet this touch
+    private var gWasLive = false                // game was playing during it
     private var gStartT = 0L                    // gesture start time (ms)
     private var gFireT = 0L                     // when it was recognized
 
@@ -305,6 +306,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 lastEvY = event.y
                 lastEvT = event.eventTime
 
+                if (engine.phase == GameEngine.Phase.PLAYING) gWasLive = true
+
                 val gx = event.x - anchorX
                 val gy = event.y - anchorY
                 if (!estSet && hypot(gx, gy) >= estDist) {
@@ -353,6 +356,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     /** Begin a fresh gesture at the given point (finger down / elbow / stop). */
     private fun newGesture(ax: Float, ay: Float) {
         anchorX = ax; anchorY = ay
+        gWasLive = engine.phase == GameEngine.Phase.PLAYING
         sampX = ax; sampY = ay
         estSet = false
         spent = false
@@ -412,7 +416,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
             }
         }
-        logGesture(reason, endX, endY, endT)
+        if (gWasLive) logGesture(reason, endX, endY, endT)
     }
 
     /** Confidence that the angle meant a turn or reversal: its distance
@@ -563,7 +567,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private fun finalizeTraj() {
         var total = 0f
         for ((_, dx, dy) in curTraj) total += hypot(dx, dy)
-        if (total >= 3f) {
+        if (total >= 3f && gWasLive) {
             recentTrajs.addLast(ArrayList(curTraj))
             while (recentTrajs.size > 3) recentTrajs.removeFirst()
         }
