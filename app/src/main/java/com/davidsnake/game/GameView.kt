@@ -256,16 +256,17 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // a while and then moves again, the dwell ended the gesture.
                 if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
                     if (event.eventTime - lastProgressT >= stopMs) {
-                        // both gestures meet at the vertex (stop point,
-                        // time progress stopped): the old one ends there and
-                        // the new one starts there -- so the dwell belongs
-                        // to the start of the new gesture
+                        // the dead wait belongs to neither gesture: the old
+                        // one ends where progress stopped, its trajectory is
+                        // trimmed there and the dwell deltas are dropped, and
+                        // the new one starts when the finger moves again (the
+                        // last touch sample before the confirming movement)
                         endGesture("stop", stopRefX, stopRefY, lastProgressT)
-                        splitTraj(lastProgressT)
+                        splitTraj(lastProgressT, keepTail = false)
                         newGesture(stopRefX, stopRefY)
                         firstGesture = false
-                        gStartT = lastProgressT
-                        sampT = lastProgressT
+                        gStartT = lastEvT
+                        sampT = lastEvT
                     }
                     stopRefX = event.x; stopRefY = event.y
                     lastProgressT = event.eventTime
@@ -540,11 +541,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         }
     }
 
-    /** Split the trajectory at a boundary vertex: deltas recorded after the
-     *  vertex belong to the successor. The predecessor's part is finalized;
-     *  the successor's part becomes the start of the current trajectory, so
-     *  neither gesture holds data from the other's side of the vertex. */
-    private fun splitTraj(vertexT: Long) {
+    /** Split the trajectory at a boundary vertex. The predecessor keeps and
+     *  finalizes everything up to the vertex; deltas after it either open
+     *  the successor's trajectory (elbow: every delta belongs to one side)
+     *  or are dropped (stop: the dead wait belongs to neither gesture). */
+    private fun splitTraj(vertexT: Long, keepTail: Boolean = true) {
         var k = curTraj.size
         var tailDur = 0L
         while (k > 0 && lastEvT - tailDur > vertexT) {
@@ -554,7 +555,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val tail = ArrayList(curTraj.subList(k, curTraj.size))
         while (curTraj.size > k) curTraj.removeAt(curTraj.size - 1)
         finalizeTraj()
-        curTraj.addAll(tail)
+        if (keepTail) curTraj.addAll(tail)
     }
 
     /** Move the finished gesture's trajectory into the last-3 ring; taps
