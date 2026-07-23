@@ -1,0 +1,4 @@
+# Trajectories for the cases in gesture-cases.csv, one per line:
+#   <id>: (dt_ms,dx_dp,dy_dp) (dt_ms,dx_dp,dy_dp) ...
+# exactly as copied from the in-game debug panel.
+# g001-g005 predate trajectory capture and have none.

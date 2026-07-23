@@ -1,6 +1,6 @@
-debug_line,intended_gesture
-"lift -44 14 Uq",no
-"stop -103 7 -",yes
-"elbow +111 16 -",yes
-"stop -56 13 R! .54",no
-"stop -99 61 L! .88",no
+id,debug_line,intended_gesture
+g001,"lift -44 14 Uq",no
+g002,"stop -103 7 -",yes
+g003,"elbow +111 16 -",yes
+g004,"stop -56 13 R! .54",no
+g005,"stop -99 61 L! .88",no

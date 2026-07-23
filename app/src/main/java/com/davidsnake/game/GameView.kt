@@ -104,8 +104,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     // and the last 3 completed gestures; clipboard-only, never on screen
     private var lastEvX = 0f
     private var lastEvY = 0f
-    private val curTraj = ArrayList<Pair<Float, Float>>()
-    private val recentTrajs = ArrayDeque<List<Pair<Float, Float>>>()
+    private var lastEvT = 0L
+    private val curTraj = ArrayList<Triple<Long, Float, Float>>()  // (dt,dx,dy)
+    private val recentTrajs = ArrayDeque<List<Triple<Long, Float, Float>>>()
 
     // debug overlay (toggled by dragging across the top edge of the title
     // screen); tap the panel to copy the whole log to the clipboard
@@ -237,6 +238,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 gStartT = event.eventTime
                 lastEvX = event.x
                 lastEvY = event.y
+                lastEvT = event.eventTime
                 curTraj.clear()
                 stopRefX = event.x; stopRefY = event.y
                 lastProgressT = event.eventTime
@@ -285,12 +287,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
                 // record the raw per-event finger delta for the trajectory
                 if (curTraj.size < 500) {
-                    curTraj.add(
-                        Pair((event.x - lastEvX) / density, (event.y - lastEvY) / density)
-                    )
+                    curTraj.add(Triple(
+                        event.eventTime - lastEvT,
+                        (event.x - lastEvX) / density,
+                        (event.y - lastEvY) / density
+                    ))
                 }
                 lastEvX = event.x
                 lastEvY = event.y
+                lastEvT = event.eventTime
 
                 val gx = event.x - anchorX
                 val gy = event.y - anchorY
@@ -532,7 +537,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
      *  and touch noise (under 3dp of total path) are not kept. */
     private fun finalizeTraj() {
         var total = 0f
-        for ((dx, dy) in curTraj) total += hypot(dx, dy)
+        for ((_, dx, dy) in curTraj) total += hypot(dx, dy)
         if (total >= 3f) {
             recentTrajs.addLast(ArrayList(curTraj))
             while (recentTrajs.size > 3) recentTrajs.removeFirst()
@@ -544,11 +549,12 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val sb = StringBuilder(dbg.joinToString("\n"))
         sb.append("\n--- trajectories of the last ")
             .append(recentTrajs.size)
-            .append(" gestures (dp deltas per touch event, oldest first) ---")
+            .append(" gestures, oldest first; (dt_ms,dx_dp,dy_dp) per touch event ---")
         for ((i, traj) in recentTrajs.withIndex()) {
             sb.append("\ng").append(i + 1 - recentTrajs.size).append(":")
-            for ((dx, dy) in traj) {
-                sb.append(" (").append("%.1f".format(dx))
+            for ((dt, dx, dy) in traj) {
+                sb.append(" (").append(dt)
+                    .append(",").append("%.1f".format(dx))
                     .append(",").append("%.1f".format(dy)).append(")")
             }
         }
