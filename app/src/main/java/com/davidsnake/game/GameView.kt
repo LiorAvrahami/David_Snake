@@ -100,6 +100,13 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gStartT = 0L                    // gesture start time (ms)
     private var gFireT = 0L                     // when it was recognized
 
+    // raw finger trajectories (dp deltas per touch event) of the current
+    // and the last 3 completed gestures; clipboard-only, never on screen
+    private var lastEvX = 0f
+    private var lastEvY = 0f
+    private val curTraj = ArrayList<Pair<Float, Float>>()
+    private val recentTrajs = ArrayDeque<List<Pair<Float, Float>>>()
+
     // debug overlay (toggled by dragging across the top edge of the title
     // screen); tap the panel to copy the whole log to the clipboard
     private var debugMode = false
@@ -228,6 +235,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 firstGesture = true
                 newGesture(event.x, event.y)
                 gStartT = event.eventTime
+                lastEvX = event.x
+                lastEvY = event.y
+                curTraj.clear()
                 stopRefX = event.x; stopRefY = event.y
                 lastProgressT = event.eventTime
                 swiped = false
@@ -244,6 +254,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     if (event.eventTime - lastProgressT >= stopMs) {
                         // the gesture's motion ended when progress stopped
                         endGesture("stop", stopRefX, stopRefY, lastProgressT)
+                        finalizeTraj()
                         newGesture(stopRefX, stopRefY)
                         firstGesture = false
                         gStartT = event.eventTime
@@ -264,12 +275,22 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
                     ) {
                         endGesture("elbow", sampX, sampY, event.eventTime)
+                        finalizeTraj()
                         newGesture(sampX, sampY)
                         firstGesture = false
                         gStartT = event.eventTime
                     }
                     sampX = event.x; sampY = event.y
                 }
+
+                // record the raw per-event finger delta for the trajectory
+                if (curTraj.size < 500) {
+                    curTraj.add(
+                        Pair((event.x - lastEvX) / density, (event.y - lastEvY) / density)
+                    )
+                }
+                lastEvX = event.x
+                lastEvY = event.y
 
                 val gx = event.x - anchorX
                 val gy = event.y - anchorY
@@ -302,6 +323,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 // (1) the lift ends the gesture: full verdict, which may
                 // late-fire it or revoke its effect.
                 endGesture("lift", event.x, event.y, event.eventTime)
+                finalizeTraj()
                 if (!swiped) {
                     if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
                         copyLog()
@@ -506,10 +528,33 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         }
     }
 
+    /** Move the finished gesture's trajectory into the last-3 ring; taps
+     *  and touch noise (under 3dp of total path) are not kept. */
+    private fun finalizeTraj() {
+        var total = 0f
+        for ((dx, dy) in curTraj) total += hypot(dx, dy)
+        if (total >= 3f) {
+            recentTrajs.addLast(ArrayList(curTraj))
+            while (recentTrajs.size > 3) recentTrajs.removeFirst()
+        }
+        curTraj.clear()
+    }
+
     private fun copyLog() {
+        val sb = StringBuilder(dbg.joinToString("\n"))
+        sb.append("\n--- trajectories of the last ")
+            .append(recentTrajs.size)
+            .append(" gestures (dp deltas per touch event, oldest first) ---")
+        for ((i, traj) in recentTrajs.withIndex()) {
+            sb.append("\ng").append(i + 1 - recentTrajs.size).append(":")
+            for ((dx, dy) in traj) {
+                sb.append(" (").append("%.1f".format(dx))
+                    .append(",").append("%.1f".format(dy)).append(")")
+            }
+        }
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("david-snake-debug", dbg.joinToString("\n")))
-        dlog("copied ${dbg.size} lines")
+        cm.setPrimaryClip(ClipData.newPlainText("david-snake-debug", sb.toString()))
+        dlog("copied ${dbg.size} lines +traj")
     }
 
     override fun performClick(): Boolean {
