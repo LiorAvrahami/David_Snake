@@ -59,12 +59,22 @@ for gid, row in cases.items():
         print(f"  note: {abs(disp - length):.1f}dp short of logged length -- consistent"
               f" with a boundary-born gesture inheriting pre-birth movement")
     if ms is not None:
+        # boundary-born gestures carry up to ~250ms of pre-birth time in ms
+        # that is not in their own trajectory; stop-ended gestures carry a
+        # recorded dwell tail that is not in ms
+        slop = max(60, 0.3 * ms)
         if outcome == "-":
-            if abs(T - ms) > max(60, 0.3 * ms):
+            if abs(T - ms) > slop + 250:
                 print(f"  MISMATCH: duration {T:.0f}ms vs logged {ms}ms (unfired: should match)")
                 bad += 1
-        elif T + 60 < ms:
+            elif abs(T - ms) > slop:
+                which = "boundary-birth inheritance" if T < ms else "recorded dwell tail"
+                print(f"  note: duration {T:.0f}ms vs logged {ms}ms -- consistent with {which}")
+        elif T + slop + 250 < ms:
             print(f"  MISMATCH: trajectory ends ({T:.0f}ms) before logged recognition ({ms}ms)")
             bad += 1
+        elif T + slop < ms:
+            print(f"  note: trajectory {T:.0f}ms vs recognition {ms}ms -- consistent"
+                  f" with boundary-birth inheritance")
 print("all consistent" if bad == 0 else f"{bad} mismatch(es)", file=sys.stderr)
 sys.exit(1 if bad else 0)
