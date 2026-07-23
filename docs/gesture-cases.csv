@@ -13,3 +13,6 @@ g011,"lift +148° 15dp 201ms - .02",no
 g012,"lift +80° 112dp 139ms L! .93",yes
 g013,"elbow -105° 103dp 46ms D! .92",yes
 g014,"lift +139° 109dp 115ms L! .20 cancel-rot",yes
+g015,"stop +125° 6dp 125ms U! .35",no
+g016,"stop +26° 3dp 39ms - .00",no
+g017,"stop -131° 3dp 41ms - .18",no

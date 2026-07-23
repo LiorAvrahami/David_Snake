@@ -20,3 +20,6 @@ g013: (31,0.8,1.5) (15,1.7,7.7) (19,2.1,18.1) (17,1.0,24.5) (17,0.0,25.4) (16,0.
 # 11 deg from the reversal boundary) although the final net vector had
 # straightened to ~120 deg, squarely in the right-turn sector.
 g014: (14,1.0,1.5) (16,-0.9,-2.8) (17,-2.6,-5.0) (17,-4.8,-6.3) (17,-7.0,-7.7) (17,-7.9,-8.1) (17,-9.2,-8.8) (18,-12.3,-8.2) (18,-15.8,-5.9) (16,-16.1,-2.9) (17,-13.4,-0.7) (8,-5.6,-0.4)
+g015: (32,1.1,-1.5) (14,0.7,-1.1) (17,0.6,-0.9) (16,0.4,-0.4) (17,0.3,-0.5) (12,0.2,-0.4) (17,0.2,-0.3)
+# g016/g017 have no trajectories: their total path fell under the 3dp
+# keep-filter of the ring, so only their debug lines exist.
