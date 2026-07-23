@@ -20,3 +20,6 @@ g018,"stop +101° 3dp 57ms - .29",no
 g019,"elbow +93° 47dp 53ms U! .85",yes
 g020,"elbow +71° 57dp 19ms Rq .87",no
 g021,"lift -56° 49dp 66ms U! .44",no
+g022,"stop -90° 116dp 72ms L! .93 p719",yes
+g023,"elbow +123° 49dp 279ms - .11 p287",yes
+g024,"stop -160° 88dp 329ms - .11 p377",yes

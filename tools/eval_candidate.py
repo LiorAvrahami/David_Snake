@@ -14,15 +14,16 @@ root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ---- parameters -----------------------------------------------------------
 FIRE, CANCEL = 0.30, 0.25
 WIN = 80.0            # ms window for peak speed
-SPEED_LO, SPEED_HI = 250.0, 500.0    # dp/s: 0 below LO, 1 above HI
-LAUNCH_LO, LAUNCH_HI = 250.0, 500.0  # dp/s opening speed of elbow-born
+SPEED_LO, SPEED_HI = 150.0, 450.0    # dp/s: 0 below LO, 1 above HI
+LAUNCH_LO, LAUNCH_HI = 150.0, 400.0  # dp/s opening speed of elbow-born
 OPEN_MS = 50.0        # opening-speed measurement span
 
 # birth of each gesture (from the session logs); launch factor is only
 # meaningful for elbow births (momentum flows through an elbow vertex)
 BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
          "g011": "stop", "g012": "down", "g013": "down", "g014": "elbow",
-         "g015": "stop", "g019": "stop", "g020": "elbow", "g021": "elbow"}
+         "g015": "stop", "g019": "stop", "g020": "elbow", "g021": "elbow",
+         "g022": "stop", "g023": "stop", "g024": "elbow"}
 
 def parse_line(dl):
     toks = dl.split()
@@ -126,7 +127,7 @@ class Replay:
         return 0.6 if self.reason == "lift" and self.birth != "down" else 1.0
 
     def launch_factor(self):
-        if self.birth != "elbow": return 1.0
+        if self.birth == "down": return 1.0
         return clamp01((LAUNCH_HI - self.opening_speed()) / (LAUNCH_HI - LAUNCH_LO))
 
     def simulate(self, candidate):

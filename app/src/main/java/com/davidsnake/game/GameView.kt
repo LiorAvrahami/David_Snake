@@ -104,14 +104,14 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     // decisive-motion and momentum gates (values chosen from the labeled
     // gesture dataset; see tools/eval_candidate.py)
-    private val speedLo = 250f                  // dp/s: no confidence below
-    private val speedHi = 500f                  // dp/s: full confidence above
-    private val launchLo = 250f
-    private val launchHi = 500f
+    private val speedLo = 150f                  // dp/s: no confidence below
+    private val speedHi = 450f                  // dp/s: full confidence above
+    private val launchLo = 150f
+    private val launchHi = 400f
     private val peakWinMs = 80L                 // peak-speed window
     private val launchAgeMs = 50L               // opening-speed span
     private var gPeakSpeed = 0f                 // best windowed speed so far
-    private var gElbowBorn = false              // born at an elbow vertex
+    private var gBoundaryBorn = false           // born at a boundary vertex
     private var gLaunchFactor = 1f              // momentum discount
     private var gLaunchSet = false              // frozen at 50ms of age
     private var gFwdX = 0f                      // heading frame at fire time
@@ -283,6 +283,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         firstGesture = false
                         gStartT = lastEvT
                         sampT = lastEvT
+                        gBoundaryBorn = true
                     }
                     stopRefX = event.x; stopRefY = event.y
                     lastProgressT = event.eventTime
@@ -304,7 +305,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         newGesture(sampX, sampY)
                         firstGesture = false
                         gStartT = sampT
-                        gElbowBorn = true
+                        gBoundaryBorn = true
                         recomputePeak()
                     }
                     sampX = event.x; sampY = event.y
@@ -389,7 +390,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         gId = -1
         gScore = 0f
         gPeakSpeed = 0f
-        gElbowBorn = false
+        gBoundaryBorn = false
         gLaunchFactor = 1f
         gLaunchSet = false
         gFireT = 0L
@@ -458,12 +459,12 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private fun speedScore(peak: Float) =
         ((peak - speedLo) / (speedHi - speedLo)).coerceIn(0f, 1f)
 
-    /** Momentum gate for elbow-born gestures: a successor that opens fast
-     *  inherited its speed through the vertex (follow-through of the
-     *  previous stroke); a fresh command launches from near rest. Frozen
-     *  once the gesture is 50ms old. */
+    /** Momentum gate for boundary-born gestures: a successor that opens
+     *  fast inherited its speed (follow-through of the previous stroke);
+     *  a fresh command launches from near rest. Frozen once the gesture
+     *  is 50ms old. */
     private fun launchFactor(gxDp: Float, gyDp: Float, age: Long): Float {
-        if (!gElbowBorn) return 1f
+        if (!gBoundaryBorn) return 1f
         if (!gLaunchSet && age >= launchAgeMs) {
             gLaunchFactor = launchOf(hypot(gxDp, gyDp), age)
             gLaunchSet = true
