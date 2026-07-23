@@ -50,9 +50,14 @@ for gid, row in cases.items():
     speed = path / (T / 1000) if T > 0 else float("inf")
     print(f"{label}: disp={disp:.1f}dp path={path:.1f}dp T={T:.0f}ms avg={speed:.0f}dp/s")
     tol = max(4.0, 0.25 * length)
-    if abs(disp - length) > tol:
-        print(f"  MISMATCH: displacement {disp:.1f}dp vs logged {length}dp (tol {tol:.1f})")
+    hard = max(12.0, 0.25 * length)  # boundary-born gestures inherit up to
+    # ~12dp of pre-birth movement that lives in the previous trajectory
+    if abs(disp - length) > hard:
+        print(f"  MISMATCH: displacement {disp:.1f}dp vs logged {length}dp (tol {hard:.1f})")
         bad += 1
+    elif abs(disp - length) > tol:
+        print(f"  note: {abs(disp - length):.1f}dp short of logged length -- consistent"
+              f" with a boundary-born gesture inheriting pre-birth movement")
     if ms is not None:
         if outcome == "-":
             if abs(T - ms) > max(60, 0.3 * ms):

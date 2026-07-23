@@ -4,3 +4,4 @@ g002,"stop -103 7 -",yes
 g003,"elbow +111 16 -",yes
 g004,"stop -56 13 R! .54",no
 g005,"stop -99 61 L! .88",no
+g006,"stop +120° 9dp 0ms D! .54",no
