@@ -357,6 +357,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 ) {
                     debugMode = !debugMode
                     if (debugMode) dlog("debug on")
+                    else {
+                        dbg.clear()
+                        recentTrajs.clear()
+                    }
                     return true
                 }
                 // (1) the lift ends the gesture: full verdict, which may

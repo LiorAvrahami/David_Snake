@@ -23,7 +23,8 @@ OPEN_MS = 50.0        # opening-speed measurement span
 BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
          "g011": "stop", "g012": "down", "g013": "down", "g014": "elbow",
          "g015": "stop", "g019": "stop", "g020": "elbow", "g021": "elbow",
-         "g022": "stop", "g023": "stop", "g024": "elbow"}
+         "g022": "stop", "g023": "stop", "g024": "elbow",
+         "g025": "stop", "g026": "stop", "g027": "elbow"}
 
 def parse_line(dl):
     toks = dl.split()

@@ -23,3 +23,6 @@ g021,"lift -56° 49dp 66ms U! .44",no
 g022,"stop -90° 116dp 72ms L! .93 p719",yes
 g023,"elbow +123° 49dp 279ms - .11 p287",yes
 g024,"stop -160° 88dp 329ms - .11 p377",yes
+g025,"stop -74° 79dp 148ms L! .90 p535",yes
+g026,"elbow +90° 13dp 117ms - .00 p132",yes
+g027,"stop +176° 78dp 384ms - .21 p318",yes
