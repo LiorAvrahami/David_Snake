@@ -195,8 +195,8 @@ class GameEngine(private val rng: Random = Random.Default) {
      * rotates the head at once; every further intent before David moves
      * goes to the single queue slot (last one wins) and becomes the
      * heading right after the next step lands. A turn that would face a
-     * wall or the snake's own tail -- except its last, vacating bit -- is
-     * disregarded, so a rotation can never aim at certain death; the same
+     * wall or any cell of the snake's own tail is disregarded, so a
+     * rotation can never aim at certain death; the same
      * checks run again when a queued turn is promoted. Same-direction
      * input is ignored and reversals are blocked while there is a tail
      * (original rule). Returns a tag for the debug log plus an effect id
@@ -256,13 +256,11 @@ class GameEngine(private val rng: Random = Random.Default) {
         return "stale"
     }
 
-    /** A cell blocks a turn if it holds the tail, unless it is the very
-     *  last tail bit, which will have vacated by the time the step lands. */
-    private fun isTailBlock(nx: Int, ny: Int): Boolean {
-        if (blocks[nx][ny] != TAIL) return false
-        val last = tail.lastOrNull() ?: return true
-        return !(last.x == nx && last.y == ny)
-    }
+    /** A cell blocks a turn if it holds any tail segment. The step checks
+     *  the head's landing cell before the tail's last bit is removed
+     *  (original order), so even the tail's end cell is lethal to enter
+     *  and must block the turn. */
+    private fun isTailBlock(nx: Int, ny: Int): Boolean = blocks[nx][ny] == TAIL
 
     /** Promote the queued turn to the heading, if legal right now. */
     private fun promotePendingDir() {

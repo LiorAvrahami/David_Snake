@@ -220,16 +220,18 @@ fun main() {
         println("cancellation OK (queue, rotation, post-dequeue, committed, overwritten)")
     }
 
-    // 3c) A rotation that would face a mid-tail cell is disregarded; the
-    //     last, vacating tail bit does not block. Exercised by a
-    //     harp-seeking agent until the situation actually occurs.
+    // 3c) A rotation that would face ANY tail cell is disregarded --
+    //     including the last bit: the step checks the landing cell before
+    //     that bit vacates, so entering it is certain death (this was a
+    //     live bug: the last bit used to be exempt). Exercised by a
+    //     harp-seeking agent until both situations actually occur.
     run {
         val e = GameEngine(Random(21))
         e.tapAction()
         var blockedSeen = 0
         var lastBitSeen = 0
         var t = 0
-        while (t < 300000 && blockedSeen < 5) {
+        while (t < 300000 && (blockedSeen < 5 || lastBitSeen < 3)) {
             if (e.phase == GameEngine.Phase.LOST) { e.tapAction(); e.tapAction() }
             val px = e.headX
             val py = e.headY
@@ -246,18 +248,13 @@ fun main() {
                     val midTail = e.tail.dropLast(1).any { it.x == nx && it.y == ny }
                     val last = e.tail.last()
                     val isLast = last.x == nx && last.y == ny
-                    if (midTail) {
+                    if (midTail || isLast) {
                         val pd = e.headDir
                         val r = e.onSwipe(d)
                         check(r.tag == "tail-block" && e.headDir == pd,
-                            "mid-tail turn not blocked (r=${r.tag})")
-                        blockedSeen++
-                        break
-                    } else if (isLast) {
-                        val r = e.onSwipe(d)
-                        check(r.tag == "turn" && e.headDir == d,
-                            "last-bit turn wrongly blocked (r=${r.tag})")
-                        lastBitSeen++
+                            (if (isLast) "last-bit" else "mid-tail") +
+                                " turn not blocked (r=${r.tag})")
+                        if (isLast) lastBitSeen++ else blockedSeen++
                         break
                     }
                 }
@@ -273,7 +270,8 @@ fun main() {
             if (want != e.headDir) e.onSwipe(want)
         }
         check(blockedSeen >= 5, "mid-tail block never exercised (t=$t)")
-        println("tail turn block OK (mid-tail blocked x$blockedSeen, last bit allowed x$lastBitSeen, $t ticks)")
+        check(lastBitSeen >= 3, "last-bit block never exercised (t=$t)")
+        println("tail turn block OK (mid-tail blocked x$blockedSeen, last bit blocked x$lastBitSeen, $t ticks)")
     }
 
     // 4) Opening spear kills the head that lingers in row 6.
