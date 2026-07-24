@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Exhaustive parameter search over the v2 gate structure (no new
-mechanisms): speed gate (lo,hi), launch gate (lo,hi), opening window.
-Reports the error frontier, the robustness (plateau size) of each optimum,
-and leave-one-out cross-validation as an honest generalization estimate."""
-import csv, math, re, os, itertools
-
+"""Search the user-specified v4 structure: NO fresh-start gate, lift
+discount 0.8, optimize only the speed gate (lo,hi) and the distance
+half-point K. Reports frontier, plateau, and leave-one-out."""
+import csv, math, re, os
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FIRE, CANCEL, WIN = 0.30, 0.25, 80.0
+FIRE, CANCEL, WIN, EF_LIFT = 0.30, 0.25, 80.0, 0.8
 BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
          "g011": "stop", "g012": "down", "g013": "down", "g014": "elbow",
          "g015": "stop", "g019": "stop", "g020": "elbow", "g021": "elbow",
@@ -14,29 +12,17 @@ BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
          "g026": "stop", "g027": "elbow", "g028": "stop", "g029": "stop",
          "g030": "elbow", "g031": "down", "g032": "down", "g033": "elbow",
          "g034": "down", "g035": "down", "g036": "elbow"}
-
 def parse_line(dl):
-    toks = dl.split(); reason = toks[0]
-    angle = int(toks[1].rstrip("\u00b0")); length = int(toks[2].rstrip("dp"))
-    ms = None; rest = toks[3:]
+    toks = dl.split(); ms = None; rest = toks[3:]
     if rest and rest[0].endswith("ms"): ms = int(rest[0][:-2]); rest = rest[1:]
-    outcome = rest[0] if rest else "-"
-    return reason, angle, length, ms, outcome
-
-def angle_score(a):
-    a = abs(a)
-    d = a - 150.0 if a > 150.0 else min(a - 30.0, 150.0 - a)
+    return toks[0], int(toks[1].rstrip("\u00b0")), ms, (rest[0] if rest else "-")
+def aS(a):
+    a = abs(a); d = a - 150.0 if a > 150.0 else min(a - 30.0, 150.0 - a)
     return max(0.0, min(1.0, d / 30.0))
-
-def length_score(l): return l / (l + 8.0)
-def clamp01(x): return max(0.0, min(1.0, x))
-
-def ang_diff(a, b):
-    return math.degrees(math.atan2(a[0]*b[1]-a[1]*b[0], a[0]*b[0]+a[1]*b[1]))
-
-cases_rows, trajs = {}, {}
+def ad(a, b): return math.degrees(math.atan2(a[0]*b[1]-a[1]*b[0], a[0]*b[0]+a[1]*b[1]))
+rows_, trajs = {}, {}
 with open(os.path.join(root, "docs", "gesture-cases.csv")) as f:
-    for row in csv.DictReader(f): cases_rows[row["id"]] = row
+    for r in csv.DictReader(f): rows_[r["id"]] = r
 with open(os.path.join(root, "docs", "gesture-trajectories.txt")) as f:
     for line in f:
         line = line.strip()
@@ -44,128 +30,86 @@ with open(os.path.join(root, "docs", "gesture-trajectories.txt")) as f:
         gid, rest = line.split(":", 1)
         pts = re.findall(r"\(([-\d.]+),([-\d.]+),([-\d.]+)\)", rest)
         trajs[gid.strip()] = [(float(a), float(b), float(c)) for a, b, c in pts]
-
-class Case:
-    def __init__(self, gid):
-        row = cases_rows[gid]
-        self.gid = gid
-        self.reason, log_angle, _, ms, outcome = parse_line(row["debug_line"])
-        self.intended = row["intended_gesture"].startswith(("yes", "true"))
-        self.birth = BIRTH[gid]
+class C:
+    def __init__(s, gid):
+        r = rows_[gid]; s.gid = gid
+        reason, log_angle, ms, outcome = parse_line(r["debug_line"])
+        s.intended = r["intended_gesture"].startswith(("yes", "true"))
         t, p = [0.0], [(0.0, 0.0)]
         for dt, dx, dy in trajs[gid]:
-            t.append(t[-1] + dt); p.append((p[-1][0]+dx, p[-1][1]+dy))
-        self.t, self.p, self.n = t, p, len(trajs[gid])
-        fired_logged = outcome != "-" and not outcome.endswith(".")
-        if fired_logged and ms is not None:
+            t.append(t[-1]+dt); p.append((p[-1][0]+dx, p[-1][1]+dy))
+        n = len(trajs[gid])
+        fired = outcome != "-" and not outcome.endswith(".")
+        if fired and ms is not None:
             j = 0
-            while j < self.n and t[j+1] <= ms + 0.01: j += 1
+            while j < n and t[j+1] <= ms + 0.01: j += 1
             anchor = p[j]
-        else:
-            anchor = p[-1]
-        def rel(v):
-            if abs(anchor[0]) + abs(anchor[1]) < 1e-6: return log_angle
-            return log_angle + ang_diff(anchor, v)
-        # precompute per-event features (parameter independent)
-        self.base = []      # angle*length at each event, 0 if unclassifiable
-        self.peak = []      # windowed peak-so-far at each event
-        best = 0.0
-        for j in range(1, self.n + 1):
+        else: anchor = p[-1]
+        rel = lambda v: log_angle if abs(anchor[0])+abs(anchor[1]) < 1e-6 else log_angle + ad(anchor, v)
+        s.ev = []; best = 0.0
+        for j in range(1, n+1):
             i = j
-            while i > 0 and t[j] - t[i-1] < WIN: i -= 1
-            span = t[j] - t[i]
+            while i > 0 and t[j]-t[i-1] < WIN: i -= 1
+            span = t[j]-t[i]
             if span > 0:
-                d = math.hypot(p[j][0]-p[i][0], p[j][1]-p[i][1])
-                best = max(best, d / (span/1000.0))
-            self.peak.append(best)
+                best = max(best, math.hypot(p[j][0]-p[i][0], p[j][1]-p[i][1])/(span/1000.0))
             v = p[j]; a = rel(v); ln = math.hypot(*v)
-            self.base.append(0.0 if (abs(a) < 30 or ln < 2)
-                             else angle_score(a) * length_score(ln))
-        vf = p[-1]; af = rel(vf); lnf = math.hypot(*vf)
-        self.final_base = (0.0 if (abs(af) < 30 or lnf < 2)
-                           else angle_score(af) * length_score(lnf))
-        self.ef = 0.6 if self.reason == "lift" and self.birth != "down" else 1.0
-        self.opening = {}
-        for oms in (15, 50):
-            j = 1
-            while j < self.n and t[j] < oms: j += 1
-            self.opening[oms] = math.hypot(*p[j]) / (t[j]/1000.0) if t[j] > 0 else 0.0
-
-    def applied(self, slo, shi, llo, lhi, oms):
-        def sf(pk): return clamp01((pk - slo) / (shi - slo))
-        lf = 1.0
-        if self.birth != "down":
-            lf = clamp01((lhi - self.opening[oms]) / (lhi - llo))
-        fired = False
-        for j in range(self.n):
-            if self.base[j] * sf(self.peak[j]) * lf >= FIRE:
-                fired = True; break
-        full = self.final_base * self.ef * sf(self.peak[-1]) * lf
-        if not fired: return full >= FIRE
-        return full >= CANCEL
-
-CASES = [Case(g) for g in sorted(BIRTH) if g in trajs]
-GRID = [(slo, shi, llo, lhi, oms)
-        for slo in range(0, 401, 50)
-        for shi in range(1400, 99, -100) if shi > slo
-        for llo in range(0, 501, 100)
-        for lhi in range(1500, 99, -100) if lhi > llo
-        for oms in (15, 50)]
-# outcome matrix
-M = [[c.applied(*g) for g in GRID] for c in CASES]
+            s.ev.append((0.0 if (abs(a) < 30 or ln < 2) else aS(a), ln, best))
+        vf = p[-1]; af = rel(vf); s.lnf = math.hypot(*vf)
+        s.aSf = 0.0 if (abs(af) < 30 or s.lnf < 2) else aS(af)
+        s.ef = EF_LIFT if reason == "lift" and BIRTH[gid] != "down" else 1.0
+        s.peakf = s.ev[-1][2]
+    def applied(s, slo, shi, K):
+        sf = lambda pk: max(0.0, min(1.0, (pk-slo)/(shi-slo)))
+        lS = lambda l: l/(l+K)
+        fired = any(a*lS(l)*sf(pk) >= FIRE for a, l, pk in s.ev)
+        full = s.aSf*lS(s.lnf)*s.ef*sf(s.peakf)
+        return full >= FIRE if not fired else full >= CANCEL
+CASES = [C(g) for g in sorted(BIRTH) if g in trajs]
 INT = [c.intended for c in CASES]
-
-def errors(config_idx, exclude=None):
+GRID = [(slo, slo+w, K)
+        for slo in range(0, 401, 25)
+        for w in range(50, 701, 50)
+        for K in (8, 12, 16, 20, 24, 28, 32, 36, 40, 48)]
+M = [[c.applied(*g) for g in GRID] for c in CASES]
+def err(k, ex=None):
     fp = fn = 0
-    for i, c in enumerate(CASES):
-        if i == exclude: continue
-        a = M[i][config_idx]
-        if a and not INT[i]: fp += 1
-        if not a and INT[i]: fn += 1
+    for i in range(len(CASES)):
+        if i == ex: continue
+        if M[i][k] and not INT[i]: fp += 1
+        if not M[i][k] and INT[i]: fn += 1
     return fp, fn
-
-# ---- global frontier ----
-results = [(sum(errors(k)), *errors(k), k) for k in range(len(GRID))]
-best_total = min(r[0] for r in results)
-best = [r for r in results if r[0] == best_total]
-fp0 = [r for r in results if r[1] == 0]
-best_fp0_total = min(r[0] for r in fp0)
-best_fp0 = [r for r in fp0 if r[0] == best_fp0_total]
-
-def describe(rs, name):
-    ks = [r[3] for r in rs]
-    cfgs = [GRID[k] for k in ks]
+res = [(sum(err(k)), *err(k), k) for k in range(len(GRID))]
+bt = min(r[0] for r in res)
+for maxfp in (3, 2, 1, 0):
+    pool = [r for r in res if r[1] <= maxfp]
+    if not pool:
+        print(f"FP<={maxfp}: unreachable"); continue
+    b = min(r[0] for r in pool)
+    sel = [r for r in pool if r[0] == b]
+    cfgs = [GRID[r[3]] for r in sel]
     dims = list(zip(*cfgs))
-    print(f"{name}: errors={rs[0][0]} (FP={rs[0][1]} FN={rs[0][2]}), "
-          f"{len(ks)} configs / {len(GRID)} total")
-    for nm, vals in zip(("speedLo", "speedHi", "launchLo", "launchHi", "open"), dims):
-        print(f"   {nm}: {sorted(set(vals))}")
-    mid = cfgs[len(cfgs)//2]
-    k = GRID.index(mid)
-    misses = [CASES[i].gid for i in range(len(CASES))
-              if (M[i][k] and not INT[i]) or (not M[i][k] and INT[i])]
-    print(f"   example {mid} misses: {misses}")
-
-describe(best, "GLOBAL BEST (min FP+FN)")
-describe(best_fp0, "BEST WITH FP=0")
-
-# ---- v2 params for reference ----
-kv2 = GRID.index((150, 450, 100, 400, 50)) if (150,450,100,400,50) in GRID else None
-for cand in [(150, 450, 100, 400, 50), (150, 450, 200, 400, 50)]:
-    if cand in GRID:
-        k = GRID.index(cand)
-        fp, fn = errors(k)
-        print(f"shipped-v2-nearest {cand}: FP={fp} FN={fn}")
-
-# ---- leave-one-out ----
+    print(f"FP<={maxfp}: errors={b} (FP={sel[0][1]},FN={sel[0][2]}) on {len(sel)}/{len(GRID)} configs")
+    for nm, vals in zip(("speedLo", "speedHi", "K"), dims):
+        vv = sorted(set(vals))
+        print(f"   {nm}: {vv if len(vv) < 12 else [vv[0], '...', vv[-1]]}")
+    mid = cfgs[len(cfgs)//2]; k = GRID.index(mid)
+    miss = [CASES[i].gid + ("(FP)" if M[i][k] else "(FN)")
+            for i in range(len(CASES)) if M[i][k] != INT[i]]
+    print(f"   example {mid} misses: {miss}")
 loo = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
-for i, c in enumerate(CASES):
-    scored = [(sum(errors(k, exclude=i)), k) for k in range(len(GRID))]
-    mn = min(s for s, _ in scored)
-    cand_ks = [k for s, k in scored if s == mn]
-    k = cand_ks[len(cand_ks)//2]
+for i in range(len(CASES)):
+    sc = [(sum(err(k, ex=i)), k) for k in range(len(GRID))]
+    mn = min(x for x, _ in sc)
+    cks = [k for x, k in sc if x == mn]
+    k = cks[len(cks)//2]
     a = M[i][k]
-    key = ("TP" if INT[i] else "FP") if a else ("FN" if INT[i] else "TN")
-    loo[key] += 1
-print(f"LEAVE-ONE-OUT (honest generalization): TP={loo['TP']} FP={loo['FP']} "
-      f"TN={loo['TN']} FN={loo['FN']}")
+    loo[("TP" if INT[i] else "FP") if a else ("FN" if INT[i] else "TN")] += 1
+print(f"LEAVE-ONE-OUT: TP={loo['TP']} FP={loo['FP']} TN={loo['TN']} FN={loo['FN']}")
+# fixed sanity rows the user asked about
+for cfg in [(150, 450, 8), (100, 250, 20), (150, 300, 24)]:
+    if cfg in GRID:
+        k = GRID.index(cfg)
+        fp, fn = err(k)
+        miss = [CASES[i].gid for i in range(len(CASES)) if M[i][k] != INT[i]]
+        print(f"config {cfg}: FP={fp} FN={fn} misses={miss}")

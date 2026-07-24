@@ -105,15 +105,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     // decisive-motion and momentum gates (values chosen from the labeled
     // gesture dataset; see tools/eval_candidate.py)
     private val speedLo = 150f                  // dp/s: no confidence below
-    private val speedHi = 450f                  // dp/s: full confidence above
-    private val launchLo = 150f
-    private val launchHi = 400f
+    private val speedHi = 350f                  // dp/s: full confidence above
     private val peakWinMs = 80L                 // peak-speed window
-    private val launchAgeMs = 50L               // opening-speed span
     private var gPeakSpeed = 0f                 // best windowed speed so far
-    private var gBoundaryBorn = false           // born at a boundary vertex
-    private var gLaunchFactor = 1f              // momentum discount
-    private var gLaunchSet = false              // frozen at 50ms of age
     private var gFwdX = 0f                      // heading frame at fire time
     private var gFwdY = -1f
 
@@ -283,7 +277,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         firstGesture = false
                         gStartT = lastEvT
                         sampT = lastEvT
-                        gBoundaryBorn = true
                     }
                     stopRefX = event.x; stopRefY = event.y
                     lastProgressT = event.eventTime
@@ -305,7 +298,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         newGesture(sampX, sampY)
                         firstGesture = false
                         gStartT = sampT
-                        gBoundaryBorn = true
                         recomputePeak()
                     }
                     sampX = event.x; sampY = event.y
@@ -340,9 +332,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         val a = angleFromForward(gx, gy)
                         val s = angleScore(a) *
                             lengthScore(hypot(gx, gy) / density) *
-                            speedScore(gPeakSpeed) *
-                            launchFactor(gx / density, gy / density,
-                                event.eventTime - gStartT)
+                            speedScore(gPeakSpeed)
                         if (s >= fireThreshold) fire(dir, a, s, event.eventTime)
                     }
                 }
@@ -394,9 +384,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         gId = -1
         gScore = 0f
         gPeakSpeed = 0f
-        gBoundaryBorn = false
-        gLaunchFactor = 1f
-        gLaunchSet = false
         gFireT = 0L
     }
 
@@ -433,10 +420,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val lenDp = hypot(gx, gy) / density
         val ef = endFactor(reason)
         val sf = speedScore(gPeakSpeed)
-        val lf = launchFactor(gx / density, gy / density, endT - gStartT)
         if (gOutcome.isEmpty()) {
             val a = angleFromForward(gx, gy)
-            gScore = angleScore(a) * lengthScore(lenDp) * ef * sf * lf
+            gScore = angleScore(a) * lengthScore(lenDp) * ef * sf
             val dir = classifySwipe(gx, gy, minFloor)
             if (dir != NO_SWIPE && !topBand && gScore >= fireThreshold) {
                 fire(dir, a, gScore, endT)
@@ -445,7 +431,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             // full-information verdict: judge the final vector, not the
             // snapshot the gesture happened to fire on
             val aFinal = relAngle(gFwdX, gFwdY, gx, gy)
-            gScore = angleScore(aFinal) * lengthScore(lenDp) * ef * sf * lf
+            gScore = angleScore(aFinal) * lengthScore(lenDp) * ef * sf
             if (gScore < cancelThreshold && gId >= 0) {
                 val c = engine.cancelSwipe(gId)
                 if (c != "stale") {
@@ -457,30 +443,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (gWasLive) logGesture(reason, endX, endY, endT)
     }
 
-    /** Decisive-motion gate: no confidence below 250 dp/s of windowed
-     *  peak speed, full confidence above 500. Slow drifts and meanders
-     *  never contain a fast moment; commands do. */
+    /** Decisive-motion gate: no confidence below speedLo dp/s of windowed
+     *  peak speed, full confidence above speedHi. Slow drifts never
+     *  contain a fast moment; commands do. */
     private fun speedScore(peak: Float) =
         ((peak - speedLo) / (speedHi - speedLo)).coerceIn(0f, 1f)
-
-    /** Momentum gate for boundary-born gestures: a successor that opens
-     *  fast inherited its speed (follow-through of the previous stroke);
-     *  a fresh command launches from near rest. Frozen once the gesture
-     *  is 50ms old. */
-    private fun launchFactor(gxDp: Float, gyDp: Float, age: Long): Float {
-        if (!gBoundaryBorn) return 1f
-        if (!gLaunchSet && age >= launchAgeMs) {
-            gLaunchFactor = launchOf(hypot(gxDp, gyDp), age)
-            gLaunchSet = true
-        }
-        if (gLaunchSet) return gLaunchFactor
-        return if (age > 0) launchOf(hypot(gxDp, gyDp), age) else 1f
-    }
-
-    private fun launchOf(dispDp: Float, age: Long): Float {
-        val v = dispDp / (age / 1000f)
-        return ((launchHi - v) / (launchHi - launchLo)).coerceIn(0f, 1f)
-    }
 
     /** Best displacement-over-span speed of any window of at least 80ms
      *  (shorter only at the very head of the gesture) ending at a recorded
@@ -530,14 +497,14 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return (d / 30f).coerceIn(0f, 1f)
     }
 
-    /** Saturating length confidence: 8dp scores .50, 24dp .75. More length
-     *  is never evidence against. */
-    private fun lengthScore(lenDp: Float) = lenDp / (lenDp + 8f)
+    /** Saturating length confidence: 24dp scores .50, 72dp .75. More
+     *  length is never evidence against. */
+    private fun lengthScore(lenDp: Float) = lenDp / (lenDp + 24f)
 
     /** A lift ending a successor gesture is the delicate case: liftoff
      *  flicks fake a direction, so the score is discounted there. */
     private fun endFactor(reason: String) =
-        if (reason == "lift" && !firstGesture) 0.6f else 1f
+        if (reason == "lift" && !firstGesture) 0.8f else 1f
 
     /** Signed angle (degrees) of a vector relative to David's forward:
      *  positive is to his right, negative to his left, +-180 is backward. */
