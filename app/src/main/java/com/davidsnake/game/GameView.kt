@@ -74,7 +74,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private val jitterEps = 3f * density        // below this is "in place"
     private val stopMs = 150L                   // dwell that ends a gesture
     private val fireThreshold = 0.30f           // score to act on a gesture
-    private val cancelThreshold = 0.25f         // final score below this revokes
     private var anchorX = 0f                    // gesture start
     private var anchorY = 0f
     private var sampX = 0f                      // last polyline sample
@@ -93,10 +92,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gOutcome = ""                   // what this gesture fired
     private var gAngleAtFire = 0                // angle when it fired
     private var gFiredDir = NO_SWIPE            // direction it fired
-    private var gId = -1                        // engine effect id, for cancel
     private var gScore = 0f                     // latest score, for the log
     private var gRotLine = ""                   // rotation line, logged after
-    private var gCancel = ""                    // cancel line, logged after
     private var firstGesture = true             // no elbow/stop yet this touch
     private var gWasLive = false                // game was playing during it
     private var gStartT = 0L                    // gesture start time (ms)
@@ -403,9 +400,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         spent = false
         gOutcome = ""
         gRotLine = ""
-        gCancel = ""
         gFiredDir = NO_SWIPE
-        gId = -1
         gScore = 0f
         gPeakSpeed = 0f
         gPeakVX = 0f
@@ -427,7 +422,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (r.tag == "turn") gRotLine = rotLine(pre, dir, deq = false)
         gOutcome = dirName(dir) + resTag(r.tag)
         gFiredDir = dir
-        gId = r.id
         spent = true
         swiped = true
     }
@@ -464,13 +458,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             // segment (in the heading frame it fired in) with full length
             val aFinal = relAngle(gFwdX, gFwdY, gPeakVX, gPeakVY)
             gScore = angleScore(aFinal) * lengthScore(lenDp) * ef * sf
-            if (gScore < cancelThreshold && gId >= 0) {
-                val c = engine.cancelSwipe(gId)
-                if (c != "stale") {
-                    gCancel = "cancel ${dirName(gFiredDir)} (" +
-                        (if (c == "cancel-q") "q" else "rot") + ")"
-                }
-            }
         }
         if (gWasLive) logGesture(reason, endX, endY, endT)
     }
@@ -636,10 +623,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (gRotLine.isNotEmpty()) {
             dlog(gRotLine)
             gRotLine = ""
-        }
-        if (gCancel.isNotEmpty()) {
-            dlog(gCancel)
-            gCancel = ""
         }
     }
 
