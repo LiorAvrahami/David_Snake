@@ -104,8 +104,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     // decisive-motion and momentum gates (values chosen from the labeled
     // gesture dataset; see tools/eval_candidate.py)
-    private val speedLo = 150f                  // dp/s: no confidence below
-    private val speedHi = 350f                  // dp/s: full confidence above
+    private val speedLo = 110f                  // dp/s: no confidence below
+    private val speedHi = 380f                  // dp/s: full confidence above
     private val peakWinMs = 80L                 // peak-speed window
     private var gPeakSpeed = 0f                 // best windowed speed so far
     private var gFwdX = 0f                      // heading frame at fire time
@@ -497,9 +497,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return (d / 30f).coerceIn(0f, 1f)
     }
 
-    /** Saturating length confidence: 24dp scores .50, 72dp .75. More
+    /** Saturating length confidence: 16dp scores .50, 48dp .75. More
      *  length is never evidence against. */
-    private fun lengthScore(lenDp: Float) = lenDp / (lenDp + 24f)
+    private fun lengthScore(lenDp: Float) = lenDp / (lenDp + 16f)
 
     /** A lift ending a successor gesture is the delicate case: liftoff
      *  flicks fake a direction, so the score is discounted there. */

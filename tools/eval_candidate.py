@@ -7,8 +7,8 @@ import csv, math, re, os
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIRE, CANCEL, WIN = 0.30, 0.25, 80.0
-SPEED_LO, SPEED_HI = 150.0, 350.0
-K_OLD, K_NEW = 8.0, 24.0
+SPEED_LO, SPEED_HI = 110.0, 380.0
+K_OLD, K_NEW = 8.0, 16.0
 EF_OLD, EF_NEW = 0.6, 0.8
 
 BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
