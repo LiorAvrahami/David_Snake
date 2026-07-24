@@ -110,6 +110,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var gPeakSpeed = 0f                 // best windowed speed so far
     private var gPeakVX = 0f                    // that window's vector (dp):
     private var gPeakVY = 0f                    // the gesture's decisive segment
+    private var gFireBorn = false               // born at a fire boundary
+    private var gResVX = 0f                     // predecessor's fired segment:
+    private var gResVY = 0f                     // its residue can't be a peak
     private var gFwdX = 0f                      // heading frame at fire time
     private var gFwdY = -1f
 
@@ -339,7 +342,22 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                         val s = angleScore(a) *
                             lengthScore(hypot(gx, gy) / density) *
                             speedScore(gPeakSpeed)
-                        if (s >= fireThreshold) fire(dir, a, s, event.eventTime)
+                        if (s >= fireThreshold) {
+                            fire(dir, a, s, event.eventTime)
+                            // a recognized command is itself a boundary:
+                            // the rest of the motion is the next gesture,
+                            // free to fire a second command (U-turns)
+                            val rvx = gPeakVX
+                            val rvy = gPeakVY
+                            endGesture("fire", event.x, event.y, event.eventTime)
+                            finalizeTraj()
+                            newGesture(event.x, event.y)
+                            firstGesture = false
+                            gStartT = event.eventTime
+                            sampT = event.eventTime
+                            gFireBorn = true
+                            gResVX = rvx; gResVY = rvy
+                        }
                     }
                 }
                 return true
@@ -392,6 +410,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         gPeakSpeed = 0f
         gPeakVX = 0f
         gPeakVY = 0f
+        gFireBorn = false
         gFireT = 0L
     }
 
@@ -462,6 +481,16 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private fun speedScore(peak: Float) =
         ((peak - speedLo) / (speedHi - speedLo)).coerceIn(0f, 1f)
 
+    /** In a fire-born gesture, motion still pointing the way the previous
+     *  command fired is that command's residue (the rest of its pulse) and
+     *  must not become this gesture's decisive segment. */
+    private fun isResidue(dx: Float, dy: Float): Boolean {
+        if (!gFireBorn) return false
+        val dot = gResVX * dx + gResVY * dy
+        val cross = gResVX * dy - gResVY * dx
+        return abs(Math.toDegrees(atan2(cross.toDouble(), dot.toDouble()))) < 45.0
+    }
+
     /** Best displacement-over-span speed of any window of at least 80ms
      *  (shorter only at the very head of the gesture) ending at a recorded
      *  event. updatePeak folds in the newest event; recomputePeak rebuilds
@@ -478,7 +507,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             if (span >= peakWinMs) break
             i--
         }
-        if (span > 0) {
+        if (span > 0 && !isResidue(dx, dy)) {
             val sp = hypot(dx, dy) / (span / 1000f)
             if (sp > gPeakSpeed) {
                 gPeakSpeed = sp; gPeakVX = dx; gPeakVY = dy
@@ -503,7 +532,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 if (span >= peakWinMs) break
                 i--
             }
-            if (span > 0) {
+            if (span > 0 && !isResidue(dx, dy)) {
                 val sp = hypot(dx, dy) / (span / 1000f)
                 if (sp > gPeakSpeed) {
                     gPeakSpeed = sp; gPeakVX = dx; gPeakVY = dy
