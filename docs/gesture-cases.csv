@@ -29,3 +29,9 @@ g027,"stop +176° 78dp 384ms - .21 p318",yes
 g028,"stop -100° 109dp 80ms L! .86 p429",yes
 g029,"elbow +111° 17dp 171ms - .02 p162",yes
 g030,"stop -175° 128dp 168ms - .00 p1132",yes
+g031,"lift +88° 123dp 57ms R! .93 p1138",yes
+g032,"elbow -85° 86dp 99ms U! .91 p821",yes
+g033,"lift +96° 121dp 88ms - .00 p1535",yes
+g034,"lift +58° 140dp 96ms R! .94 p1290",yes
+g035,"elbow -97° 86dp 82ms U! .91 p937",yes
+g036,"lift +108° 136dp 142ms - .16 p1480",yes

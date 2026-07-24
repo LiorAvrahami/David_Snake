@@ -16,7 +16,9 @@ FIRE, CANCEL = 0.30, 0.25
 WIN = 80.0            # ms window for peak speed
 SPEED_LO, SPEED_HI = 150.0, 450.0    # dp/s: 0 below LO, 1 above HI
 LAUNCH_LO, LAUNCH_HI = 150.0, 400.0  # dp/s opening speed of elbow-born
-OPEN_MS = 50.0        # opening-speed measurement span
+OPEN_MS = 50.0        # v2 opening-speed measurement span
+OPEN_V3_MS = 15.0     # v3: first-event opening (short, pre-burst)
+LAUNCH_RATIO = 1.4    # v3: peak >= ratio x opening exonerates the launch
 
 # birth of each gesture (from the session logs); launch factor is only
 # meaningful for elbow births (momentum flows through an elbow vertex)
@@ -25,7 +27,9 @@ BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
          "g015": "stop", "g019": "stop", "g020": "elbow", "g021": "elbow",
          "g022": "stop", "g023": "stop", "g024": "elbow",
          "g025": "stop", "g026": "stop", "g027": "elbow",
-         "g028": "stop", "g029": "stop", "g030": "elbow"}
+         "g028": "stop", "g029": "stop", "g030": "elbow",
+         "g031": "down", "g032": "down", "g033": "elbow",
+         "g034": "down", "g035": "down", "g036": "elbow"}
 
 def parse_line(dl):
     toks = dl.split()
@@ -118,9 +122,9 @@ class Replay:
             best = max(best, d / (span / 1000.0))
         return best
 
-    def opening_speed(self):
+    def opening_speed(self, min_ms=OPEN_MS):
         j = 1
-        while j < self.n and self.t[j] < OPEN_MS: j += 1
+        while j < self.n and self.t[j] < min_ms: j += 1
         span = self.t[j]
         if span <= 0: return 0.0
         return math.hypot(*self.p[j]) / (span / 1000.0)
@@ -128,13 +132,20 @@ class Replay:
     def end_factor(self, candidate):
         return 0.6 if self.reason == "lift" and self.birth != "down" else 1.0
 
-    def launch_factor(self):
+    def launch_factor(self, v3=False, peak=None):
         if self.birth == "down": return 1.0
-        return clamp01((LAUNCH_HI - self.opening_speed()) / (LAUNCH_HI - LAUNCH_LO))
+        if not v3:
+            return clamp01((LAUNCH_HI - self.opening_speed()) / (LAUNCH_HI - LAUNCH_LO))
+        opening = self.opening_speed(OPEN_V3_MS)
+        if peak is not None and opening > 0 and peak >= LAUNCH_RATIO * opening:
+            return 1.0  # rose well above its opening: driven, not coasting
+        return clamp01((LAUNCH_HI - opening) / (LAUNCH_HI - LAUNCH_LO))
 
-    def simulate(self, candidate):
+    def simulate(self, candidate, v3=False):
         """returns (applied, fire_ms, final_score)"""
-        lf = self.launch_factor() if candidate else 1.0
+        def lf_at(j):
+            if not candidate: return 1.0
+            return self.launch_factor(v3, self.peak_speed_upto(j) if v3 else None)
         fire_j = None
         for j in range(1, self.n + 1):
             v = self.p[j]
@@ -142,7 +153,7 @@ class Replay:
             if abs(a) < 30 or math.hypot(*v) < 2: continue
             s = angle_score(a) * length_score(math.hypot(*v))
             if candidate:
-                s *= speed_score(self.peak_speed_upto(j)) * lf
+                s *= speed_score(self.peak_speed_upto(j)) * lf_at(j)
             if s >= FIRE:
                 fire_j = j
                 fire_a = a
@@ -156,12 +167,12 @@ class Replay:
             af = self.rel_angle(vf)
             if abs(af) < 30 or lenf < 2: return (False, None, 0.0)
             s = angle_score(af) * length_score(lenf) * ef
-            if candidate: s *= speed_score(peakf) * lf
+            if candidate: s *= speed_score(peakf) * lf_at(self.n)
             return (s >= FIRE, self.t[-1], s)
         # fired: final check
         if candidate:
             af = self.rel_angle(vf)          # the bug fix: fresh angle
-            s = angle_score(af) * length_score(lenf) * ef * speed_score(peakf) * lf
+            s = angle_score(af) * length_score(lenf) * ef * speed_score(peakf) * lf_at(self.n)
         else:
             s = angle_score(fire_a) * length_score(lenf) * ef
         return (s >= CANCEL, self.t[fire_j], s)
@@ -183,20 +194,22 @@ for gid in sorted(ids):
     applied_rec = fired_rec and not r.log_cancel
     b_app, b_ms, b_s = r.simulate(False)
     a_app, a_ms, a_s = r.simulate(True)
-    rows.append((gid, r.intended, applied_rec, b_app, a_app, a_ms))
+    c_app, c_ms, c_s = r.simulate(True, v3=True)
+    rows.append((gid, r.intended, applied_rec, b_app, a_app, c_app, a_ms))
     print(f"{gid:5} {str(r.intended):8} {r.peak_speed_upto(r.n):5.0f} "
-          f"{r.opening_speed():5.0f} | {str(applied_rec):>4} "
-          f"{str(b_app):>5} @{str(b_ms):>5} s={b_s:.2f} "
-          f"{str(a_app):>5} @{str(a_ms):>5} s={a_s:.2f}")
+          f"{r.opening_speed(OPEN_V3_MS):5.0f} | {str(applied_rec):>4} "
+          f"{str(b_app):>5} s={b_s:.2f} "
+          f"{str(a_app):>5} s={a_s:.2f} "
+          f"{str(c_app):>5} @{str(c_ms):>5} s={c_s:.2f}")
 
 def table(which):
     c = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
-    for gid, intended, rec, b, a, _ in rows:
-        c[label({"rec": rec, "b": b, "a": a}[which], intended)] += 1
+    for gid, intended, rec, b, a, c3, _ in rows:
+        c[label({"rec": rec, "b": b, "a": a, "c": c3}[which], intended)] += 1
     return c
 
 print()
-for name, which in [("BEFORE (recorded)", "rec"), ("BEFORE (simulated)", "b"),
-                    ("AFTER (candidate)", "a")]:
+for name, which in [("BEFORE (recorded)", "rec"), ("PRE-GATE (simulated)", "b"),
+                    ("V2 (live now)", "a"), ("V3 (ratio launch)", "c")]:
     c = table(which)
     print(f"{name}: TP={c['TP']} FP={c['FP']} TN={c['TN']} FN={c['FN']}")
