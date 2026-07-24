@@ -35,3 +35,6 @@ g033,"lift +96° 121dp 88ms - .00 p1535",yes
 g034,"lift +58° 140dp 96ms R! .94 p1290",yes
 g035,"elbow -97° 86dp 82ms U! .91 p937",yes
 g036,"lift +108° 136dp 142ms - .16 p1480",yes
+g037,"elbow +122° 179dp 85ms D! .12 p890",yes
+g038,"stop +148° 42dp 535ms - .00 p156",yes
+g039,"lift -146° 5dp 76ms - .00 p63",no

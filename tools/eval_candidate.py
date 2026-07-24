@@ -17,7 +17,8 @@ BIRTH = {"g006": "elbow", "g008": "stop", "g009": "stop", "g010": "stop",
          "g022": "stop", "g023": "stop", "g024": "elbow", "g025": "stop",
          "g026": "stop", "g027": "elbow", "g028": "stop", "g029": "stop",
          "g030": "elbow", "g031": "down", "g032": "down", "g033": "elbow",
-         "g034": "down", "g035": "down", "g036": "elbow"}
+         "g034": "down", "g035": "down", "g036": "elbow",
+         "g037": "stop", "g038": "elbow", "g039": "stop"}
 
 def parse_line(dl):
     toks = dl.split()
