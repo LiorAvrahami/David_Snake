@@ -91,6 +91,8 @@ class Replay:
                 return log_angle
             return log_angle + ang_diff(anchor, v)
         self.t = t
+        self.p = p
+        self.rel = rel
         self.ev = []       # candidate (peak-segment) view per event
         self.ev_old = []   # pre-gate (anchor-vector) view per event
         for j in range(1, self.n + 1):
@@ -119,19 +121,48 @@ class Replay:
             if not new: return 1.0
             return max(0.0, min(1.0, (pk - SPEED_LO) / (SPEED_HI - SPEED_LO)))
         lS = lambda l: l / (l + K)
-        ev = self.ev if new else self.ev_old
-        aSf = self.aSf if new else self.aSf_old
-        fire_ms = None
-        for j, (a, ln, pk) in enumerate(ev):
-            if a * lS(ln) * sf(pk) >= FIRE:
-                fire_ms = self.t[j + 1]
-                break
-        full = aSf * lS(self.lnf) * ef * sf(self.peakf)
-        if fire_ms is None:
-            return (full >= FIRE, None, full)
-        if self.t[-1] - fire_ms >= STEP_MS:
-            return (True, fire_ms, full)
-        return (full >= CANCEL, fire_ms, full)
+        if not new:
+            fire_ms = None
+            for j, (a, ln, pk) in enumerate(self.ev_old):
+                if a * lS(ln) * sf(pk) >= FIRE:
+                    fire_ms = self.t[j + 1]
+                    break
+            full = self.aSf_old * lS(self.lnf) * ef * sf(self.peakf)
+            if fire_ms is None:
+                return (full >= FIRE, None, full)
+            if self.t[-1] - fire_ms >= STEP_MS:
+                return (True, fire_ms, full)
+            return (full >= CANCEL, fire_ms, full)
+        # shipped model: fire is a boundary; residue of a fired segment
+        # cannot become the successor's decisive segment
+        t, p = self.t, self.p
+        fires = []
+        start = 0
+        best, bv = 0.0, (0.0, 0.0)
+        res = None
+        for j in range(1, self.n + 1):
+            i = j
+            while i > start and t[j] - t[i-1] < WIN: i -= 1
+            span = t[j] - t[i]
+            if span > 0:
+                v = (p[j][0]-p[i][0], p[j][1]-p[i][1])
+                d = math.hypot(*v)
+                residue = (res is not None and d > 0
+                           and abs(ang_diff(res, v)) < 45.0)
+                if not residue and d / (span/1000.0) > best:
+                    best, bv = d / (span/1000.0), v
+            gvec = (p[j][0]-p[start][0], p[j][1]-p[start][1])
+            ln = math.hypot(*gvec)
+            if ln >= 2 and best > 0:
+                a = self.rel(bv)
+                if abs(a) >= 30 and angle_score(a) * lS(ln) * sf(best) >= FIRE:
+                    fires.append(self.t[j])
+                    res, start = bv, j
+                    best, bv = 0.0, (0.0, 0.0)
+        if fires:
+            return (True, fires[0], float(len(fires)))
+        full = self.aSf * lS(self.lnf) * ef * sf(self.peakf)
+        return (full >= FIRE, None, full)
 
 cases, trajs = load()
 rows = []
