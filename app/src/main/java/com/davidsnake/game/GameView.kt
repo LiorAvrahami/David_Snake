@@ -641,7 +641,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         for ((_, dx, dy) in curTraj) total += hypot(dx, dy)
         if (total >= 3f && gWasLive) {
             recentTrajs.addLast(ArrayList(curTraj))
-            while (recentTrajs.size > 3) recentTrajs.removeFirst()
+            while (recentTrajs.size > 7) recentTrajs.removeFirst()
         }
         curTraj.clear()
     }
