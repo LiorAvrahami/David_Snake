@@ -108,6 +108,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private val speedHi = 380f                  // dp/s: full confidence above
     private val peakWinMs = 80L                 // peak-speed window
     private var gPeakSpeed = 0f                 // best windowed speed so far
+    private var gPeakVX = 0f                    // that window's vector (dp):
+    private var gPeakVY = 0f                    // the gesture's decisive segment
     private var gFwdX = 0f                      // heading frame at fire time
     private var gFwdY = -1f
 
@@ -326,10 +328,14 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 }
                 // One gesture, one direction change: after firing, the rest
                 // of this gesture is ignored until something ends it.
-                if (!spent && !topBand) {
-                    val dir = classifySwipe(gx, gy, minFloor)
+                if (!spent && !topBand &&
+                    hypot(gx, gy) >= minFloor && gPeakSpeed > 0f
+                ) {
+                    // the command is the gesture's fastest segment: its
+                    // direction steers David and its angle is scored
+                    val dir = classifySwipe(gPeakVX, gPeakVY, 0f)
                     if (dir != NO_SWIPE) {
-                        val a = angleFromForward(gx, gy)
+                        val a = angleFromForward(gPeakVX, gPeakVY)
                         val s = angleScore(a) *
                             lengthScore(hypot(gx, gy) / density) *
                             speedScore(gPeakSpeed)
@@ -384,6 +390,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         gId = -1
         gScore = 0f
         gPeakSpeed = 0f
+        gPeakVX = 0f
+        gPeakVY = 0f
         gFireT = 0L
     }
 
@@ -421,16 +429,21 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val ef = endFactor(reason)
         val sf = speedScore(gPeakSpeed)
         if (gOutcome.isEmpty()) {
-            val a = angleFromForward(gx, gy)
-            gScore = angleScore(a) * lengthScore(lenDp) * ef * sf
-            val dir = classifySwipe(gx, gy, minFloor)
-            if (dir != NO_SWIPE && !topBand && gScore >= fireThreshold) {
+            val a = if (gPeakSpeed > 0f)
+                angleFromForward(gPeakVX, gPeakVY) else 0
+            gScore = if (gPeakSpeed > 0f)
+                angleScore(a) * lengthScore(lenDp) * ef * sf else 0f
+            val dir = if (gPeakSpeed > 0f)
+                classifySwipe(gPeakVX, gPeakVY, 0f) else NO_SWIPE
+            if (dir != NO_SWIPE && !topBand && hypot(gx, gy) >= minFloor &&
+                gScore >= fireThreshold
+            ) {
                 fire(dir, a, gScore, endT)
             }
         } else {
-            // full-information verdict: judge the final vector, not the
-            // snapshot the gesture happened to fire on
-            val aFinal = relAngle(gFwdX, gFwdY, gx, gy)
+            // full-information verdict: judge the gesture's decisive
+            // segment (in the heading frame it fired in) with full length
+            val aFinal = relAngle(gFwdX, gFwdY, gPeakVX, gPeakVY)
             gScore = angleScore(aFinal) * lengthScore(lenDp) * ef * sf
             if (gScore < cancelThreshold && gId >= 0) {
                 val c = engine.cancelSwipe(gId)
@@ -465,11 +478,18 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             if (span >= peakWinMs) break
             i--
         }
-        if (span > 0) gPeakSpeed = maxOf(gPeakSpeed, hypot(dx, dy) / (span / 1000f))
+        if (span > 0) {
+            val sp = hypot(dx, dy) / (span / 1000f)
+            if (sp > gPeakSpeed) {
+                gPeakSpeed = sp; gPeakVX = dx; gPeakVY = dy
+            }
+        }
     }
 
     private fun recomputePeak() {
         gPeakSpeed = 0f
+        gPeakVX = 0f
+        gPeakVY = 0f
         val n = curTraj.size
         for (e in 0 until n) {
             var span = 0L
@@ -483,7 +503,12 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 if (span >= peakWinMs) break
                 i--
             }
-            if (span > 0) gPeakSpeed = maxOf(gPeakSpeed, hypot(dx, dy) / (span / 1000f))
+            if (span > 0) {
+                val sp = hypot(dx, dy) / (span / 1000f)
+                if (sp > gPeakSpeed) {
+                    gPeakSpeed = sp; gPeakVX = dx; gPeakVY = dy
+                }
+            }
         }
     }
 
@@ -570,7 +595,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val gy = endY - anchorY
         val len = (hypot(gx, gy) / density).toInt()
         if (len < 3 && gOutcome.isEmpty()) return  // taps and touch noise
-        val a = if (gOutcome.isEmpty()) angleFromForward(gx, gy) else gAngleAtFire
+        val a = if (gOutcome.isEmpty()) {
+            if (gPeakSpeed > 0f) angleFromForward(gPeakVX, gPeakVY) else 0
+        } else gAngleAtFire
         val sign = if (a >= 0) "+" else ""
         val sc = ".%02d".format((gScore * 100).toInt().coerceIn(0, 99))
         // time from the gesture's start until it was recognized and applied
