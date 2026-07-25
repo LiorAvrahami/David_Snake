@@ -68,50 +68,18 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     // still reads as one clean bend.
     private val density = context.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val minFloor = 6f * density         // noise floor to classify at all
-    private val estDist = 10f * density         // freezes the established dir
-    private val sampleDist = 6f * density       // polyline decimation step
-    private val jitterEps = 3f * density        // below this is "in place"
-    private val stopMs = 150L                   // dwell that ends a gesture
-    private val fireThreshold = 0.30f           // score to act on a gesture
-    private var anchorX = 0f                    // gesture start
-    private var anchorY = 0f
-    private var sampX = 0f                      // last polyline sample
-    private var sampY = 0f
-    private var sampT = 0L                      // when that sample was set
-    private var estX = 0f                       // established direction
-    private var estY = 0f
-    private var estSet = false
-    private var spent = false                   // this gesture already fired
-    private var swiped = false                  // anything fired this touch
-    private var stopRefX = 0f                   // stop-in-place watchdog
-    private var stopRefY = 0f
-    private var lastProgressT = 0L
+    private val ctrlWinMs = 120L                // sliding control window
+    private val ctrlMinSpeed = 250f             // dp/s average over the window
+    private val ctrlClearDeg = 10               // clearance past the 30-deg cone
     private var topBand = false                 // debug-toggle drag tracking
     private var downX = 0f
-    private var gOutcome = ""                   // what this gesture fired
-    private var gAngleAtFire = 0                // angle when it fired
-    private var gFiredDir = NO_SWIPE            // direction it fired
-    private var gScore = 0f                     // latest score, for the log
-    private var gRotLine = ""                   // rotation line, logged after
-    private var firstGesture = true             // no elbow/stop yet this touch
+    private var swiped = false                  // anything applied this stroke
     private var gWasLive = false                // game was playing during it
-    private var gStartT = 0L                    // gesture start time (ms)
-    private var gFireT = 0L                     // when it was recognized
-
-    // decisive-motion and momentum gates (values chosen from the labeled
-    // gesture dataset; see tools/eval_candidate.py)
-    private val speedLo = 110f                  // dp/s: no confidence below
-    private val speedHi = 380f                  // dp/s: full confidence above
-    private val peakWinMs = 80L                 // peak-speed window
-    private var gPeakSpeed = 0f                 // best windowed speed so far
-    private var gPeakVX = 0f                    // that window's vector (dp):
-    private var gPeakVY = 0f                    // the gesture's decisive segment
-    private var gFireBorn = false               // born at a fire boundary
-    private var gResVX = 0f                     // predecessor's fired segment:
-    private var gResVY = 0f                     // its residue can't be a peak
-    private var gFwdX = 0f                      // heading frame at fire time
-    private var gFwdY = -1f
+    private var strokeStartT = 0L               // finger-down time
+    private var strokeRot = 0                   // commands this stroke caused
+    private var strokePeak = 0f                 // best window speed (dp/s)
+    private var strokeHead = "?"                // heading letter at its start
+    private var lastQueuedDir = NO_SWIPE        // dedup queue log lines
 
     // raw finger trajectories (dp deltas per touch event) of the current
     // and the last 3 completed gestures; clipboard-only, never on screen
@@ -246,16 +214,16 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                firstGesture = true
-                newGesture(event.x, event.y)
-                gStartT = event.eventTime
-                sampT = event.eventTime
                 lastEvX = event.x
                 lastEvY = event.y
                 lastEvT = event.eventTime
                 curTraj.clear()
-                stopRefX = event.x; stopRefY = event.y
-                lastProgressT = event.eventTime
+                strokeStartT = event.eventTime
+                strokeRot = 0
+                strokePeak = 0f
+                strokeHead = dirName(engine.headDir)
+                lastQueuedDir = NO_SWIPE
+                gWasLive = engine.phase == GameEngine.Phase.PLAYING
                 swiped = false
                 topBand = event.y < height * 0.1f
                 downX = event.x
@@ -264,50 +232,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             MotionEvent.ACTION_MOVE -> {
                 if (event.y >= height * 0.1f) topBand = false
 
-                // (2) stop-in-place: if the finger made no real progress for
-                // a while and then moves again, the dwell ended the gesture.
-                if (hypot(event.x - stopRefX, event.y - stopRefY) >= jitterEps) {
-                    if (event.eventTime - lastProgressT >= stopMs) {
-                        // the dead wait belongs to neither gesture: the old
-                        // one ends where progress stopped, its trajectory is
-                        // trimmed there and the dwell deltas are dropped, and
-                        // the new one starts when the finger moves again (the
-                        // last touch sample before the confirming movement)
-                        endGesture("stop", stopRefX, stopRefY, lastProgressT)
-                        splitTraj(lastProgressT, keepTail = false)
-                        newGesture(stopRefX, stopRefY)
-                        firstGesture = false
-                        gStartT = lastEvT
-                        sampT = lastEvT
-                    }
-                    stopRefX = event.x; stopRefY = event.y
-                    lastProgressT = event.eventTime
-                }
-
-                // (3) elbow: on the decimated polyline, a stroke bending
-                // more than 60 degrees away from the gesture's established
-                // direction ends it -- the corner radius does not matter,
-                // because the reference direction is frozen, not a running
-                // average that drifts around the bend.
-                val mx = event.x - sampX
-                val my = event.y - sampY
-                if (hypot(mx, my) >= sampleDist) {
-                    if (estSet &&
-                        mx * estX + my * estY < 0.5f * hypot(mx, my) * hypot(estX, estY)
-                    ) {
-                        endGesture("elbow", sampX, sampY, sampT)
-                        splitTraj(sampT)
-                        newGesture(sampX, sampY)
-                        firstGesture = false
-                        gStartT = sampT
-                        recomputePeak()
-                    }
-                    sampX = event.x; sampY = event.y
-                    sampT = event.eventTime
-                }
-
                 // record the raw per-event finger delta for the trajectory
-                if (curTraj.size < 500) {
+                if (curTraj.size < 2000) {
                     curTraj.add(Triple(
                         event.eventTime - lastEvT,
                         (event.x - lastEvX) / density,
@@ -317,43 +243,48 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 lastEvX = event.x
                 lastEvY = event.y
                 lastEvT = event.eventTime
-                updatePeak()
-
                 if (engine.phase == GameEngine.Phase.PLAYING) gWasLive = true
 
-                val gx = event.x - anchorX
-                val gy = event.y - anchorY
-                if (!estSet && hypot(gx, gy) >= estDist) {
-                    estX = gx; estY = gy; estSet = true
+                // the whole recognizer: look at the last ctrlWinMs of the
+                // finger path; a window that is fast enough and clearly
+                // sideways or backwards IS a command, applied on the spot.
+                // The engine's own rules (one rotation per movement window,
+                // the depth-two queue, wall/tail/reversal blocks, ignoring
+                // the current direction) absorb repeats harmlessly.
+                var span = 0L
+                var wx = 0f
+                var wy = 0f
+                var i = curTraj.size - 1
+                while (i >= 0) {
+                    span += curTraj[i].first
+                    wx += curTraj[i].second
+                    wy += curTraj[i].third
+                    if (span >= ctrlWinMs) break
+                    i--
                 }
-                // One gesture, one direction change: after firing, the rest
-                // of this gesture is ignored until something ends it.
-                if (!spent && !topBand &&
-                    hypot(gx, gy) >= minFloor && gPeakSpeed > 0f
-                ) {
-                    // the command is the gesture's fastest segment: its
-                    // direction steers David and its angle is scored
-                    val dir = classifySwipe(gPeakVX, gPeakVY, 0f)
-                    if (dir != NO_SWIPE) {
-                        val a = angleFromForward(gPeakVX, gPeakVY)
-                        val s = angleScore(a) *
-                            lengthScore(hypot(gx, gy) / density) *
-                            speedScore(gPeakSpeed)
-                        if (s >= fireThreshold) {
-                            fire(dir, a, s, event.eventTime)
-                            // a recognized command is itself a boundary:
-                            // the rest of the motion is the next gesture,
-                            // free to fire a second command (U-turns)
-                            val rvx = gPeakVX
-                            val rvy = gPeakVY
-                            endGesture("fire", event.x, event.y, event.eventTime)
-                            finalizeTraj()
-                            newGesture(event.x, event.y)
-                            firstGesture = false
-                            gStartT = event.eventTime
-                            sampT = event.eventTime
-                            gFireBorn = true
-                            gResVX = rvx; gResVY = rvy
+                if (!topBand && span >= ctrlWinMs) {
+                    val sp = hypot(wx, wy) / (span / 1000f)
+                    if (sp > strokePeak) strokePeak = sp
+                    if (sp >= ctrlMinSpeed) {
+                        val a = angleFromForward(wx, wy)
+                        val dir = classifySwipe(wx, wy, 0f)
+                        if (abs(a) >= 30 + ctrlClearDeg && dir != NO_SWIPE) {
+                            val pre = engine.headDir
+                            val r = engine.onSwipe(dir)
+                            when (r.tag) {
+                                "turn" -> {
+                                    logRotation(pre, engine.headDir, deq = false)
+                                    strokeRot++
+                                    swiped = true
+                                    lastQueuedDir = NO_SWIPE
+                                }
+                                "queued" -> if (dir != lastQueuedDir) {
+                                    dlog("queue ${dirName(dir)}")
+                                    strokeRot++
+                                    swiped = true
+                                    lastQueuedDir = dir
+                                }
+                            }
                         }
                     }
                 }
@@ -374,9 +305,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     }
                     return true
                 }
-                // (1) the lift ends the gesture: full verdict, which may
-                // late-fire it or revoke its effect.
-                endGesture("lift", event.x, event.y, event.eventTime)
+                logStroke(event.eventTime)
                 finalizeTraj()
                 if (!swiped) {
                     if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
@@ -391,161 +320,22 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return super.onTouchEvent(event)
     }
 
-    /** Begin a fresh gesture at the given point (finger down / elbow / stop). */
-    private fun newGesture(ax: Float, ay: Float) {
-        anchorX = ax; anchorY = ay
-        gWasLive = engine.phase == GameEngine.Phase.PLAYING
-        sampX = ax; sampY = ay
-        estSet = false
-        spent = false
-        gOutcome = ""
-        gRotLine = ""
-        gFiredDir = NO_SWIPE
-        gScore = 0f
-        gPeakSpeed = 0f
-        gPeakVX = 0f
-        gPeakVY = 0f
-        gFireBorn = false
-        gFireT = 0L
+    /** One summary line per stroke (finger down to lift): heading at its
+     *  start, net length, duration, how many commands it caused, and its
+     *  best window speed. */
+    private fun logStroke(endT: Long) {
+        if (!gWasLive) return
+        var nx = 0f
+        var ny = 0f
+        for ((_, dx, dy) in curTraj) { nx += dx; ny += dy }
+        val len = hypot(nx, ny).toInt()
+        val ms = (endT - strokeStartT).coerceAtLeast(0)
+        dlog("stroke $strokeHead ${len}dp ${ms}ms x$strokeRot p${strokePeak.toInt()}")
     }
 
-    /** Act on a gesture: rotate now or queue, and remember the effect id
-     *  so the ending verdict can still revoke it. */
-    private fun fire(dir: Int, angle: Int, score: Float, atT: Long) {
-        val f = forward()
-        gFwdX = f.first; gFwdY = f.second
-        gAngleAtFire = angle
-        gScore = score
-        gFireT = atT
-        val pre = engine.headDir
-        val r = engine.onSwipe(dir)
-        if (r.tag == "turn") gRotLine = rotLine(pre, dir, deq = false)
-        gOutcome = dirName(dir) + resTag(r.tag)
-        gFiredDir = dir
-        spent = true
-        swiped = true
-    }
 
-    /**
-     * Final verdict for a completed gesture, now that its ending is known:
-     *  - if it never fired, this is its last chance (late-fire), with the
-     *    ending factored into the score;
-     *  - if it fired, re-score it; a score that sank below the cancel
-     *    threshold revokes its effect -- but only while the engine still
-     *    holds it uncommitted (no movement was caused by it yet).
-     * Then its line (plus rotation / cancel lines) goes to the log.
-     */
-    private fun endGesture(reason: String, endX: Float, endY: Float, endT: Long) {
-        val gx = endX - anchorX
-        val gy = endY - anchorY
-        val lenDp = hypot(gx, gy) / density
-        val ef = endFactor(reason)
-        val sf = speedScore(gPeakSpeed)
-        if (gOutcome.isEmpty()) {
-            val a = if (gPeakSpeed > 0f)
-                angleFromForward(gPeakVX, gPeakVY) else 0
-            gScore = if (gPeakSpeed > 0f)
-                angleScore(a) * lengthScore(lenDp) * ef * sf else 0f
-            val dir = if (gPeakSpeed > 0f)
-                classifySwipe(gPeakVX, gPeakVY, 0f) else NO_SWIPE
-            if (dir != NO_SWIPE && !topBand && hypot(gx, gy) >= minFloor &&
-                gScore >= fireThreshold
-            ) {
-                fire(dir, a, gScore, endT)
-            }
-        } else {
-            // full-information verdict: judge the gesture's decisive
-            // segment (in the heading frame it fired in) with full length
-            val aFinal = relAngle(gFwdX, gFwdY, gPeakVX, gPeakVY)
-            gScore = angleScore(aFinal) * lengthScore(lenDp) * ef * sf
-        }
-        if (gWasLive) logGesture(reason, endX, endY, endT)
-    }
 
-    /** Decisive-motion gate: no confidence below speedLo dp/s of windowed
-     *  peak speed, full confidence above speedHi. Slow drifts never
-     *  contain a fast moment; commands do. */
-    private fun speedScore(peak: Float) =
-        ((peak - speedLo) / (speedHi - speedLo)).coerceIn(0f, 1f)
 
-    /** In a fire-born gesture, motion still pointing the way the previous
-     *  command fired is that command's residue (the rest of its pulse) and
-     *  must not become this gesture's decisive segment. */
-    private fun isResidue(dx: Float, dy: Float): Boolean {
-        if (!gFireBorn) return false
-        val dot = gResVX * dx + gResVY * dy
-        val cross = gResVX * dy - gResVY * dx
-        return abs(Math.toDegrees(atan2(cross.toDouble(), dot.toDouble()))) < 45.0
-    }
-
-    /** Best displacement-over-span speed of any window of at least 80ms
-     *  (shorter only at the very head of the gesture) ending at a recorded
-     *  event. updatePeak folds in the newest event; recomputePeak rebuilds
-     *  after an elbow split carries a trajectory tail over. */
-    private fun updatePeak() {
-        var span = 0L
-        var dx = 0f
-        var dy = 0f
-        var i = curTraj.size - 1
-        while (i >= 0) {
-            span += curTraj[i].first
-            dx += curTraj[i].second
-            dy += curTraj[i].third
-            if (span >= peakWinMs) break
-            i--
-        }
-        if (span > 0 && !isResidue(dx, dy)) {
-            val sp = hypot(dx, dy) / (span / 1000f)
-            if (sp > gPeakSpeed) {
-                gPeakSpeed = sp; gPeakVX = dx; gPeakVY = dy
-            }
-        }
-    }
-
-    private fun recomputePeak() {
-        gPeakSpeed = 0f
-        gPeakVX = 0f
-        gPeakVY = 0f
-        val n = curTraj.size
-        for (e in 0 until n) {
-            var span = 0L
-            var dx = 0f
-            var dy = 0f
-            var i = e
-            while (i >= 0) {
-                span += curTraj[i].first
-                dx += curTraj[i].second
-                dy += curTraj[i].third
-                if (span >= peakWinMs) break
-                i--
-            }
-            if (span > 0 && !isResidue(dx, dy)) {
-                val sp = hypot(dx, dy) / (span / 1000f)
-                if (sp > gPeakSpeed) {
-                    gPeakSpeed = sp; gPeakVX = dx; gPeakVY = dy
-                }
-            }
-        }
-    }
-
-    /** Confidence that the angle meant a turn or reversal: its distance
-     *  from the classification boundaries (30 and 150 degrees from
-     *  forward), saturating 30 degrees away. Ambiguity costs points, not
-     *  obliqueness -- a 180 gesture is a perfectly clear reversal. */
-    private fun angleScore(aDeg: Int): Float {
-        val a = kotlin.math.abs(aDeg).toFloat()
-        val d = if (a > 150f) a - 150f else minOf(a - 30f, 150f - a)
-        return (d / 30f).coerceIn(0f, 1f)
-    }
-
-    /** Saturating length confidence: 16dp scores .50, 48dp .75. More
-     *  length is never evidence against. */
-    private fun lengthScore(lenDp: Float) = lenDp / (lenDp + 16f)
-
-    /** A lift ending a successor gesture is the delicate case: liftoff
-     *  flicks fake a direction, so the score is discounted there. */
-    private fun endFactor(reason: String) =
-        if (reason == "lift" && !firstGesture) 0.8f else 1f
 
     /** Signed angle (degrees) of a vector relative to David's forward:
      *  positive is to his right, negative to his left, +-180 is backward. */
@@ -567,15 +357,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return relAngle(f.first, f.second, dx, dy)
     }
 
-    private fun resTag(res: String) = when (res) {
-        "turn" -> "!"      // rotated instantly
-        "queued" -> "q"    // took the queue slot
-        "rev-block" -> "x" // reversal blocked by the tail
-        "wall-block" -> "w"// turn faced the wall: disregarded
-        "tail-block" -> "t"// turn faced mid-tail: disregarded
-        "same" -> "="      // already that heading
-        else -> "."        // engine not playing
-    }
 
     private fun compass(d: Int) = when (d) {
         GameEngine.UP -> "north"
@@ -601,30 +382,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         dlog(rotLine(from, to, deq))
     }
 
-    /** One line per completed gesture: the reason it completed (elbow /
-     *  stop / lift), signed angle from forward, length in dp, and what it
-     *  fired ("-" if nothing). Fired gestures report the angle at the
-     *  moment they fired, since firing rotates the reference frame. */
-    private fun logGesture(reason: String, endX: Float, endY: Float, endT: Long) {
-        if (!debugMode) return
-        val gx = endX - anchorX
-        val gy = endY - anchorY
-        val len = (hypot(gx, gy) / density).toInt()
-        if (len < 3 && gOutcome.isEmpty()) return  // taps and touch noise
-        val a = if (gOutcome.isEmpty()) {
-            if (gPeakSpeed > 0f) angleFromForward(gPeakVX, gPeakVY) else 0
-        } else gAngleAtFire
-        val sign = if (a >= 0) "+" else ""
-        val sc = ".%02d".format((gScore * 100).toInt().coerceIn(0, 99))
-        // time from the gesture's start until it was recognized and applied
-        // (for gestures that never fired: until it ended)
-        val ms = ((if (gFireT > 0L) gFireT else endT) - gStartT).coerceAtLeast(0)
-        dlog("$reason $sign$a° ${len}dp ${ms}ms ${gOutcome.ifEmpty { "-" }} $sc p${gPeakSpeed.toInt()}")
-        if (gRotLine.isNotEmpty()) {
-            dlog(gRotLine)
-            gRotLine = ""
-        }
-    }
 
     private fun dirName(d: Int) = when (d) {
         GameEngine.UP -> "U"
@@ -656,22 +413,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         }
     }
 
-    /** Split the trajectory at a boundary vertex. The predecessor keeps and
-     *  finalizes everything up to the vertex; deltas after it either open
-     *  the successor's trajectory (elbow: every delta belongs to one side)
-     *  or are dropped (stop: the dead wait belongs to neither gesture). */
-    private fun splitTraj(vertexT: Long, keepTail: Boolean = true) {
-        var k = curTraj.size
-        var tailDur = 0L
-        while (k > 0 && lastEvT - tailDur > vertexT) {
-            tailDur += curTraj[k - 1].first
-            k--
-        }
-        val tail = ArrayList(curTraj.subList(k, curTraj.size))
-        while (curTraj.size > k) curTraj.removeAt(curTraj.size - 1)
-        finalizeTraj()
-        if (keepTail) curTraj.addAll(tail)
-    }
 
     /** Move the finished gesture's trajectory into the last-3 ring; taps
      *  and touch noise (under 3dp of total path) are not kept. */

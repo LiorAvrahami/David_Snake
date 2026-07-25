@@ -26,6 +26,11 @@ def parse_line(dl):
     """reason, angle_deg, len_dp, ms (or None), outcome, score (or None)"""
     toks = dl.split()
     reason = toks[0]
+    if reason == "stroke":
+        # stroke <heading> <len>dp <ms>ms x<commands> p<peak>
+        # duration always spans the whole stroke, so the unfired timing
+        # rule (trajectory should match ms) applies regardless of firing
+        return reason, 0, int(toks[2].rstrip("dp")), int(toks[3].rstrip("ms")), "-", None
     angle = int(toks[1].rstrip("\u00b0"))
     length = int(toks[2].rstrip("dp"))
     ms = None
