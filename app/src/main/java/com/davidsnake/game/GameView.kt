@@ -70,7 +70,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val ctrlWinMs = 120L                // sliding control window
     private val ctrlMinSpeed = 250f             // dp/s average over the window
-    private val ctrlClearDeg = 10               // clearance past the 30-deg cone
+    private val ctrlTurnDeg = 25                // off-forward degrees = a turn
     private var topBand = false                 // debug-toggle drag tracking
     private var downX = 0f
     private var swiped = false                  // anything applied this stroke
@@ -266,9 +266,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     val sp = hypot(wx, wy) / (span / 1000f)
                     if (sp > strokePeak) strokePeak = sp
                     if (sp >= ctrlMinSpeed) {
+                        // one boundary, one number: within ctrlTurnDeg of
+                        // forward means "still going forward"; past it the
+                        // side of the angle picks the turn, and past 150
+                        // it is a reversal (blocked by the engine while
+                        // there is a tail)
                         val a = angleFromForward(wx, wy)
-                        val dir = classifySwipe(wx, wy, 0f)
-                        if (abs(a) >= 30 + ctrlClearDeg && dir != NO_SWIPE) {
+                        if (abs(a) >= ctrlTurnDeg) {
+                            val dir = if (abs(a) > 150) (engine.headDir + 2) % 4
+                                      else turnDir(a > 0)
                             val pre = engine.headDir
                             val r = engine.onSwipe(dir)
                             when (r.tag) {
@@ -450,30 +456,13 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return true
     }
 
-    /**
-     * Estimate what the segment direction asks of David, relative to his
-     * heading. Within about 30 degrees of straight ahead: nothing to do.
-     * More than that off-axis: turn toward the perpendicular component
-     * (turn-biased, since diagonals almost always mean a turn). Within
-     * about 30 degrees of straight back: a reversal attempt, which the
-     * engine honors only while there is no tail (original rule).
-     */
-    private fun classifySwipe(dx: Float, dy: Float, minDist: Float): Int {
-        if (hypot(dx, dy) < minDist) return NO_SWIPE
-        val horizontal =
-            engine.headDir == GameEngine.LEFT || engine.headDir == GameEngine.RIGHT
-        val perp = if (horizontal) dy else dx
-        val para = if (horizontal) dx else dy
-        if (abs(perp) >= 0.577f * abs(para)) {
-            return if (horizontal) {
-                if (perp > 0) GameEngine.DOWN else GameEngine.UP
-            } else {
-                if (perp > 0) GameEngine.RIGHT else GameEngine.LEFT
-            }
-        }
-        val forward =
-            engine.headDir == GameEngine.RIGHT || engine.headDir == GameEngine.DOWN
-        return if ((para > 0) != forward) (engine.headDir + 2) % 4 else NO_SWIPE
+    /** The screen direction of a turn to David's right (clockwise) or
+     *  left (counter-clockwise) of his current heading. */
+    private fun turnDir(right: Boolean): Int = when (engine.headDir) {
+        GameEngine.RIGHT -> if (right) GameEngine.DOWN else GameEngine.UP
+        GameEngine.LEFT -> if (right) GameEngine.UP else GameEngine.DOWN
+        GameEngine.DOWN -> if (right) GameEngine.LEFT else GameEngine.RIGHT
+        else -> if (right) GameEngine.RIGHT else GameEngine.LEFT
     }
 }
 

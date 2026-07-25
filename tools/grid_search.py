@@ -54,7 +54,7 @@ class Case:
         s.rel = (lambda v, anchor=anchor, la=la:
                  la if abs(anchor[0])+abs(anchor[1]) < 1e-6 else la + ad(anchor, v))
 
-    def triggers(s, W, vmin, c):
+    def triggers(s, W, vmin, T):
         t, p = s.t, s.p
         for j in range(1, s.n + 1):
             i = j
@@ -64,14 +64,14 @@ class Case:
             if span < W: continue
             v = (p[j][0]-p[i][0], p[j][1]-p[i][1])
             if math.hypot(*v)/(span/1000.0) < vmin: continue
-            if abs(s.rel(v)) >= 30 + c:
+            if abs(s.rel(v)) >= T:
                 return True
         return False
 
 CASES = [Case(g) for g in sorted(trajs) if g in cases]
 INT = [x.intended for x in CASES]
-GRID = [(W, vm, c) for W in (40, 60, 80, 100, 120, 140, 160)
-        for vm in range(100, 701, 50) for c in (0, 5, 10, 15, 20, 25)]
+GRID = [(W, vm, T) for W in (40, 60, 80, 100, 120, 140, 160)
+        for vm in range(100, 701, 50) for T in (15, 20, 25, 30, 35, 40, 45, 55)]
 M = [[x.triggers(*g) for g in GRID] for x in CASES]
 
 def err(k, ex=None):
@@ -93,7 +93,7 @@ for want in sorted(set((r[1], r[2]) for r in sel)):
     miss = [CASES[i].gid + ("(FP)" if M[i][k] else "(FN)")
             for i in range(len(CASES)) if M[i][k] != INT[i]]
     print(f"  FP={want[0]} FN={want[1]}: {len(grp)} configs, "
-          f"W={sorted(set(dims[0]))} vmin={sorted(set(dims[1]))} C={sorted(set(dims[2]))}")
+          f"W={sorted(set(dims[0]))} vmin={sorted(set(dims[1]))} T={sorted(set(dims[2]))}")
     print(f"    example {grp[len(grp)//2]} misses {miss}")
 loo = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
 for i in range(len(CASES)):

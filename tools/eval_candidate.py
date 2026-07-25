@@ -10,7 +10,7 @@ stroke start (turns during a stroke are approximated away)."""
 import csv, math, re, os
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WIN, VMIN, CLEAR = 120.0, 250.0, 10.0
+WIN, VMIN, TURN = 120.0, 250.0, 25.0
 FWD = {"R": (1.0, 0.0), "L": (-1.0, 0.0), "D": (0.0, 1.0), "U": (0.0, -1.0)}
 FWD_OVERRIDE = {"g040": (0.0, 1.0)}  # heading known from session context
 
@@ -70,7 +70,7 @@ class Replay:
             if span < WIN: continue
             v = (p[j][0]-p[i][0], p[j][1]-p[i][1])
             if math.hypot(*v)/(span/1000.0) < VMIN: continue
-            if abs(s.rel(v)) >= 30 + CLEAR:
+            if abs(s.rel(v)) >= TURN:
                 return t[j]
         return None
 
