@@ -70,7 +70,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val ctrlWinMs = 120L                // sliding control window
     private val ctrlMinSpeed = 250f             // dp/s average over the window
-    private val ctrlTurnDeg = 25                // off-forward degrees = a turn
+    private val ctrlTurnDeg = 30                // off-forward degrees = a turn
     private var topBand = false                 // debug-toggle drag tracking
     private var downX = 0f
     private var swiped = false                  // anything applied this stroke
