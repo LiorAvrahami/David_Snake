@@ -18,5 +18,5 @@
     <string name="best">Best: %1$d</string>
     <string name="final_score">Notes: %1$d · Best: %2$d</string>
     <string name="save_file">Save file</string>
-    <string name="saved_to">Saved: %1$s\nNext games go to a new file.</string>
+    <string name="saved_to">Saved everything since the app was opened:\n%1$s</string>
 </resources>

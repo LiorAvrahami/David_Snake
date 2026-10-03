@@ -53,10 +53,11 @@ and counts the games.
   happened: a turn you did not want (pick which of the last four turns),
   no turn when you wanted one (pick the direction), or a turn the wrong
   way (both). It resumes after a 3-2-1 countdown.
-- Every game is appended to
-  `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`. On the lose
-  screen, *Save file* closes that file (ready to send) and later games go
-  to a new one. Analyze with `python3 tools/lab_report.py FILE`.
+- Each app run records into one file,
+  `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, holding
+  everything since the app was opened; every game is written to it as it
+  ends. *Save file* on the lose screen writes out the rest right away.
+  Analyze with `python3 tools/lab_report.py FILE`.
 
 Turning debug mode on again resumes the test.
 

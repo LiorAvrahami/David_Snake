@@ -17,5 +17,5 @@
     <string name="best">שיא: %1$d</string>
     <string name="final_score">תווים: %1$d · שיא: %2$d</string>
     <string name="save_file">שמור קובץ</string>
-    <string name="saved_to">נשמר: %1$s\nהמשחקים הבאים ייכנסו לקובץ חדש.</string>
+    <string name="saved_to">נשמר כל מה שקרה מאז פתיחת האפליקציה:\n%1$s</string>
 </resources>

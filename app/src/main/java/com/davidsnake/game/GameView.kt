@@ -239,11 +239,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     /** A recorded test is going on (debug mode on). */
     val recording: Boolean get() = debugMode && lab.running
 
-    /** Lose-screen button: close the test file, later games go to a new
-     *  one. Returns where the closed file is. */
-    fun saveFile(): String {
-        return lab.saveAndRotate(sessionHeader(), version)
-    }
+    /** Lose-screen button: write out everything recorded since the app
+     *  was opened. Returns where the file is. */
+    fun saveFile(): String = lab.save()
 
     /** App going to the background: write out what we have. */
     fun onPauseApp() {
@@ -389,9 +387,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         session.debug = debugMode
         if (debugMode) {
             dlog("debug on")
-            if (!lab.running) {
-                lab.startNew(sessionHeader(), version)
-            }
+            if (!lab.running) lab.startNew()
+            lab.ensureFile(sessionHeader(), version)
         } else {
             session.abortPlay(SystemClock.uptimeMillis(), "debug off")
             lab.flush()

@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
     private lateinit var saveButton: TextView
+    private var loseText = ""
 
     private lateinit var prefs: SharedPreferences
 
@@ -134,8 +135,7 @@ class MainActivity : Activity() {
         saveButton.background = sbg
         saveButton.setOnClickListener {
             val where = gameView.saveFile()
-            saveButton.visibility = View.GONE
-            subtitleView.text = subtitleView.text.toString() + "\n\n" + getString(R.string.saved_to, where)
+            subtitleView.text = loseText + "\n\n" + getString(R.string.saved_to, where)
         }
         val lp = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -290,6 +290,7 @@ class MainActivity : Activity() {
                 titleView.text = getString(R.string.you_lost)
                 var sub = getString(R.string.final_score, score, gameView.bestScore) +
                     "\n" + getString(R.string.try_again)
+                loseText = sub
                 subtitleView.text = sub
                 saveButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
             }

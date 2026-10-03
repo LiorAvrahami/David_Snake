@@ -18,10 +18,11 @@ import java.util.concurrent.Executors
  * The input A/B test that runs in debug mode: which arm the next game
  * uses, how many plays are done, and the test file in Downloads.
  *
- * Lines are buffered in memory and appended to the file at every flush
- * (game start and end, each flag, app pause), so a crash loses at most
- * the game in progress. Progress survives app restarts; turning debug
- * mode on resumes the test (of the current plan), or starts a new one.
+ * Each app run writes one file, holding everything recorded since the app
+ * was opened. Lines are buffered in memory and appended to it at every
+ * flush (game start and end, each flag, Save, app pause), so a crash loses
+ * at most the game in progress. The test's game count survives app
+ * restarts; turning debug mode on resumes it (if the plan is unchanged).
  */
 class InputLab(private val ctx: Context) {
 
@@ -44,18 +45,30 @@ class InputLab(private val ctx: Context) {
     /** Arm of the next game to start. */
     fun nextArm(): Arm = if (running) Arms.armAt(playsDone) else Arms.DEFAULT
 
-    /** Begin a fresh test file with [header] as its first line. */
-    fun startNew(header: String, version: String) {
-        val stamp = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date())
-        val name = "DavidSnake_InputLab_v${version}_$stamp.txt"
+    /** Start a new test: the game count goes back to 0. */
+    fun startNew() {
         prefs.edit().clear()  // forget any older test
             .putBoolean(K_ACTIVE, true)
             .putString(K_PLAN, PLAN)
-            .putString(K_NAME, name)
-            .putString(K_HEADER, header)
             .putInt(K_PLAYS, 0)
             .apply()
-        synchronized(pending) { pending.setLength(0) }
+    }
+
+    /** This app run's file is open: one file per app run, so it holds
+     *  everything recorded since the app was opened. */
+    private var fileOpen = false
+
+    /** Open this app run's file (once), with [header] as its first line. */
+    fun ensureFile(header: String, version: String) {
+        if (fileOpen) return
+        fileOpen = true
+        val stamp = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US).format(Date())
+        val name = "DavidSnake_InputLab_v${version}_$stamp.txt"
+        prefs.edit()
+            .putString(K_NAME, name)
+            .putString(K_HEADER, header)
+            .putString(K_WHERE, "Downloads/$name")
+            .apply()
         io.execute { create(name, header) }
     }
 
@@ -68,17 +81,10 @@ class InputLab(private val ctx: Context) {
         prefs.edit().putInt(K_PLAYS, playsDone + 1).apply()
     }
 
-    /** Close the current file (everything so far is written to it) and
-     *  send later games to a new one; the test goes on. Returns where the
-     *  closed file is. */
-    fun saveAndRotate(header: String, version: String): String {
-        val closed = fileLocation
+    /** Write out everything recorded so far; returns where the file is. */
+    fun save(): String {
         flush()
-        val stamp = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US).format(Date())
-        val name = "DavidSnake_InputLab_v${version}_$stamp.txt"
-        prefs.edit().putString(K_NAME, name).putString(K_HEADER, header).apply()
-        io.execute { create(name, header) }
-        return closed
+        return fileLocation
     }
 
     fun flush() {
