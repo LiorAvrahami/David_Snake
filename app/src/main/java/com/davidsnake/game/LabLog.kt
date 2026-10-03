@@ -3,30 +3,42 @@ package com.davidsnake.game
 /**
  * One input-test arm: a recognizer plus the engine's turn execution.
  */
-class Arm(val name: String, val mode: GameEngine.TurnMode, val make: () -> Recognizer)
+class Arm(
+    val name: String,
+    val mode: GameEngine.TurnMode,
+    /** The U-turn's second turn waits for the first one's step. */
+    val holdUTurn: Boolean = false,
+    val make: () -> Recognizer
+)
 
 object Arms {
     val ORIGINAL = Arm("O-ORIGINAL", GameEngine.TurnMode.STEP) { OriginalRecognizer() }
     val PLUS = Arm("O-PLUS", GameEngine.TurnMode.STEP_SAFE) { OriginalRecognizer(plus = true) }
-    val PLUS28 = Arm("O-PLUS-28", GameEngine.TurnMode.STEP_SAFE) {
+    val HOLD_UTURN = Arm("O-HOLD-UTURN", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
+        OriginalRecognizer(plus = true)
+    }
+    val HOLD_ALL = Arm("O-HOLD-ALL", GameEngine.TurnMode.STEP_WAIT) { OriginalRecognizer(plus = true) }
+    val PLUS28 = Arm("O-PLUS-28", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
         OriginalRecognizer(plus = true, threshold = 28f)
     }
     val SMART_STEP = Arm("S-STEP", GameEngine.TurnMode.STEP_SAFE) { SmartRecognizer() }
-    val SMART2 = Arm("S2-STEP", GameEngine.TurnMode.STEP_SAFE) { SmartRecognizer(v2 = true) }
+    val SMART2 = Arm("S2-STEP", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
+        SmartRecognizer(v2 = true)
+    }
     val SMART_SCHED = Arm("S-SCHED", GameEngine.TurnMode.SCHED) { SmartRecognizer() }
 
-    /** Normal play, outside a test. Chosen by test 1 (v1.1.50): the
-     *  original input won; its only flagged failures were blocked backward
-     *  swipes, now U-turns. */
-    val DEFAULT = PLUS
+    /** Normal play, outside a test: the original input (test 1's winner)
+     *  with U-turns, whose second step waits for the first (O-PLUS made
+     *  both steps at once: a diagonal jump). */
+    val DEFAULT = HOLD_UTURN
 
-    /** Test 2: the default, the same with 28dp chunks (earlier turns, a
-     *  few more of them), and S2 (test 1's fast reader with its flagged
-     *  failures fixed). Latin square, three games each. */
+    /** Test 2, three games each, Latin square: the two ways to stop the
+     *  diagonal jump (hold only the U-turn's second turn / hold any quick
+     *  second turn), 28dp turns, and S2 (test 1's fast reader, fixed). */
     val ORDER = listOf(
-        PLUS, PLUS28, SMART2,
-        PLUS28, SMART2, PLUS,
-        SMART2, PLUS, PLUS28
+        HOLD_UTURN, HOLD_ALL, PLUS28, SMART2,
+        HOLD_ALL, PLUS28, SMART2, HOLD_UTURN,
+        PLUS28, SMART2, HOLD_UTURN, HOLD_ALL
     )
     const val PLAYS_PER_ARM = 3
 

@@ -408,7 +408,7 @@ fun main() {
 
     // 10c) Random soak of both STEP modes: invariants hold; STEP_SAFE input
     //      itself never kills and never turns straight into the tail.
-    for (mode in listOf(GameEngine.TurnMode.STEP, GameEngine.TurnMode.STEP_SAFE)) {
+    for (mode in listOf(GameEngine.TurnMode.STEP, GameEngine.TurnMode.STEP_SAFE, GameEngine.TurnMode.STEP_WAIT)) {
         val e = GameEngine(Random(5))
         e.turnMode = mode
         e.tapAction()
@@ -425,8 +425,8 @@ fun main() {
                     else if (abs(dx) >= abs(dy)) (if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT)
                     else (if (dy > 0) GameEngine.DOWN else GameEngine.UP)
                 val r = e.onSwipe(d)
-                if (r.tag == "step" || r.tag == "flush" || r.tag == "re-aim") turns++
-                if (mode == GameEngine.TurnMode.STEP_SAFE) {
+                if (r.tag == "step" || r.tag == "flush" || r.tag == "re-aim" || r.tag == "rotate") turns++
+                if (mode != GameEngine.TurnMode.STEP) {
                     check(e.phase == GameEngine.Phase.PLAYING, "STEP_SAFE input killed (r=${r.tag})")
                     if (r.tag == "step" || r.tag == "re-aim" || r.tag == "flush") {
                         check(e.room(e.headDir, 1) > 0 ||
@@ -442,6 +442,38 @@ fun main() {
         check(games > 5 && turns > 1000, "soak too small (games=$games turns=$turns)")
         println("$mode soak OK: $games games, $turns turns")
     }
+
+    // 10d) Held turns: a second quick turn waits for the first turn's step
+    //      (STEP_WAIT always, STEP_SAFE when asked), so both steps show.
+    for (mode in listOf(GameEngine.TurnMode.STEP_WAIT, GameEngine.TurnMode.STEP_SAFE)) {
+        val e = GameEngine(Random(1))
+        e.turnMode = mode
+        e.tapAction()
+        check(e.onSwipe(GameEngine.RIGHT).tag == "step", "$mode first turn not a step")
+        val r = e.onSwipe(GameEngine.UP, hold = mode == GameEngine.TurnMode.STEP_SAFE)
+        check(r.tag == "queued" && e.headX == 10, "$mode second turn not held (r=${r.tag})")
+        e.tick()
+        check(e.headX == 11 && e.headY == 6 && e.headDir == GameEngine.UP, "$mode held turn wrong after its step")
+        repeat(3) { e.tick() }
+        check(e.headX == 11 && e.headY == 6, "$mode held turn moved early (${e.headX},${e.headY})")
+        e.tick()
+        check(e.headX == 11 && e.headY == 5, "$mode held turn's step missing (${e.headX},${e.headY})")
+    }
+    run {
+        // STEP_WAIT: a turn right after a turn's step only turns the head
+        val e = GameEngine(Random(1))
+        e.turnMode = GameEngine.TurnMode.STEP_WAIT
+        e.tapAction()
+        e.onSwipe(GameEngine.RIGHT); e.tick()
+        check(e.headX == 11, "setup")
+        check(e.onSwipe(GameEngine.DOWN).tag == "rotate" && e.headX == 11 && e.headY == 6, "not a head turn")
+        repeat(3) { e.tick() }
+        check(e.headY == 6, "moved off the beat")
+        e.tick()
+        check(e.headX == 11 && e.headY == 7, "beat step missing (${e.headX},${e.headY})")
+        check(e.onSwipe(GameEngine.LEFT).tag == "step", "after a beat step a turn should step again")
+    }
+    println("held turns OK (second quick turn waits for the first turn's step)")
 
     // 11) O-PLUS U-turn: with a tail, a straight backward drag turns to a
     //     side and back (two quick steps), instead of being blocked.

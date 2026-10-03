@@ -22,9 +22,9 @@ import recognizers as R
 FLAG_WINDOW_MS = 1500     # a flag blames inputs this far back
 SILENT_DP = 15.0          # a stroke this long that fired nothing is "silent"
 DEATH_WINDOW_MS = 1000    # input this close before a death may have caused it
-TURNED = {"turn", "queued", "step", "flush", "re-aim"}
+TURNED = {"turn", "queued", "step", "flush", "re-aim", "rotate"}
 BLOCKED = {"rev-block", "wall-block", "tail-block", "flush-tail-block"}
-ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "O-PLUS-28": "P28", "S-STEP": "S", "S-SCHED": "S", "S2-STEP": "S2"}
+ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "O-PLUS-28": "P28", "S-STEP": "S", "S-SCHED": "S", "S2-STEP": "S2", "O-HOLD-UTURN": "P", "O-HOLD-ALL": "P"}
 DIR = {c: i for i, c in enumerate(R.LETTER)}
 
 

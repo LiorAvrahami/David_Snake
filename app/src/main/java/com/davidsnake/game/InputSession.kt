@@ -206,7 +206,7 @@ class InputSession(
     }
 
     private fun apply(cmds: List<Cmd>, t: Long) {
-        for (c in cmds) {
+        for ((i, c) in cmds.withIndex()) {
             if (engine.phase != GameEngine.Phase.PLAYING || frozen) return
             val hd = engine.headDir
             val ihd = engine.intendedDir
@@ -216,7 +216,8 @@ class InputSession(
             val p = playNo
             val board = if (p > 0) LabLog.board(engine) else ""
             if (p > 0) playCmds++
-            val r = engine.onSwipe(c.dir)   // may end the game (and the play)
+            val hold = arm.holdUTurn && c.kind == "uturn" && i == 1
+            val r = engine.onSwipe(c.dir, hold)   // may end the game (and the play)
             strokeCmds++
             if (r.tag in TURNED) turns.add(Turn(t, c.dir, hd))
             if (p > 0) {
@@ -225,7 +226,7 @@ class InputSession(
             }
             if (debug) {
                 dlog(when (r.tag) {
-                    "turn", "step", "flush", "re-aim" ->
+                    "turn", "step", "flush", "re-aim", "rotate" ->
                         "${c.kind} " + rotLine(hd, engine.headDir) + if (r.tag == "turn") "" else " (${r.tag})"
                     "queued" -> "${c.kind} queue ${LabLog.dirLetter(c.dir)}"
                     else -> "${c.kind} ${LabLog.dirLetter(c.dir)} ${r.tag}"
@@ -235,7 +236,7 @@ class InputSession(
     }
 
     companion object {
-        private val TURNED = setOf("turn", "queued", "step", "flush", "re-aim")
+        private val TURNED = setOf("turn", "queued", "step", "flush", "re-aim", "rotate")
     }
 
     private fun compass(d: Int) = when (d) {

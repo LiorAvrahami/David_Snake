@@ -28,8 +28,8 @@ straight over the old one — no uninstalling.
 Swipe anywhere to steer: up, down, left or right on the screen. A turn
 moves David a step right away; keep dragging and every further 42dp is
 another command, so you can carve zigzags in one continuous drag. Swiping
-straight back the way he came makes a U-turn (a step to the side, then
-back). A quick flick shorter than that counts too, when the finger lifts.
+straight back the way he came makes a U-turn (a step to the side, then,
+on his next regular step, back). A quick flick shorter than that counts too, when the finger lifts.
 Tap to start, and to retry after a loss. The build number is in
 the top-right corner.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
@@ -65,11 +65,12 @@ drags; beat-timed movement did worst. The original's only flagged
 failures were blocked backward swipes, now U-turns; short flicks now
 count on lift (`O-PLUS`, the default).
 
-Test 2 (current, three games each, rotating): `O-PLUS`, `O-PLUS-28`
-(the same with turns every 28dp instead of 42dp: earlier, a few more of
-them) and `S2-STEP` (test 1's fast heading-relative reader with its
-flagged failures fixed: a further turn within one drag needs the finger
-moving fast and clearly sideways).
+Test 2 (current, three games each, rotating): `O-HOLD-UTURN` (the
+default: a U-turn's second step waits for David's next regular step, so
+he no longer jumps diagonally), `O-HOLD-ALL` (any second turn made before
+David's next regular step waits like that), `O-PLUS-28` (turns every 28dp
+instead of 42dp) and `S2-STEP` (test 1's fast heading-relative reader
+with its flagged failures fixed).
 
 ## Project notes
 

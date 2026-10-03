@@ -28,6 +28,13 @@ import kotlin.random.Random
  *    before that flushes the armed step at once
  *  - STEP_SAFE: STEP, except a turn into the tail (certain death) is
  *    ignored and a flush never steps into a wall or the tail
+ *  - STEP_WAIT: STEP_SAFE, but only one turn per step moves David at
+ *    once: a turn arriving while a turn's step is still to come waits for
+ *    that step (queued), and a turn after a turn's step, before the next
+ *    regular one, only turns the head (David moves on the beat). Quick
+ *    double turns then show every step instead of a diagonal jump.
+ *  Any STEP mode can also hold a single turn this way ([onSwipe] hold),
+ *  used for the second half of a U-turn.
  *
  * Deliberately preserved quirks of the original:
  *  - at a wall the snake presses against it for a small, difficulty-based
@@ -62,7 +69,7 @@ class GameEngine(private val rng: Random = Random.Default) {
 
     enum class Phase { READY, PLAYING, LOST }
 
-    enum class TurnMode { SCHED, STEP, STEP_SAFE }
+    enum class TurnMode { SCHED, STEP, STEP_SAFE, STEP_WAIT }
 
     /** idx matches the original get_dificolty() mapping (200/320/400 -> 0/1/2). */
     enum class Difficulty(val idx: Int) { EASY(0), MEDIUM(1), HARD(2) }
@@ -137,6 +144,7 @@ class GameEngine(private val rng: Random = Random.Default) {
     private var rotPrevDir = 0          // heading to restore if it is canceled
     private var keyCommand = false      // STEP modes: original 'key_commad'
     private var lastMoveDir = UP        // direction of the last actual step
+    private var turnStepped = false     // the last step was a turn's (not the beat's)
     private var attackerCount = 60      // ticks until the next wave
     private var attackerCountGoal = 60  // ramps 60 -> 19
     private var cont3 = 0               // original 'timer_2_cont_to_3'
@@ -165,6 +173,7 @@ class GameEngine(private val rng: Random = Random.Default) {
         pendingDir = -1
         keyCommand = false
         lastMoveDir = UP
+        turnStepped = false
         cont3 = 0
         score = 0
 
@@ -209,9 +218,9 @@ class GameEngine(private val rng: Random = Random.Default) {
      * input is ignored and reversals are blocked while there is a tail
      * (original rule). Returns a tag for the debug log.
      */
-    fun onSwipe(dir: Int): SwipeResult {
+    fun onSwipe(dir: Int, hold: Boolean = false): SwipeResult {
         if (phase != Phase.PLAYING) return SwipeResult("off")
-        if (turnMode != TurnMode.SCHED) return swipeStep(dir)
+        if (turnMode != TurnMode.SCHED) return swipeStep(dir, hold)
         if (!rotatedSinceStep) {
             if (dir == headDir) return SwipeResult("same")
             if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return SwipeResult("rev-block")
@@ -238,9 +247,11 @@ class GameEngine(private val rng: Random = Random.Default) {
      * also ignores a turn straight into the tail and never flushes into a
      * wall or the tail (it just re-aims the armed step instead).
      */
-    private fun swipeStep(dir: Int): SwipeResult {
+    private fun swipeStep(dir: Int, holdIn: Boolean): SwipeResult {
         if (dir == headDir) return SwipeResult("same")
-        val safe = turnMode == TurnMode.STEP_SAFE
+        val hold = holdIn || (turnMode == TurnMode.STEP_WAIT && (keyCommand || turnStepped))
+        if (hold) return swipeHold(dir)
+        val safe = turnMode != TurnMode.STEP
         // STEP_SAFE: an armed step pinned at a wall/tail is re-aimed, not
         // flushed, so a reversal is judged against the way David last moved
         val pinned = keyCommand && safe && room(headDir, 1) == 0
@@ -261,6 +272,7 @@ class GameEngine(private val rng: Random = Random.Default) {
                 val c = stepCounter
                 step(true)
                 stepCounter = c  // the original's flush leaves the counter alone
+                turnStepped = true
                 if (phase == Phase.LOST) return SwipeResult("flush-died")
                 tag = "flush"
                 if (safe && room(dir, 1) == 0) {
@@ -276,6 +288,21 @@ class GameEngine(private val rng: Random = Random.Default) {
         headDir = dir
         keyCommand = true
         return SwipeResult(tag)
+    }
+
+    /** A held turn: after the pending turn's step if one is still to
+     *  come, else a turn of the head only, David moving on the beat. */
+    private fun swipeHold(dir: Int): SwipeResult {
+        if (keyCommand) {
+            pendingDir = dir     // applied right after that step, if legal then
+            return SwipeResult("queued")
+        }
+        if (tail.isNotEmpty() && dir == (lastMoveDir + 2) % 4) return SwipeResult("rev-block")
+        val nx = nextX(headX, dir)
+        val ny = nextY(headY, dir)
+        if (inBounds(nx, ny) && isTailBlock(nx, ny)) return SwipeResult("tail-block")
+        headDir = dir
+        return SwipeResult("rotate")
     }
 
     data class SwipeResult(val tag: String)
@@ -341,6 +368,7 @@ class GameEngine(private val rng: Random = Random.Default) {
 
     /** Original movment_Tick(sender, e). */
     private fun movementTick() {
+        val byTurn = stepCounter > 0
         val due = stepCounter <= 0 || (keyCommand && turnMode != TurnMode.SCHED)
         if (due && phase == Phase.PLAYING) {
             val nx = nextX(headX, headDir)
@@ -352,6 +380,7 @@ class GameEngine(private val rng: Random = Random.Default) {
             // always free to steer out of it.
             if (inBounds(nx, ny) || stepCounter <= -(3 - difficulty.idx)) {
                 step(true)
+                turnStepped = byTurn
             }
         }
         stepCounter--
