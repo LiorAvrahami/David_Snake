@@ -30,16 +30,15 @@ object Arms {
         SmartRecognizer(v2 = true, cooldownMs = 120L)
     }
 
-    /** Normal play, outside a test: the original input (test 1's winner)
-     *  with U-turns, whose second step waits for the first (O-PLUS made
-     *  both steps at once: a diagonal jump). */
-    val DEFAULT = HOLD_UTURN
+    /** Normal play and debug recording: the best input to date. S2-FAST
+     *  (S2 with a 0.12 s blind spot after a turn) led the replays and the
+     *  game simulation (tools/simscore.py) and won two of three play
+     *  sessions against O-HOLD-UTURN. */
+    val DEFAULT = SMART2_FAST
 
-    /** The current test runs until debug mode is turned off: [BLOCK]
-     *  games of each arm of [CYCLE] in turn, over and over. Test 3 (v1.5.57,
-     *  six games) found O-HOLD-UTURN ahead of S2-FAST in play although
-     *  replay favoured S2-FAST, so both keep collecting data. */
-    val CYCLE = listOf(HOLD_UTURN, SMART2_FAST)
+    /** Debug mode records with these arms in turn, [BLOCK] games each; a
+     *  single arm means no A/B test, just data collection. */
+    val CYCLE = listOf(DEFAULT)
     const val BLOCK = 3
 
     /** Arm of test game [i] (0-based). */

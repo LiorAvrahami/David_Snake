@@ -453,7 +453,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             val i = if (live) session.playNo - 1 else lab.playsDone
             val a = Arms.armAt(i)
             lines.add(Pair((if (live) "" else "next: ") + a.name, true))
-            lines.add(Pair("play ${Arms.armPlay(i)}/${Arms.BLOCK} · game ${i + 1}", false))
+            lines.add(Pair(
+                if (Arms.CYCLE.size > 1) "play ${Arms.armPlay(i)}/${Arms.BLOCK} · game ${i + 1}"
+                else "recording · game ${i + 1}", false
+            ))
         }
         for ((text, bold) in lines) {
             cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT

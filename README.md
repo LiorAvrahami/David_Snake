@@ -25,12 +25,14 @@ straight over the old one — no uninstalling.
 
 ## How to play
 
-Swipe anywhere to steer: up, down, left or right on the screen. A turn
-moves David a step right away; keep dragging and every further 42dp is
-another command, so you can carve zigzags in one continuous drag. Swiping
-straight back the way he came makes a U-turn (a step to the side, then,
-on his next regular step, back). A quick flick shorter than that counts too, when the finger lifts.
-Tap to start, and to retry after a loss. The build number is in
+Swipe anywhere to steer. A swipe is read relative to the way David is
+going: any clearly sideways move turns him that way, and a turn moves him
+a step right away. Fast flicks count after a few dp, slow drags need a
+little more, and a quick flick counts even when the finger lifts at once.
+Keep dragging and bend sharply to make the next turn, so you can carve
+zigzags in one continuous drag. Swiping straight back the way he came
+makes a U-turn (a step to the side, then, on his next regular step,
+back). Tap to start, and to retry after a loss. The build number is in
 the top-right corner.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
@@ -44,10 +46,8 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 Drag along the very top edge of the screen from one side to the other:
 debug mode turns on (same gesture turns it off; it is always off when the
-app starts) and a recorded test starts. It runs until debug mode is
-turned off: three games of `O-HOLD-UTURN` (the default), then three of
-`S2-FAST`, over and over. The top-right corner names the current option
-and counts the games.
+app starts) and recording starts, with the normal input (`S2-FAST`, the
+best so far). The top-right corner shows the input and counts the games.
 
 - Double-tap whenever an input went wrong. The game pauses and asks what
   happened: a turn you did not want (pick which of the last four turns),
