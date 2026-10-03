@@ -28,7 +28,7 @@ def python_lines():
         for dt, dx, dy in pts:
             t += int(dt); x += dx; y += dy
             samples.append((int(t), x, y))
-        for name in ("O", "P", "P28", "S", "S2"):
+        for name in ("O", "P", "P28", "S", "S2", "S2F"):
             g = R.Game(h)
             fired = R.replay(R.ALL[name](), samples, g)
             out.append(f"{gid} {name} " + " ".join(f"{t}:{d}:{k}" for t, d, k in fired))

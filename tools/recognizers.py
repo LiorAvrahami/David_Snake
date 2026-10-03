@@ -243,7 +243,13 @@ class Smart2(Smart):
     v2 = True
 
 
-ALL = {"O": Original, "P": Plus, "P28": Plus28, "S": Smart, "S2": Smart2, "A": Anchor}
+class Smart2Fast(Smart2):
+    """S2-FAST: S2 with a 120 ms blind spot after a turn."""
+    name = "S2F"
+    cooldownMs = 120
+
+
+ALL = {"O": Original, "P": Plus, "P28": Plus28, "S": Smart, "S2": Smart2, "S2F": Smart2Fast, "A": Anchor}
 
 
 def replay(rec, samples, game, apply=None):

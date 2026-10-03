@@ -26,17 +26,21 @@ object Arms {
         SmartRecognizer(v2 = true)
     }
     val SMART_SCHED = Arm("S-SCHED", GameEngine.TurnMode.SCHED) { SmartRecognizer() }
+    val SMART2_FAST = Arm("S2-FAST", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
+        SmartRecognizer(v2 = true, cooldownMs = 120L)
+    }
 
     /** Normal play, outside a test: the original input (test 1's winner)
      *  with U-turns, whose second step waits for the first (O-PLUS made
      *  both steps at once: a diagonal jump). */
     val DEFAULT = HOLD_UTURN
 
-    /** Test 2, three games each, one option after the other (the player's
-     *  choice): the two ways to stop the diagonal jump (hold only the
-     *  U-turn's second turn / hold any quick second turn), 28dp turns, and
-     *  S2 (test 1's fast reader, fixed). */
-    val ORDER = listOf(HOLD_UTURN, HOLD_ALL, PLUS28, SMART2).flatMap { a -> List(3) { a } }
+    /** Test 3, three games each, one option after the other: the default
+     *  against S2 with a 0.12 s (not 0.15 s) blind spot after a turn, the
+     *  best scorer on tests 1-2 replayed against inferred intents and the
+     *  double-tap answers (tools/intent.py). Test 2 was O-HOLD-UTURN,
+     *  O-HOLD-ALL, O-PLUS-28 and S2-STEP. */
+    val ORDER = listOf(HOLD_UTURN, SMART2_FAST).flatMap { a -> List(3) { a } }
     const val PLAYS_PER_ARM = 3
 
     /** 1-based count of [ORDER]'s entry [i] among the plays of its arm. */

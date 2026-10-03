@@ -16,7 +16,7 @@ fun main(args: Array<String>) {
     for (line in File(args[0]).readLines()) {
         if (line.isBlank()) continue
         val (gid, h0, pts) = line.split(" ")
-        for ((name, rec) in listOf("O" to OriginalRecognizer(), "P" to OriginalRecognizer(plus = true), "P28" to OriginalRecognizer(plus = true, threshold = 28f), "S" to SmartRecognizer(), "S2" to SmartRecognizer(v2 = true))) {
+        for ((name, rec) in listOf("O" to OriginalRecognizer(), "P" to OriginalRecognizer(plus = true), "P28" to OriginalRecognizer(plus = true, threshold = 28f), "S" to SmartRecognizer(), "S2" to SmartRecognizer(v2 = true), "S2F" to SmartRecognizer(v2 = true, cooldownMs = 120L))) {
             var heading = h0.toInt()
             val g = object : GameInfo {
                 override val heading get() = heading

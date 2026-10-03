@@ -143,7 +143,10 @@ class OriginalRecognizer(
  *  - On lift, a short stroke ([liftMaxMs]) that fired nothing is read
  *    whole at [liftDp], so quick flicks still count.
  */
-class SmartRecognizer(private val v2: Boolean = false) : Recognizer {
+class SmartRecognizer(
+    private val v2: Boolean = false,
+    val cooldownMs: Long = 150L
+) : Recognizer {
     val fastDp = 8f
     val slowDp = 16f
     val fastSpeed = 400f
@@ -153,7 +156,6 @@ class SmartRecognizer(private val v2: Boolean = false) : Recognizer {
     val forwardDeg = 30.0
     val backDeg = 160.0
     val backFactor = 1.5f
-    val cooldownMs = 150L
     val chainDp = 14f
     val cornerDeg = 50.0
     val chainSpeed = 200f

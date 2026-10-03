@@ -65,12 +65,13 @@ drags; beat-timed movement did worst. The original's only flagged
 failures were blocked backward swipes, now U-turns; short flicks now
 count on lift (`O-PLUS`, the default).
 
-Test 2 (current, three games each, one option after the other): `O-HOLD-UTURN` (the
-default: a U-turn's second step waits for David's next regular step, so
-he no longer jumps diagonally), `O-HOLD-ALL` (any second turn made before
-David's next regular step waits like that), `O-PLUS-28` (turns every 28dp
-instead of 42dp) and `S2-STEP` (test 1's fast heading-relative reader
-with its flagged failures fixed).
+Test 2 (`O-HOLD-UTURN`, `O-HOLD-ALL`, `O-PLUS-28`, `S2-STEP`) and a replay
+of all recordings against intents inferred from the game
+(`tools/intent.py`; a trained classifier, `tools/classifier.py`, did not
+beat the hand-built readers) led to test 3 (current, three games each,
+one option after the other): `O-HOLD-UTURN` (the default) against
+`S2-FAST`, the heading-relative reader whose blind spot after a turn is
+0.12 s instead of 0.15 s.
 
 ## Project notes
 
