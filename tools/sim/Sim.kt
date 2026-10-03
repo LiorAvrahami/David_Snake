@@ -470,7 +470,7 @@ fun main() {
             override val hasTail get() = e.tail.isNotEmpty()
             override fun room(dir: Int) = e.room(dir)
         }
-        val r = OriginalRecognizer(uTurns = true)
+        val r = OriginalRecognizer(plus = true)
         val x0 = e.headX
         val y0 = e.headY
         r.down(0L, 100f, 100f)
@@ -483,12 +483,26 @@ fun main() {
         check(e.phase == GameEngine.Phase.PLAYING && e.headDir == GameEngine.DOWN &&
             abs(e.headX - x0) == 1 && e.headY == y0 + 1, "U-turn went wrong (${e.headX},${e.headY} dir=${e.headDir})")
         // a diagonal half-backward drag (45 degrees) stays a blocked reversal
-        val r2 = OriginalRecognizer(uTurns = true)
+        val r2 = OriginalRecognizer(plus = true)
         r2.down(0L, 100f, 100f)
         val c2 = ArrayList<Cmd>()
         for (k in 1..10) c2 += r2.move(k * 8L, 100f + k * 5f, 100f - k * 5.2f, info)  // up-right, heading DOWN
         check(c2.none { it.kind == "uturn" }, "diagonal drag made a U-turn ($c2)")
         println("O-PLUS U-turn OK (side step then back, alive; diagonal stays blocked)")
+
+        // a short flick counts on lift; a tap and the original do not
+        fun flick(plus: Boolean, dist: Float, ms: Long): List<Cmd> {
+            val f = OriginalRecognizer(plus)
+            f.down(0L, 200f, 200f)
+            for (k in 1..3) f.move(k * ms / 4, 200f + dist * k / 4, 200f, info)
+            return f.up(ms, 200f + dist, 200f + 1f, info)
+        }
+        check(flick(true, 20f, 80).let { it.size == 1 && it[0].kind == "flick" && it[0].dir == GameEngine.RIGHT },
+            "flick not read on lift")
+        check(flick(true, 6f, 80).isEmpty(), "tap read as a flick")
+        check(flick(true, 20f, 400).isEmpty(), "slow short drag read as a flick")
+        check(flick(false, 20f, 80).isEmpty(), "original read a flick")
+        println("O-PLUS lift flicks OK")
     }
 
     println("ALL CHECKS PASSED ($checksRun assertions)")

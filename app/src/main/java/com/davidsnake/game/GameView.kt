@@ -48,7 +48,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         "?"
     }
 
-    private val prefs = context.getSharedPreferences("david_snake", Context.MODE_PRIVATE)
     private val density = context.resources.displayMetrics.density
     private val sprites = Sprites(context)
 
@@ -91,7 +90,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     // debug mode (toggled by dragging along the top edge, end to end);
     // runs the input test and shows a log panel in the bottom right
-    private var debugMode = prefs.getBoolean("debug", false)
+    private var debugMode = false   // off at every app start
     private val dbg = ArrayDeque<String>()
     private val dbgBg = Paint().apply { color = Color.argb(170, 0, 0, 0) }
     private val dbgText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -339,7 +338,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private fun toggleDebug() {
         debugMode = !debugMode
         session.debug = debugMode
-        prefs.edit().putBoolean("debug", debugMode).apply()
         if (debugMode) {
             dlog("debug on")
             if (!lab.running) {

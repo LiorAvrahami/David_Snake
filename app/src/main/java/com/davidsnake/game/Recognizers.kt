@@ -59,38 +59,64 @@ private fun uTurn(h: Int, vx: Float, vy: Float, g: GameInfo, leanDp: Float): Lis
 /**
  * The first commit's recognizer: once the finger is 42dp from the anchor
  * on either axis, the dominant axis is the command and the anchor jumps
- * to the finger. Nothing happens on lift. With [uTurns], a clearly
- * backward command while there is a tail becomes a U-turn instead of
- * being blocked (the only change; the first commit had it off).
+ * to the finger. With [plus] (O-PLUS; the first commit had it off):
+ *  - a clearly backward command while there is a tail becomes a U-turn
+ *    instead of being blocked;
+ *  - a flick, a stroke of at most [flickMs] that fired nothing, counts on
+ *    lift once it moved [flickDp] (taps move under 10dp).
  */
-class OriginalRecognizer(private val uTurns: Boolean = false) : Recognizer {
+class OriginalRecognizer(private val plus: Boolean = false) : Recognizer {
     private val threshold = 42f
+    private val flickDp = 12f
+    private val flickMs = 250L
     private var ax = 0f
     private var ay = 0f
+    private var x0 = 0f
+    private var y0 = 0f
+    private var t0 = 0L
+    private var fired = false
 
-    override fun down(t: Long, x: Float, y: Float) { ax = x; ay = y }
+    override fun down(t: Long, x: Float, y: Float) {
+        ax = x; ay = y
+        x0 = x; y0 = y; t0 = t
+        fired = false
+    }
 
     override fun move(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd> {
         val dx = x - ax
         val dy = y - ay
         if (abs(dx) < threshold && abs(dy) < threshold) return NONE
+        ax = x; ay = y
+        fired = true
+        return command(dx, dy, g, "orig")
+    }
+
+    override fun up(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd> {
+        if (!plus) return NONE
+        val cmds = move(t, x, y, g)
+        if (cmds.isNotEmpty() || fired || t - t0 > flickMs) return cmds
+        val dx = x - x0
+        val dy = y - y0
+        if (abs(dx) < flickDp && abs(dy) < flickDp) return NONE
+        return command(dx, dy, g, "flick")
+    }
+
+    /** The dominant axis of (dx, dy) as a command (or a U-turn, see above). */
+    private fun command(dx: Float, dy: Float, g: GameInfo, kind: String): List<Cmd> {
         val dir = if (abs(dx) > abs(dy)) {
             if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
         } else {
             if (dy > 0) GameEngine.DOWN else GameEngine.UP
         }
-        ax = x; ay = y
         val h = g.heading
-        if (uTurns && g.hasTail && dir == (h + 2) % 4) {
+        if (plus && g.hasTail && dir == (h + 2) % 4) {
             // only a clearly backward swipe (within 35 degrees): a diagonal
             // half-backward one stays blocked, as in the original
             val back = -(dirX(h) * dx + dirY(h) * dy)
             if (abs(dirX(h) * dy - dirY(h) * dx) <= 0.7f * back) return uTurn(h, dx, dy, g, 8f)
         }
-        return listOf(Cmd(dir, "orig"))
+        return listOf(Cmd(dir, kind))
     }
-
-    override fun up(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd> = NONE
 }
 
 /**

@@ -46,34 +46,50 @@ def u_turn(h, vx, vy, g, lean):
 
 class Original:
     """The first commit: 42dp from the anchor on either axis, dominant axis
-    wins, anchor jumps to the finger; nothing on lift. With u_turns, a
-    backward command while there is a tail becomes a U-turn."""
+    wins, anchor jumps to the finger; nothing on lift. With plus (O-PLUS):
+    a clearly backward command with a tail becomes a U-turn, and a flick
+    (<= flickMs, nothing fired) counts on lift once it moved flickDp."""
     name = "O"
     threshold = 42.0
-    u_turns = False
+    plus = False
+    flickDp, flickMs = 12.0, 250
 
     def down(self, t, x, y):
         self.ax, self.ay = x, y
+        self.x0, self.y0, self.t0 = x, y, t
+        self.fired = False
 
     def move(self, t, x, y, g):
         dx, dy = x - self.ax, y - self.ay
         if abs(dx) < self.threshold and abs(dy) < self.threshold:
             return []
+        self.ax, self.ay = x, y
+        self.fired = True
+        return self.command(dx, dy, g, "orig")
+
+    def up(self, t, x, y, g):
+        if not self.plus:
+            return []
+        cmds = self.move(t, x, y, g)
+        if cmds or self.fired or t - self.t0 > self.flickMs:
+            return cmds
+        dx, dy = x - self.x0, y - self.y0
+        if abs(dx) < self.flickDp and abs(dy) < self.flickDp:
+            return []
+        return self.command(dx, dy, g, "flick")
+
+    def command(self, dx, dy, g, kind):
         if abs(dx) > abs(dy):
             d = RIGHT if dx > 0 else LEFT
         else:
             d = DOWN if dy > 0 else UP
-        self.ax, self.ay = x, y
         h = g.heading
-        if self.u_turns and g.has_tail and d == (h + 2) % 4:
+        if self.plus and g.has_tail and d == (h + 2) % 4:
             fx, fy = VEC[h]
             back = -(fx * dx + fy * dy)
             if abs(fx * dy - fy * dx) <= 0.7 * back:   # within 35 deg of backward
                 return u_turn(h, dx, dy, g, 8.0)
-        return [(d, "orig")]
-
-    def up(self, t, x, y, g):
-        return []
+        return [(d, kind)]
 
 
 class Smart:
@@ -199,9 +215,9 @@ class Anchor:
 
 
 class Plus(Original):
-    """O-PLUS: the original with U-turns."""
+    """O-PLUS: the original with U-turns and lift flicks."""
     name = "P"
-    u_turns = True
+    plus = True
 
 
 ALL = {"O": Original, "P": Plus, "S": Smart, "A": Anchor}

@@ -29,7 +29,8 @@ Swipe anywhere to steer: up, down, left or right on the screen. A turn
 moves David a step right away; keep dragging and every further 42dp is
 another command, so you can carve zigzags in one continuous drag. Swiping
 straight back the way he came makes a U-turn (a step to the side, then
-back). Tap to start, and to retry after a loss. The build number is in
+back). A quick flick shorter than that counts too, when the finger lifts.
+Tap to start, and to retry after a loss. The build number is in
 the top-right corner.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
@@ -42,8 +43,8 @@ And yes — after you fall, they keep throwing. The original did that too.
 ## Input test (debug mode)
 
 Drag along the very top edge of the screen from one side to the other:
-debug mode turns on (same gesture turns it off) and a recorded test
-starts. The top-right corner names the input variant and counts the
+debug mode turns on (same gesture turns it off; it is always off when the
+app starts) and a recorded test starts. The top-right corner names the input variant and counts the
 games.
 
 - Double-tap whenever an input went wrong (a swipe ignored, or a turn you
@@ -60,8 +61,8 @@ The first test (v1.1.50: the original input, a new heading-relative
 reader with step-on-turn, and the same reader with beat-timed movement,
 three games each) found the original input best for long continuous
 drags; beat-timed movement did worst. The original's only flagged
-failures were blocked backward swipes, now U-turns (`O-PLUS`, the
-default). The current test is three recorded games of `O-PLUS`.
+failures were blocked backward swipes, now U-turns; short flicks now
+count on lift (`O-PLUS`, the default). The current test is three recorded games of `O-PLUS`.
 
 ## Project notes
 
