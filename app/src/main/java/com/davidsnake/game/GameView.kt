@@ -222,28 +222,33 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             GameEngine.Phase.PLAYING -> {
                 if (debugMode && lab.running) {
                     val i = lab.playsDone
-                    session.startPlay(Arms.ORDER[i], i + 1, Arms.armPlay(i), t, wallClock())
+                    session.startPlay(Arms.armAt(i), i + 1, Arms.armPlay(i), t, wallClock())
                     lab.flush()
                 } else {
                     session.startPlay(Arms.DEFAULT, 0, 0, t, "")
                 }
             }
             GameEngine.Phase.LOST -> if (session.endPlay(t)) {
-                if (lab.completePlay()) dlog("TESTING DONE")
+                lab.completePlay()
                 lab.flush()
             }
             GameEngine.Phase.READY -> Unit
         }
     }
 
+    /** A recorded test is going on (debug mode on). */
+    val recording: Boolean get() = debugMode && lab.running
+
+    /** Lose-screen button: close the test file, later games go to a new
+     *  one. Returns where the closed file is. */
+    fun saveFile(): String {
+        return lab.saveAndRotate(sessionHeader(), version)
+    }
+
     /** App going to the background: write out what we have. */
     fun onPauseApp() {
         lab.flush()
     }
-
-    /** True right after the last test game ended (for the lose screen). */
-    val testJustFinished: Boolean
-        get() = debugMode && lab.finished && engine.phase == GameEngine.Phase.LOST
 
     // ----------------------------------------------------------- touch
 
@@ -385,7 +390,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (debugMode) {
             dlog("debug on")
             if (!lab.running) {
-                lab.clearFinished()
                 lab.startNew(sessionHeader(), version)
             }
         } else {
@@ -450,12 +454,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (lab.running) {
             val live = session.playNo > 0
             val i = if (live) session.playNo - 1 else lab.playsDone
-            val a = Arms.ORDER[i]
+            val a = Arms.armAt(i)
             lines.add(Pair((if (live) "" else "next: ") + a.name, true))
-            lines.add(Pair("play ${Arms.armPlay(i)}/${Arms.PLAYS_PER_ARM} · game ${i + 1}/${Arms.ORDER.size}", false))
-        } else if (lab.finished) {
-            lines.add(Pair("TESTING DONE ✓", true))
-            lines.add(Pair(lab.fileLocation, false))
+            lines.add(Pair("play ${Arms.armPlay(i)}/${Arms.BLOCK} · game ${i + 1}", false))
         }
         for ((text, bold) in lines) {
             cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT

@@ -35,16 +35,18 @@ object Arms {
      *  both steps at once: a diagonal jump). */
     val DEFAULT = HOLD_UTURN
 
-    /** Test 3, three games each, one option after the other: the default
-     *  against S2 with a 0.12 s (not 0.15 s) blind spot after a turn, the
-     *  best scorer on tests 1-2 replayed against inferred intents and the
-     *  double-tap answers (tools/intent.py). Test 2 was O-HOLD-UTURN,
-     *  O-HOLD-ALL, O-PLUS-28 and S2-STEP. */
-    val ORDER = listOf(HOLD_UTURN, SMART2_FAST).flatMap { a -> List(3) { a } }
-    const val PLAYS_PER_ARM = 3
+    /** The current test runs until debug mode is turned off: [BLOCK]
+     *  games of each arm of [CYCLE] in turn, over and over. Test 3 (v1.5.57,
+     *  six games) found O-HOLD-UTURN ahead of S2-FAST in play although
+     *  replay favoured S2-FAST, so both keep collecting data. */
+    val CYCLE = listOf(HOLD_UTURN, SMART2_FAST)
+    const val BLOCK = 3
 
-    /** 1-based count of [ORDER]'s entry [i] among the plays of its arm. */
-    fun armPlay(i: Int): Int = ORDER.subList(0, i + 1).count { it === ORDER[i] }
+    /** Arm of test game [i] (0-based). */
+    fun armAt(i: Int): Arm = CYCLE[(i / BLOCK) % CYCLE.size]
+
+    /** 1-based count of game [i] within its block. */
+    fun armPlay(i: Int): Int = i % BLOCK + 1
 }
 
 /** Minimal JSON object writer (no dependencies, so it also runs on a
@@ -116,7 +118,8 @@ object LabLog {
         .raw("screen_dp", "[%.1f,%.1f]".format(java.util.Locale.US, screenWdp, screenHdp))
         .raw("board_dp", "[%.1f,%.1f,%.1f,%.1f]".format(java.util.Locale.US, boardLeftDp, boardTopDp, boardWdp, boardHdp))
         .n("tick_ms", GameEngine.TICK_MS).n("step_ticks", 4)
-        .raw("order", Arms.ORDER.joinToString(",", "[", "]") { "\"${it.name}\"" })
+        .raw("cycle", Arms.CYCLE.joinToString(",", "[", "]") { "\"${it.name}\"" })
+        .n("block", Arms.BLOCK)
         .s("wall", wall).n("t", t)
         .raw("legend", LEGEND)
         .toString()

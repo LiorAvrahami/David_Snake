@@ -44,34 +44,31 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 Drag along the very top edge of the screen from one side to the other:
 debug mode turns on (same gesture turns it off; it is always off when the
-app starts) and a recorded test starts. The top-right corner names the input variant and counts the
-games.
+app starts) and a recorded test starts. It runs until debug mode is
+turned off: three games of `O-HOLD-UTURN` (the default), then three of
+`S2-FAST`, over and over. The top-right corner names the current option
+and counts the games.
 
 - Double-tap whenever an input went wrong. The game pauses and asks what
   happened: a turn you did not want (pick which of the last four turns),
   no turn when you wanted one (pick the direction), or a turn the wrong
   way (both). It resumes after a 3-2-1 countdown.
 - Every game is appended to
-  `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`; at the end the
-  screen says *Testing done*. Analyze with `python3 tools/lab_report.py FILE`.
+  `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`. On the lose
+  screen, *Save file* closes that file (ready to send) and later games go
+  to a new one. Analyze with `python3 tools/lab_report.py FILE`.
 
-Leaving debug mode keeps the test where it was; turning it on again
-resumes it. Once a test is done, turning debug mode on starts a new one.
+Turning debug mode on again resumes the test.
 
-The first test (v1.1.50: the original input, a new heading-relative
-reader with step-on-turn, and the same reader with beat-timed movement,
-three games each) found the original input best for long continuous
-drags; beat-timed movement did worst. The original's only flagged
-failures were blocked backward swipes, now U-turns; short flicks now
-count on lift (`O-PLUS`, the default).
-
-Test 2 (`O-HOLD-UTURN`, `O-HOLD-ALL`, `O-PLUS-28`, `S2-STEP`) and a replay
-of all recordings against intents inferred from the game
+Earlier tests: test 1 (v1.1.50) found the original input best for long
+continuous drags and beat-timed movement worst; the original's only
+flagged failures were blocked backward swipes, now U-turns. Test 2
+(`O-HOLD-UTURN`, `O-HOLD-ALL`, `O-PLUS-28`, `S2-STEP`) and a replay of
+all recordings against intents inferred from the game
 (`tools/intent.py`; a trained classifier, `tools/classifier.py`, did not
-beat the hand-built readers) led to test 3 (current, three games each,
-one option after the other): `O-HOLD-UTURN` (the default) against
-`S2-FAST`, the heading-relative reader whose blind spot after a turn is
-0.12 s instead of 0.15 s.
+beat the hand-built readers) led to test 3: `S2-FAST` (S2 with a 0.12 s
+blind spot after a turn) scored best in replay but `O-HOLD-UTURN` did
+better in play.
 
 ## Project notes
 

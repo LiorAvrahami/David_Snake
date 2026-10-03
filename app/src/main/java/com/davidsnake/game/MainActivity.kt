@@ -27,6 +27,7 @@ class MainActivity : Activity() {
     private lateinit var panel: LinearLayout
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
+    private lateinit var saveButton: TextView
 
     private lateinit var prefs: SharedPreferences
 
@@ -118,6 +119,29 @@ class MainActivity : Activity() {
         subtitleView.gravity = Gravity.CENTER
         subtitleView.setPadding(0, dp(8), 0, 0)
         panel.addView(subtitleView)
+
+        // debug mode: close the test file from the lose screen
+        saveButton = TextView(this)
+        saveButton.text = getString(R.string.save_file)
+        saveButton.textSize = 17f
+        saveButton.setTextColor(ink)
+        saveButton.gravity = Gravity.CENTER
+        saveButton.setPadding(dp(18), dp(10), dp(18), dp(10))
+        val sbg = GradientDrawable()
+        sbg.cornerRadius = dp(12).toFloat()
+        sbg.setColor(Color.rgb(222, 234, 248))
+        sbg.setStroke(dp(1), inkSoft)
+        saveButton.background = sbg
+        saveButton.setOnClickListener {
+            val where = gameView.saveFile()
+            saveButton.visibility = View.GONE
+            subtitleView.text = subtitleView.text.toString() + "\n\n" + getString(R.string.saved_to, where)
+        }
+        val lp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        lp.topMargin = dp(12)
+        panel.addView(saveButton, lp)
 
         root.addView(
             panel,
@@ -251,6 +275,7 @@ class MainActivity : Activity() {
             GameEngine.Phase.PLAYING -> panel.visibility = View.GONE
             GameEngine.Phase.READY -> {
                 panel.visibility = View.VISIBLE
+                saveButton.visibility = View.GONE
                 titleView.text = getString(R.string.app_name)
                 subtitleView.text =
                     getString(R.string.swipe_hint) + "\n" + getString(R.string.tap_to_start)
@@ -265,10 +290,8 @@ class MainActivity : Activity() {
                 titleView.text = getString(R.string.you_lost)
                 var sub = getString(R.string.final_score, score, gameView.bestScore) +
                     "\n" + getString(R.string.try_again)
-                if (gameView.testJustFinished) {
-                    sub += "\n\n" + getString(R.string.testing_done, gameView.lab.fileLocation)
-                }
                 subtitleView.text = sub
+                saveButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
             }
         }
     }

@@ -21,7 +21,7 @@ import java.util.concurrent.Executors
  * Lines are buffered in memory and appended to the file at every flush
  * (game start and end, each flag, app pause), so a crash loses at most
  * the game in progress. Progress survives app restarts; turning debug
- * mode on resumes an unfinished test, or starts a new one.
+ * mode on resumes the test (of the current plan), or starts a new one.
  */
 class InputLab(private val ctx: Context) {
 
@@ -29,11 +29,10 @@ class InputLab(private val ctx: Context) {
     private val io = Executors.newSingleThreadExecutor()
     private val pending = StringBuilder()
 
-    /** A test file exists and still has plays to go. */
+    /** A test of the current plan is going on. */
     val running: Boolean
-        get() = prefs.getBoolean(K_ACTIVE, false) && !finished &&
+        get() = prefs.getBoolean(K_ACTIVE, false) &&
             prefs.getString(K_PLAN, "") == PLAN   // not a test from an older plan
-    val finished: Boolean get() = prefs.getBoolean(K_DONE, false)
     val playsDone: Int get() = prefs.getInt(K_PLAYS, 0)
     val fileName: String get() = prefs.getString(K_NAME, "") ?: ""
     /** Where the user finds the file. */
@@ -43,7 +42,7 @@ class InputLab(private val ctx: Context) {
         private set
 
     /** Arm of the next game to start. */
-    fun nextArm(): Arm = if (running) Arms.ORDER[playsDone] else Arms.DEFAULT
+    fun nextArm(): Arm = if (running) Arms.armAt(playsDone) else Arms.DEFAULT
 
     /** Begin a fresh test file with [header] as its first line. */
     fun startNew(header: String, version: String) {
@@ -55,27 +54,31 @@ class InputLab(private val ctx: Context) {
             .putString(K_NAME, name)
             .putString(K_HEADER, header)
             .putInt(K_PLAYS, 0)
-            .putBoolean(K_DONE, false)
             .apply()
         synchronized(pending) { pending.setLength(0) }
         io.execute { create(name, header) }
-    }
-
-    /** Forget a finished test, so the next debug-on starts a new one. */
-    fun clearFinished() {
-        if (finished) prefs.edit().clear().apply()
     }
 
     fun line(s: String) {
         synchronized(pending) { pending.append(s).append('\n') }
     }
 
-    /** Count a completed game; returns true when that was the last one. */
-    fun completePlay(): Boolean {
-        val n = playsDone + 1
-        val done = n >= Arms.ORDER.size
-        prefs.edit().putInt(K_PLAYS, n).putBoolean(K_DONE, done).apply()
-        return done
+    /** Count a completed game. The test never ends by itself. */
+    fun completePlay() {
+        prefs.edit().putInt(K_PLAYS, playsDone + 1).apply()
+    }
+
+    /** Close the current file (everything so far is written to it) and
+     *  send later games to a new one; the test goes on. Returns where the
+     *  closed file is. */
+    fun saveAndRotate(header: String, version: String): String {
+        val closed = fileLocation
+        flush()
+        val stamp = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US).format(Date())
+        val name = "DavidSnake_InputLab_v${version}_$stamp.txt"
+        prefs.edit().putString(K_NAME, name).putString(K_HEADER, header).apply()
+        io.execute { create(name, header) }
+        return closed
     }
 
     fun flush() {
@@ -158,12 +161,11 @@ class InputLab(private val ctx: Context) {
     companion object {
         private const val K_ACTIVE = "lab_active"
         private const val K_PLAN = "lab_plan"
-        private val PLAN = Arms.ORDER.joinToString(",") { it.name }
+        private val PLAN = "cycle:" + Arms.CYCLE.joinToString(",") { it.name } + ":" + Arms.BLOCK
         private const val K_URI = "lab_uri"
         private const val K_NAME = "lab_name"
         private const val K_WHERE = "lab_where"
         private const val K_HEADER = "lab_header"
         private const val K_PLAYS = "lab_plays"
-        private const val K_DONE = "lab_done"
     }
 }

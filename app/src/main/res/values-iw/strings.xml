@@ -16,5 +16,6 @@
     <string name="speed_chill">רגועה</string>
     <string name="best">שיא: %1$d</string>
     <string name="final_score">תווים: %1$d · שיא: %2$d</string>
-    <string name="testing_done">הבדיקה הסתיימה ✓\nקובץ: %1$s</string>
+    <string name="save_file">שמור קובץ</string>
+    <string name="saved_to">נשמר: %1$s\nהמשחקים הבאים ייכנסו לקובץ חדש.</string>
 </resources>
