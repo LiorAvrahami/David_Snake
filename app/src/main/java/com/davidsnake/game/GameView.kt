@@ -295,11 +295,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private fun toggleDebug() {
         debugMode = !debugMode
         if (debugMode) {
-            if (!lab.running) lab.startNew()
+            lab.startNew()                       // every recording starts fresh
             lab.ensureFile(sessionHeader(), version)
         } else {
             session.abortPlay(SystemClock.uptimeMillis(), "debug off")
-            lab.flush()
+            lab.endRun()
         }
     }
 
