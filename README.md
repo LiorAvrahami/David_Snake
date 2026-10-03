@@ -46,13 +46,13 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 Drag along the very top edge of the screen from one side to the other:
 debug mode turns on (same gesture turns it off; it is always off when the
-app starts) and recording starts, with the normal input (`S2-FAST`, the
+app starts, and it ends whenever the app leaves the screen) and recording starts, with the normal input (`S2-FAST`, the
 best so far). The top-right corner shows the input and counts the games.
 
-- Each app run records into one file,
-  `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, holding
-  everything since the app was opened; every game is written to it as it
-  ends. *Save file* on the lose screen writes out the rest right away.
+- Each recording (from turning debug mode on until the app leaves the
+  screen) goes into one file,
+  `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, with its
+  own game count; every game is written to it as it ends. *Save file* on the lose screen writes out the rest right away.
   Analyze with `python3 tools/lab_report.py FILE`; score options by
   simulating the game on with `python3 tools/simscore.py FILE...`
   (harp straight ahead, spear hits within 3 steps, wall or tail right
@@ -60,7 +60,6 @@ best so far). The top-right corner shows the input and counts the games.
   Model choices and training use only v1.7+ recordings; older ones are
   for sanity checks.
 
-Turning debug mode on again resumes the test.
 
 Earlier tests: test 1 (v1.1.50) found the original input best for long
 continuous drags and beat-timed movement worst; the original's only

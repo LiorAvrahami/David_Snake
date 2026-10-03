@@ -68,6 +68,11 @@ class MainActivity : Activity() {
         onPhase(gameView.engine.phase)
     }
 
+    override fun onStop() {
+        super.onStop()
+        gameView.onStopApp()
+    }
+
     override fun onPause() {
         super.onPause()
         gameView.onPauseApp()

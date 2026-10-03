@@ -58,6 +58,14 @@ class InputLab(private val ctx: Context) {
      *  everything recorded since the app was opened. */
     private var fileOpen = false
 
+    /** The app left the screen: write everything out and end this run's
+     *  recording; reopening starts a new file and a new game count. */
+    fun endRun() {
+        flush()
+        fileOpen = false
+        prefs.edit().putBoolean(K_ACTIVE, false).apply()
+    }
+
     /** Open this app run's file (once), with [header] as its first line. */
     fun ensureFile(header: String, version: String) {
         if (fileOpen) return

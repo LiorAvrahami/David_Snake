@@ -219,6 +219,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     fun saveFile(): String = lab.save()
 
     /** App going to the background: write out what we have. */
+    /** App no longer on screen (closed or switched away): debug mode and
+     *  its recording end, so opening the app again starts fresh. */
+    fun onStopApp() {
+        if (!debugMode) return
+        session.abortPlay(SystemClock.uptimeMillis(), "app closed")
+        debugMode = false
+        lab.endRun()
+    }
+
     fun onPauseApp() {
         lab.flush()
     }
