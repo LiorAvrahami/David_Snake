@@ -31,9 +31,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         private const val VIRTUAL_H = 726f
         private const val CELL = 48
         private const val BOARD_OFF = 51f       // original x*48 + 48 + 3
-        private const val TAP_MS = 300L         // a tap is short...
-        private const val TAP_DP = 10f          // ...and nearly still
-        private const val DOUBLE_TAP_MS = 300L  // 1st tap's lift to 2nd tap's touch
         private val FIELD_COLOR = Color.rgb(166, 202, 240)
         private val HUD_COLOR = Color.rgb(40, 60, 90)
         private val ALERT_COLOR = Color.rgb(170, 30, 30)
@@ -82,12 +79,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var strokeT0 = 0L
     private var topBand = false     // debug-toggle drag along the top edge
 
-    // taps: in debug mode a lone tap waits DOUBLE_TAP_MS for a second one
-    private var tapUpT = 0L
-    private var tapPending: Runnable? = null
-    private var awaitingSecond = false
-    private var flagShownUntil = 0L
-
     // debug mode (toggled by dragging along the top edge, end to end);
     // runs the input test and shows a log panel in the bottom right
     private var debugMode = false   // off at every app start
@@ -118,11 +109,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             var dtMs = (frameTimeNanos - lastFrameNanos) / 1_000_000L
             if (dtMs > 100L) dtMs = 100L  // don't fast-forward after long stalls
             val phase = engine.phase
-            if (paused) {
-                tickAccMs = 0L
-                val now = SystemClock.uptimeMillis()
-                if (countdownEnd in 1..now) resume(now)
-            } else if (phase == GameEngine.Phase.PLAYING || phase == GameEngine.Phase.LOST) {
+            if (phase == GameEngine.Phase.PLAYING || phase == GameEngine.Phase.LOST) {
                 tickAccMs += dtMs
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
@@ -186,7 +173,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         canvas.restore()
 
         drawHud(canvas)
-        drawCountdown(canvas)
         if (debugMode) drawDebugPanel(canvas)
     }
 
@@ -277,11 +263,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             MotionEvent.ACTION_CANCEL -> {
                 if (activeId >= 0) session.end(e.eventTime, "cancel", 0f, 0f)
                 activeId = -1
-                if (awaitingSecond) {
-                    awaitingSecond = false
-                    tapPending?.run()   // the held first tap still counts
-                    tapPending = null
-                }
             }
         }
         return true
@@ -296,13 +277,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         topBand = downY < height * 0.1f
         session.debug = debugMode
         session.down(t, downX / density, downY / density)
-        // a touch soon after a lone tap may be its second tap: hold the
-        // first tap's action until this stroke ends
-        val pending = tapPending
-        if (pending != null && t - tapUpT <= DOUBLE_TAP_MS) {
-            removeCallbacks(pending)
-            awaitingSecond = true
-        }
     }
 
     /** The followed finger lifted at (x, y) px. */
@@ -314,72 +288,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (topBand && y < height * 0.1f &&
             minOf(downX, x) < width * 0.1f && maxOf(downX, x) > width * 0.9f
         ) {
-            awaitingSecond = false
             toggleDebug()
             return
         }
 
-        val click = session.strokeCmds == 0
-        val tap = click && session.maxDist <= TAP_DP && t - strokeT0 <= TAP_MS
-        if (awaitingSecond) {
-            awaitingSecond = false
-            val first = tapPending
-            tapPending = null
-            if (tap) {
-                requestFlag(t)
-                return
-            }
-            first?.run()        // the first tap was a lone tap after all
-        }
-        if (!click) return
-        if (!debugMode || !tap) {
-            performClick()
-            return
-        }
-        tapUpT = t
-        val r = Runnable { tapPending = null; performClick() }
-        tapPending = r
-        postDelayed(r, DOUBLE_TAP_MS)
-    }
-
-    // ------------------------------------------------------------ flags
-
-    /** Shows the flag menu (MainActivity): the last turns, newest first. */
-    var onFlag: ((List<InputSession.Turn>, Long) -> Unit)? = null
-    private var paused = false
-    private var pauseStart = 0L
-    private var countdownEnd = 0L
-    private var flagT = 0L
-
-    /** Double tap: pause a live game and ask what went wrong. */
-    private fun requestFlag(t: Long) {
-        if (paused) return
-        flagT = t
-        if (engine.phase == GameEngine.Phase.PLAYING) {
-            paused = true
-            pauseStart = SystemClock.uptimeMillis()
-            countdownEnd = 0L
-            session.frozen = true
-        }
-        val show = onFlag
-        if (show != null) show(session.recentTurns(4), t) else submitFlag("none", null, -1)
-    }
-
-    /** The menu's answer; a paused game resumes after a 3-2-1 countdown. */
-    fun submitFlag(type: String, turn: InputSession.Turn?, want: Int) {
-        if (session.flag(flagT, type, turn, want)) lab.flush()
-        val now = SystemClock.uptimeMillis()
-        flagShownUntil = now + 1200L
-        if (paused) countdownEnd = now + 3000L
-    }
-
-    private fun resume(now: Long) {
-        paused = false
-        countdownEnd = 0L
-        session.frozen = false
-        val ms = now - pauseStart
-        session.addPause(ms)
-        if (session.playNo > 0) lab.line(LabLog.resume(session.playNo, now, ms))
+        if (session.strokeCmds == 0) performClick()   // start, or retry after a loss
     }
 
     private fun toggleDebug() {
@@ -421,21 +334,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     // ------------------------------------------------------------- HUD
 
-    private val countPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = HUD_COLOR
-        typeface = Typeface.DEFAULT_BOLD
-        textAlign = Paint.Align.CENTER
-    }
-
-    /** 3-2-1 before a flagged game resumes. */
-    private fun drawCountdown(canvas: Canvas) {
-        if (countdownEnd == 0L) return
-        val left = countdownEnd - SystemClock.uptimeMillis()
-        if (left <= 0) return
-        countPaint.textSize = 96f * density
-        canvas.drawText(((left + 999) / 1000).toString(), width / 2f, height / 2f + 32f * density, countPaint)
-    }
-
     /** Top-right corner: version always; in debug mode the test status. */
     private fun drawHud(canvas: Canvas) {
         val x = width - 10f * density
@@ -470,10 +368,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         lab.lastError?.let {
             y += cornerPaint.textSize * 1.3f
             canvas.drawText(it.take(40), x, y, cornerPaint)
-        }
-        if (now < flagShownUntil) {
-            y += cornerPaint.textSize * 1.5f
-            canvas.drawText("FLAGGED", x, y, cornerPaint)
         }
     }
 

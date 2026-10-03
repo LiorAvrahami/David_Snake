@@ -49,10 +49,6 @@ debug mode turns on (same gesture turns it off; it is always off when the
 app starts) and recording starts, with the normal input (`S2-FAST`, the
 best so far). The top-right corner shows the input and counts the games.
 
-- Double-tap whenever an input went wrong. The game pauses and asks what
-  happened: a turn you did not want (pick which of the last four turns),
-  no turn when you wanted one (pick the direction), or a turn the wrong
-  way (both). It resumes after a 3-2-1 countdown.
 - Each app run records into one file,
   `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, holding
   everything since the app was opened; every game is written to it as it
@@ -61,6 +57,8 @@ best so far). The top-right corner shows the input and counts the games.
   simulating the game on with `python3 tools/simscore.py FILE...`
   (harp straight ahead, spear hits within 3 steps, wall or tail right
   ahead; spears are exact for v1.7+ recordings, which log every throw).
+  Model choices and training use only v1.7+ recordings; older ones are
+  for sanity checks.
 
 Turning debug mode on again resumes the test.
 

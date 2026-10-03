@@ -59,9 +59,7 @@ class MainActivity : Activity() {
             )
         )
         buildOverlay(root)
-        buildFlagMenu(root)
         setContentView(root)
-        gameView.onFlag = { turns, t -> showFlagMenu(turns, t) }
 
         gameView.engine.listener = { phase ->
             gameView.onPhase(phase)
@@ -151,121 +149,6 @@ class MainActivity : Activity() {
                 Gravity.CENTER
             )
         )
-    }
-
-    // ------------------------------------------------------------- flag menu
-    // Debug-mode double tap: the game pauses and asks what went wrong.
-
-    private lateinit var flagLayer: FrameLayout
-    private lateinit var flagPanel: LinearLayout
-
-    private fun buildFlagMenu(root: FrameLayout) {
-        flagLayer = FrameLayout(this)
-        flagLayer.setBackgroundColor(Color.argb(110, 0, 0, 0))
-        flagLayer.isClickable = true          // swallow touches behind the menu
-        flagLayer.visibility = View.GONE
-        flagPanel = LinearLayout(this)
-        flagPanel.orientation = LinearLayout.VERTICAL
-        flagPanel.gravity = Gravity.CENTER_HORIZONTAL
-        flagPanel.setPadding(dp(24), dp(16), dp(24), dp(16))
-        val bg = GradientDrawable()
-        bg.cornerRadius = dp(18).toFloat()
-        bg.setColor(Color.argb(245, 255, 255, 255))
-        bg.setStroke(dp(2), ink)
-        flagPanel.background = bg
-        flagLayer.addView(
-            flagPanel,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            )
-        )
-        root.addView(
-            flagLayer,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-    }
-
-    private fun arrow(d: Int) = when (d) {
-        GameEngine.UP -> "↑ up"
-        GameEngine.RIGHT -> "→ right"
-        GameEngine.DOWN -> "↓ down"
-        else -> "← left"
-    }
-
-    private fun showFlagMenu(turns: List<InputSession.Turn>, t: Long) {
-        flagLayer.visibility = View.VISIBLE
-        fun done(type: String, turn: InputSession.Turn?, want: Int) {
-            flagLayer.visibility = View.GONE
-            gameView.submitFlag(type, turn, want)
-        }
-        fun pickDir(then: (Int) -> Unit) = flagStep(
-            "Which way did you want to go?",
-            listOf(GameEngine.LEFT, GameEngine.UP, GameEngine.DOWN, GameEngine.RIGHT)
-                .map { d -> Pair(arrow(d)) { then(d) } } + Pair("not sure") { then(-1) },
-            row = true
-        )
-        fun pickTurn(then: (InputSession.Turn?) -> Unit) {
-            if (turns.isEmpty()) { then(null); return }
-            flagStep(
-                "Which turn was wrong? (newest first)",
-                turns.map { tu ->
-                    Pair(arrow(tu.dir) + "   %.1f s ago".format((t - tu.t) / 1000f)) { then(tu) }
-                } + Pair("not sure") { then(null) }
-            )
-        }
-        flagStep(
-            "What went wrong?",
-            listOf(
-                Pair("It turned, I didn't want that") { pickTurn { tu -> done("fp", tu, -1) } },
-                Pair("It didn't turn, I wanted a turn") { pickDir { d -> done("fn", null, d) } },
-                Pair("It turned the wrong way") {
-                    pickTurn { tu -> pickDir { d -> done("wrong", tu, d) } }
-                },
-                Pair("Nothing, cancel") { done("none", null, -1) }
-            )
-        )
-    }
-
-    /** One menu step: a title and buttons (in a row with [row]). */
-    private fun flagStep(title: String, options: List<Pair<String, () -> Unit>>, row: Boolean = false) {
-        flagPanel.removeAllViews()
-        val tv = TextView(this)
-        tv.text = title
-        tv.textSize = 20f
-        tv.setTypeface(Typeface.DEFAULT_BOLD)
-        tv.setTextColor(ink)
-        tv.gravity = Gravity.CENTER
-        tv.setPadding(0, 0, 0, dp(8))
-        flagPanel.addView(tv)
-        val box = LinearLayout(this)
-        box.orientation = if (row) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        box.gravity = Gravity.CENTER
-        for ((label, action) in options) {
-            val b = TextView(this)
-            b.text = label
-            b.textSize = 17f
-            b.setTextColor(ink)
-            b.gravity = Gravity.CENTER
-            b.setPadding(dp(18), dp(10), dp(18), dp(10))
-            val bg = GradientDrawable()
-            bg.cornerRadius = dp(12).toFloat()
-            bg.setColor(Color.rgb(222, 234, 248))
-            bg.setStroke(dp(1), inkSoft)
-            b.background = bg
-            b.setOnClickListener { action() }
-            val lp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            lp.setMargins(dp(5), dp(4), dp(5), dp(4))
-            if (!row) lp.width = ViewGroup.LayoutParams.MATCH_PARENT
-            box.addView(b, lp)
-        }
-        flagPanel.addView(box)
     }
 
     // --------------------------------------------------------- phase handling

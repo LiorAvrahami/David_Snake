@@ -104,7 +104,6 @@ object LabLog {
         .s("step", "David moved: tk = game tick (45 ms each, counted from the game's start, paused while the flag menu is open), head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
         .s("spear", "a spear was thrown: at its cell at the end of tick tk; it moves one cell in d each later tick until it sticks in a wall")
         .s("harp", "a harp was eaten; next = where the new one appeared")
-        .s("flag", "player double-tapped: an input went wrong; type = fp (a turn not wanted) | fn (no turn when wanted) | wrong (turned, but another way) | none; turn_t/turn_dir/turn_from = the turn picked; want = the direction wanted. The game paused from t until the next resume line (menu, then a 3 s countdown)")
         .s("board", "harp cell; tail cells head-first; flying spears x,y,dir; attackers wall,pos,state (w = winding up, t = throwing, v = done)")
         .toString()
 
@@ -131,11 +130,10 @@ object LabLog {
 
     fun playEnd(
         n: Int, arm: Arm, t: Long, score: Int, durMs: Long, reason: String,
-        strokes: Int, cmds: Int, flags: Int
+        strokes: Int, cmds: Int
     ): String = Json()
         .s("k", "play_end").n("n", n).s("arm", arm.name).n("t", t).n("score", score)
-        .n("dur_ms", durMs).s("reason", reason).n("strokes", strokes).n("cmds", cmds)
-        .n("flags", flags).toString()
+        .n("dur_ms", durMs).s("reason", reason).n("strokes", strokes).n("cmds", cmds).toString()
 
     fun stroke(play: Int, t0: Long, end: String, pts: String, ih: String): String = Json()
         .s("k", "stroke").n("play", play).n("t0", t0).s("end", end)
@@ -176,20 +174,6 @@ object LabLog {
         .s("k", "death").n("play", play).n("t", t).n("tk", tk).s("reason", e.lostReason)
         .n("score", e.score).raw("head", "[${e.headX},${e.headY}]")
         .s("hd", dirLetter(e.headDir)).raw("board", board(e)).toString()
-
-    fun flag(
-        play: Int, t: Long, phase: GameEngine.Phase, type: String,
-        turn: InputSession.Turn?, want: Int
-    ): String {
-        val j = Json().s("k", "flag").n("play", play).n("t", t).s("phase", phase.name)
-            .s("type", type)
-        if (turn != null) j.n("turn_t", turn.t).s("turn_dir", dirLetter(turn.dir)).s("turn_from", dirLetter(turn.from))
-        if (want >= 0) j.s("want", dirLetter(want))
-        return j.toString()
-    }
-
-    fun resume(play: Int, t: Long, pausedMs: Long): String = Json()
-        .s("k", "resume").n("play", play).n("t", t).n("paused_ms", pausedMs).toString()
 
     fun board(e: GameEngine): String {
         val tail = e.tail.joinToString(";") { "${it.x},${it.y}" }
