@@ -32,14 +32,11 @@ object Arms {
      *  both steps at once: a diagonal jump). */
     val DEFAULT = HOLD_UTURN
 
-    /** Test 2, three games each, Latin square: the two ways to stop the
-     *  diagonal jump (hold only the U-turn's second turn / hold any quick
-     *  second turn), 28dp turns, and S2 (test 1's fast reader, fixed). */
-    val ORDER = listOf(
-        HOLD_UTURN, HOLD_ALL, PLUS28, SMART2,
-        HOLD_ALL, PLUS28, SMART2, HOLD_UTURN,
-        PLUS28, SMART2, HOLD_UTURN, HOLD_ALL
-    )
+    /** Test 2, three games each, one option after the other (the player's
+     *  choice): the two ways to stop the diagonal jump (hold only the
+     *  U-turn's second turn / hold any quick second turn), 28dp turns, and
+     *  S2 (test 1's fast reader, fixed). */
+    val ORDER = listOf(HOLD_UTURN, HOLD_ALL, PLUS28, SMART2).flatMap { a -> List(3) { a } }
     const val PLAYS_PER_ARM = 3
 
     /** 1-based count of [ORDER]'s entry [i] among the plays of its arm. */

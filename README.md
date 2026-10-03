@@ -65,7 +65,7 @@ drags; beat-timed movement did worst. The original's only flagged
 failures were blocked backward swipes, now U-turns; short flicks now
 count on lift (`O-PLUS`, the default).
 
-Test 2 (current, three games each, rotating): `O-HOLD-UTURN` (the
+Test 2 (current, three games each, one option after the other): `O-HOLD-UTURN` (the
 default: a U-turn's second step waits for David's next regular step, so
 he no longer jumps diagonally), `O-HOLD-ALL` (any second turn made before
 David's next regular step waits like that), `O-PLUS-28` (turns every 28dp
