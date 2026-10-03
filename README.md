@@ -25,10 +25,11 @@ straight over the old one — no uninstalling.
 
 ## How to play
 
-Swipe anywhere to steer — each gesture turns David exactly once: the
-first one instantly, the next one queued for right after his next step.
-A gesture ends when the finger lifts, stops in place, or bends sharply,
-so you can carve zigzags in one continuous drag. Tap to start, and to
+Swipe anywhere to steer: up, down, left or right on the screen, no matter
+which way David faces. A swipe registers as soon as the finger has moved
+a short distance, at any speed. The first turn applies instantly, the next
+is queued for right after his next step, and bending a drag into a new
+direction is another turn, so you can carve zigzags in one continuous drag. Tap to start, and to
 retry after a loss.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the

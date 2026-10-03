@@ -13,9 +13,7 @@ import android.graphics.Typeface
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.min
 
@@ -59,18 +57,21 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var tickAccMs = 0L
     private var animAccMs = 0L
 
-    // touch state. Input is split into GESTURES; one gesture produces at
-    // most ONE direction change. A gesture ends (and a new one begins) on
-    // exactly three events: the finger lifting, the finger stopping in
-    // place, or a clear elbow in the trajectory. Elbows are measured on a
-    // speed-independent polyline against the gesture's ESTABLISHED
-    // direction (frozen from its first few dp), so a rounded thumb corner
-    // still reads as one clean bend.
+    // touch state. Swipes are read in ABSOLUTE screen directions by
+    // displacement, not speed: once the finger has travelled swipeDp from
+    // the anchor along a clearly dominant axis (axisRatio), that direction
+    // is a command, sent at once, and the anchor jumps to the finger. The
+    // same direction never fires twice in a row within a stroke, so a long
+    // drag is one command, while a bend into a new axis is the next one
+    // (zigzags in one drag). Slow, short or fast swipes all work alike,
+    // and a command fires as soon as the finger has clearly moved.
     private val density = context.resources.displayMetrics.density
-    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val ctrlWinMs = 120L                // sliding control window
-    private val ctrlMinSpeed = 250f             // dp/s average over the window
-    private val ctrlTurnDeg = 30                // off-forward degrees = a turn
+    private val swipeDp = 14f                   // displacement for a command
+    private val axisRatio = 1.5f                // dominant / minor axis
+    private val peakWinMs = 120L                // log only: peak-speed window
+    private var anchorX = 0f                    // px; where the next command
+    private var anchorY = 0f                    // is measured from
+    private var strokeDir = NO_SWIPE            // last command of this stroke
     private var topBand = false                 // debug-toggle drag tracking
     private var downX = 0f
     private var swiped = false                  // anything applied this stroke
@@ -227,6 +228,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 swiped = false
                 topBand = event.y < height * 0.1f
                 downX = event.x
+                anchorX = event.x
+                anchorY = event.y
+                strokeDir = NO_SWIPE
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -245,12 +249,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 lastEvT = event.eventTime
                 if (engine.phase == GameEngine.Phase.PLAYING) gWasLive = true
 
-                // the whole recognizer: look at the last ctrlWinMs of the
-                // finger path; a window that is fast enough and clearly
-                // sideways or backwards IS a command, applied on the spot.
-                // The engine's own rules (one rotation per movement window,
-                // the depth-two queue, wall/tail/reversal blocks, ignoring
-                // the current direction) absorb repeats harmlessly.
+                // peak window speed, for the stroke's debug line only
                 var span = 0L
                 var wx = 0f
                 var wy = 0f
@@ -259,37 +258,53 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                     span += curTraj[i].first
                     wx += curTraj[i].second
                     wy += curTraj[i].third
-                    if (span >= ctrlWinMs) break
+                    if (span >= peakWinMs) break
                     i--
                 }
-                if (!topBand && span >= ctrlWinMs) {
+                if (span >= peakWinMs) {
                     val sp = hypot(wx, wy) / (span / 1000f)
                     if (sp > strokePeak) strokePeak = sp
-                    if (sp >= ctrlMinSpeed) {
-                        // one boundary, one number: within ctrlTurnDeg of
-                        // forward means "still going forward"; past it the
-                        // side of the angle picks the turn, and past 150
-                        // it is a reversal (blocked by the engine while
-                        // there is a tail)
-                        val a = angleFromForward(wx, wy)
-                        if (abs(a) >= ctrlTurnDeg) {
-                            val dir = if (abs(a) > 150) (engine.headDir + 2) % 4
-                                      else turnDir(a > 0)
+                }
+
+                // the whole recognizer: displacement from the anchor along
+                // a clearly dominant axis. Turning into the current heading
+                // is a no-op and reversals, walls and the tail are blocked
+                // by the engine, which also rations rotations per step.
+                if (!topBand) {
+                    val dx = (event.x - anchorX) / density
+                    val dy = (event.y - anchorY) / density
+                    val ax = abs(dx)
+                    val ay = abs(dy)
+                    val dir = when {
+                        maxOf(ax, ay) < swipeDp -> NO_SWIPE
+                        ax >= axisRatio * ay ->
+                            if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
+                        ay >= axisRatio * ax ->
+                            if (dy > 0) GameEngine.DOWN else GameEngine.UP
+                        else -> NO_SWIPE   // diagonal: wait until it resolves
+                    }
+                    if (dir != NO_SWIPE) {
+                        anchorX = event.x
+                        anchorY = event.y
+                        // a swipe during play is never also a tap
+                        if (engine.phase == GameEngine.Phase.PLAYING) swiped = true
+                        if (dir != strokeDir) {
+                            strokeDir = dir
                             val pre = engine.headDir
                             val r = engine.onSwipe(dir)
                             when (r.tag) {
                                 "turn" -> {
                                     logRotation(pre, engine.headDir, deq = false)
                                     strokeRot++
-                                    swiped = true
                                     lastQueuedDir = NO_SWIPE
                                 }
                                 "queued" -> if (dir != lastQueuedDir) {
                                     dlog("queue ${dirName(dir)}")
                                     strokeRot++
-                                    swiped = true
                                     lastQueuedDir = dir
                                 }
+                                "same", "off" -> {}
+                                else -> dlog("${dirName(dir)} ${r.tag}")
                             }
                         }
                     }
@@ -339,31 +354,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         dlog("stroke $strokeHead ${len}dp ${ms}ms x$strokeRot p${strokePeak.toInt()}")
     }
 
-
-
-
-
-    /** Signed angle (degrees) of a vector relative to David's forward:
-     *  positive is to his right, negative to his left, +-180 is backward. */
-    private fun forward(): Pair<Float, Float> = when (engine.headDir) {
-        GameEngine.RIGHT -> Pair(1f, 0f)
-        GameEngine.LEFT -> Pair(-1f, 0f)
-        GameEngine.DOWN -> Pair(0f, 1f)
-        else -> Pair(0f, -1f)
-    }
-
-    private fun relAngle(fx: Float, fy: Float, dx: Float, dy: Float): Int {
-        val dot = fx * dx + fy * dy
-        val cross = fx * dy - fy * dx
-        return Math.toDegrees(atan2(cross.toDouble(), dot.toDouble())).toInt()
-    }
-
-    private fun angleFromForward(dx: Float, dy: Float): Int {
-        val f = forward()
-        return relAngle(f.first, f.second, dx, dy)
-    }
-
-
     private fun compass(d: Int) = when (d) {
         GameEngine.UP -> "north"
         GameEngine.RIGHT -> "east"
@@ -387,7 +377,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (!debugMode) return
         dlog(rotLine(from, to, deq))
     }
-
 
     private fun dirName(d: Int) = when (d) {
         GameEngine.UP -> "U"
@@ -418,7 +407,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             y += lh
         }
     }
-
 
     /** Move the finished gesture's trajectory into the last-3 ring; taps
      *  and touch noise (under 3dp of total path) are not kept. */
@@ -454,15 +442,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         super.performClick()
         engine.tapAction()  // start on the title screen, retry after a loss
         return true
-    }
-
-    /** The screen direction of a turn to David's right (clockwise) or
-     *  left (counter-clockwise) of his current heading. */
-    private fun turnDir(right: Boolean): Int = when (engine.headDir) {
-        GameEngine.RIGHT -> if (right) GameEngine.DOWN else GameEngine.UP
-        GameEngine.LEFT -> if (right) GameEngine.UP else GameEngine.DOWN
-        GameEngine.DOWN -> if (right) GameEngine.LEFT else GameEngine.RIGHT
-        else -> if (right) GameEngine.RIGHT else GameEngine.LEFT
     }
 }
 

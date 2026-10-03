@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
-"""Replays every labeled trajectory through the SHIPPED continuous
-sliding-window controller (window 120ms, min average speed 250dp/s,
-10-degree clearance past the 30-degree forward cone) and prints the
-confusion table. A case counts as applied if any window triggers.
+"""Replays every labeled trajectory through the SHIPPED anchored-displacement
+recognizer (absolute screen directions; a command fires once the finger is
+SWIPE_DP from the anchor along an axis that dominates by AXIS_RATIO; the
+anchor then jumps to the finger; a stroke never repeats its last command)
+and, for comparison, through the previous 120ms sliding-window controller.
+Prints per-case triggers, both confusion tables and first-fire latency.
 
-Relative angles: legacy cases (gesture-era lines) anchor the logged angle
-to the vector it described; stroke-era lines carry the heading letter at
-stroke start (turns during a stroke are approximated away)."""
-import csv, math, re, os
+Commands that equal the current heading are no-ops (as in the engine);
+reversals count as commands (the engine allows them without a tail).
+Legacy (gesture-era) lines carry an angle relative to the heading; the
+heading is recovered from it and snapped to the nearest axis. Stroke-era
+lines carry the heading letter at stroke start.
+
+JOINED lists strokes that were logged as several legacy gestures but were
+one continuous finger movement: replaying them joined exposes follow-through
+fires that per-gesture replay hides. They are reported, not scored.
+
+Run from anywhere: python3 tools/eval_candidate.py"""
+import csv, math, re, os, statistics
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WIN, VMIN, TURN = 120.0, 250.0, 30.0
-FWD = {"R": (1.0, 0.0), "L": (-1.0, 0.0), "D": (0.0, 1.0), "U": (0.0, -1.0)}
-FWD_OVERRIDE = {"g040": (0.0, 1.0)}  # heading known from session context
+SWIPE_DP, AXIS_RATIO = 14.0, 1.5          # shipped (GameView.kt)
+WIN, VMIN, TURN = 120.0, 250.0, 30.0      # previous sliding-window model
+FWD = {"R": (1, 0), "L": (-1, 0), "D": (0, 1), "U": (0, -1)}
+FWD_OVERRIDE = {"g040": (0, 1)}  # heading known from session context
+JOINED = {"g019+g020": (["g019", "g020"], "L", ["yes"])}
 
 def ad(a, b):
     return math.degrees(math.atan2(a[0]*b[1]-a[1]*b[0], a[0]*b[0]+a[1]*b[1]))
@@ -30,86 +42,107 @@ with open(os.path.join(root, "docs", "gesture-trajectories.txt")) as f:
         pts = re.findall(r"\(([-\d.]+),([-\d.]+),([-\d.]+)\)", rest)
         trajs[gid.strip()] = [(float(a), float(b), float(c)) for a, b, c in pts]
 
-def rot_cw(v):  return (-v[1], v[0])   # screen coords, y down
-def rot_ccw(v): return (v[1], -v[0])
-
-class Replay:
-    def __init__(s, gid):
-        row = cases[gid]
-        toks = row["debug_line"].split()
-        s.gid = gid
-        s.intended = row["intended_gesture"].startswith(("yes", "true"))
-        pts = trajs[gid]
+class Stroke:
+    def __init__(s, gid, pts, fwd, labels):
         t, p = [0.0], [(0.0, 0.0)]
         for dt, dx, dy in pts:
             t.append(t[-1]+dt); p.append((p[-1][0]+dx, p[-1][1]+dy))
-        s.t, s.p, s.n = t, p, len(pts)
-        s.labels = [x.strip() for x in row["intended_gesture"].split(",")]
-        s.stroke = toks[0] == "stroke"
-        if gid in FWD_OVERRIDE or s.stroke:
-            s.fwd0 = FWD_OVERRIDE.get(gid) or FWD[toks[1]]
-            s.rel = None
-            return
-        ms = int(toks[3][:-2]) if toks[3].endswith("ms") else None
-        la = int(toks[1].rstrip("\u00b0"))
-        rest = toks[4:] if ms is not None else toks[3:]
-        outcome = rest[0] if rest else "-"
-        fired = outcome != "-" and not outcome.endswith(".")
-        ref = s.n
-        if fired and ms is not None:
-            ref = 1
-            while ref < s.n and t[ref+1] <= ms + 0.01: ref += 1
-        anchor = p[ref]
-        s.rel = (lambda v, anchor=anchor, la=la:
-                 la if abs(anchor[0])+abs(anchor[1]) < 1e-6 else la + ad(anchor, v))
+        s.gid, s.t, s.p, s.n = gid, t, p, len(pts)
+        s.fwd, s.labels = fwd, labels
 
-    def triggers(s, turn=None):
-        """All triggers, updating the heading after each (approximation:
-        queue timing ignored, a trigger rotates the heading at once)."""
-        turn = TURN if turn is None else turn
-        t, p = s.t, s.p
-        fwd = getattr(s, "fwd0", None)
-        out = []
-        for j in range(1, s.n + 1):
-            i = j
-            while i > 0 and t[j]-t[i-1] < WIN: i -= 1
-            if i > 0: i -= 1
-            span = t[j]-t[i]
-            if span < WIN: continue
-            v = (p[j][0]-p[i][0], p[j][1]-p[i][1])
-            if math.hypot(*v)/(span/1000.0) < VMIN: continue
-            if fwd is None:
-                a = s.rel(v)
-                if abs(a) >= turn:
-                    out.append(t[j])
-                    break        # legacy frame cannot follow the heading
-                continue
-            a = math.degrees(math.atan2(fwd[0]*v[1]-fwd[1]*v[0],
-                                        fwd[0]*v[0]+fwd[1]*v[1]))
-            if abs(a) < turn: continue
-            fwd = ((-fwd[0], -fwd[1]) if abs(a) > 150
-                   else rot_cw(fwd) if a > 0 else rot_ccw(fwd))
-            out.append(t[j])
-        return out
+def legacy_heading(row, pts):
+    """Heading of a gesture-era line: its logged angle is relative to the
+    heading and describes the net vector up to the fire (or the end)."""
+    toks = row["debug_line"].split()
+    ms = int(toks[3][:-2]) if toks[3].endswith("ms") else None
+    la = int(toks[1].rstrip("°"))
+    rest = toks[4:] if ms is not None else toks[3:]
+    outcome = rest[0] if rest else "-"
+    t, x, y, n = 0.0, 0.0, 0.0, 0
+    for dt, dx, dy in pts:
+        if outcome != "-" and ms is not None and n > 0 and t + dt > ms + 0.01:
+            break
+        t += dt; x += dx; y += dy; n += 1
+    k = round((math.degrees(math.atan2(y, x)) - la) / 90) % 4
+    return [(1, 0), (0, 1), (-1, 0), (0, -1)][k]
 
-m = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
-for gid in sorted(trajs):
-    if gid not in cases: continue
-    r = Replay(gid)
-    trig = r.triggers()
-    if len(r.labels) > 1 or r.stroke:
-        # per-command accounting: labels in order against replayed triggers
-        for k, lab in enumerate(r.labels):
+def load():
+    out = []
+    for gid in sorted(trajs):
+        if gid not in cases: continue
+        row = cases[gid]
+        labels = [x.strip() for x in row["intended_gesture"].split(",")]
+        toks = row["debug_line"].split()
+        if gid in FWD_OVERRIDE: fwd = FWD_OVERRIDE[gid]
+        elif toks[0] == "stroke": fwd = FWD[toks[1]]
+        else:
+            fwd = legacy_heading(row, trajs[gid])
+            labels = labels[:1]
+        out.append(Stroke(gid, trajs[gid], fwd, labels))
+    return out
+
+def joined():
+    return [Stroke(k, sum((trajs[g] for g in gs), []), FWD[h], labs)
+            for k, (gs, h, labs) in JOINED.items()]
+
+def anchored(s, swipe=SWIPE_DP, ratio=AXIS_RATIO):
+    """Fire times (ms) of commands that change the heading."""
+    fwd, anchor, last, out = s.fwd, s.p[0], None, []
+    for j in range(1, s.n + 1):
+        d = (s.p[j][0]-anchor[0], s.p[j][1]-anchor[1])
+        ax, ay = abs(d[0]), abs(d[1])
+        if max(ax, ay) < swipe: continue
+        if ax >= ratio*ay: dv = (1 if d[0] > 0 else -1, 0)
+        elif ay >= ratio*ax: dv = (0, 1 if d[1] > 0 else -1)
+        else: continue
+        anchor = s.p[j]
+        if dv == last: continue
+        last = dv
+        if dv == fwd: continue
+        fwd = dv; out.append(s.t[j])
+    return out
+
+def window(s):
+    """The previous controller: every move event re-checks the last WIN ms;
+    fast enough and >= TURN degrees off the heading is a turn."""
+    t, p, fwd, out = s.t, s.p, s.fwd, []
+    for j in range(1, s.n + 1):
+        i = j
+        while i > 0 and t[j]-t[i-1] < WIN: i -= 1
+        if i > 0: i -= 1
+        span = t[j]-t[i]
+        if span < WIN: continue
+        v = (p[j][0]-p[i][0], p[j][1]-p[i][1])
+        if math.hypot(*v)/(span/1000.0) < VMIN: continue
+        a = ad(fwd, v)
+        if abs(a) < TURN: continue
+        fwd = ((-fwd[0], -fwd[1]) if abs(a) > 150
+               else (-fwd[1], fwd[0]) if a > 0 else (fwd[1], -fwd[0]))
+        out.append(t[j])
+    return out
+
+def confusion(strokes, model):
+    m = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
+    for s in strokes:
+        trig = model(s)
+        for k, lab in enumerate(s.labels):
             want = lab.startswith(("yes", "true"))
             got = k < len(trig)
             m[("TP" if want else "FP") if got else ("FN" if want else "TN")] += 1
-        m["FP"] += max(0, len(trig) - len(r.labels))
-        print(f"{gid} labels={r.labels} triggers="
-              f"{['%.0fms' % x for x in trig]}")
-    else:
-        want = r.intended
-        got = bool(trig)
-        m[("TP" if want else "FP") if got else ("FN" if want else "TN")] += 1
-        print(f"{gid} intended={want} trigger="
-              f"{'-' if not trig else '%.0fms' % trig[0]}")
-print(f"CONTINUOUS (shipped): TP={m['TP']} FP={m['FP']} TN={m['TN']} FN={m['FN']}")
+        m["FP"] += max(0, len(trig) - len(s.labels))
+    return m
+
+if __name__ == "__main__":
+    S = load()
+    for s in S:
+        print(f"{s.gid} labels={s.labels} anchored={['%.0f' % x for x in anchored(s)]}"
+              f" window={['%.0f' % x for x in window(s)]}")
+    for name, model in (("ANCHORED (shipped)", anchored), ("WINDOW (previous)", window)):
+        m = confusion(S, model)
+        lat = [model(s)[0] for s in S if s.labels[0].startswith("yes") and model(s)]
+        print(f"{name}: TP={m['TP']} FP={m['FP']} TN={m['TN']} FN={m['FN']}"
+              f"  median first fire {statistics.median(lat):.0f}ms")
+    for s in joined():
+        print(f"joined {s.gid} labels={s.labels}"
+              f" anchored={['%.0f' % x for x in anchored(s)]}"
+              f" window={['%.0f' % x for x in window(s)]}")
