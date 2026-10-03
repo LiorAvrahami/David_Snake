@@ -70,7 +70,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var animAccMs = 0L
 
     // the input path: recognizer, engine commands and test-file lines
-    val session = InputSession(engine, { lab.line(it) }, { dlog(it) })
+    val session = InputSession(engine) { lab.line(it) }
 
     // the one finger being followed (the latest to land), in px
     private var activeId = -1
@@ -79,19 +79,9 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var strokeT0 = 0L
     private var topBand = false     // debug-toggle drag along the top edge
 
-    // debug mode (toggled by dragging along the top edge, end to end);
-    // runs the input test and shows a log panel in the bottom right
+    // debug mode (toggled by dragging along the top edge, end to end):
+    // records every game to a file
     private var debugMode = false   // off at every app start
-    private val dbg = ArrayDeque<String>()
-    private val dbgBg = Paint().apply { color = Color.argb(170, 0, 0, 0) }
-    private val dbgText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(130, 255, 130)
-        typeface = Typeface.MONOSPACE
-    }
-
-    init {
-        session.debug = debugMode
-    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -173,7 +163,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         canvas.restore()
 
         drawHud(canvas)
-        if (debugMode) drawDebugPanel(canvas)
     }
 
     private fun drawCellSprite(canvas: Canvas, bmp: Bitmap, cx: Int, cy: Int) {
@@ -275,7 +264,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         downY = e.getY(idx)
         strokeT0 = t
         topBand = downY < height * 0.1f
-        session.debug = debugMode
         session.down(t, downX / density, downY / density)
     }
 
@@ -297,15 +285,12 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     private fun toggleDebug() {
         debugMode = !debugMode
-        session.debug = debugMode
         if (debugMode) {
-            dlog("debug on")
             if (!lab.running) lab.startNew()
             lab.ensureFile(sessionHeader(), version)
         } else {
             session.abortPlay(SystemClock.uptimeMillis(), "debug off")
             lab.flush()
-            dbg.clear()
         }
     }
 
@@ -368,30 +353,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         lab.lastError?.let {
             y += cornerPaint.textSize * 1.3f
             canvas.drawText(it.take(40), x, y, cornerPaint)
-        }
-    }
-
-    // ----------------------------------------------------------- debug log
-
-    private fun dlog(msg: String) {
-        dbg.addLast(msg)
-        while (dbg.size > 300) dbg.removeFirst()
-    }
-
-    private fun drawDebugPanel(canvas: Canvas) {
-        dbgText.textSize = 9f * density
-        val lh = dbgText.textSize * 1.3f
-        val shown = 12
-        val w = width * 0.20f
-        val h = lh * shown + lh * 0.6f
-        val left = width - w
-        val top = height - h
-        canvas.drawRect(left, top, width.toFloat(), height.toFloat(), dbgBg)
-        var y = top + lh
-        val start = maxOf(0, dbg.size - shown)
-        for (i in start until dbg.size) {
-            canvas.drawText(dbg.elementAt(i), left + 6f * density, y, dbgText)
-            y += lh
         }
     }
 }

@@ -10,10 +10,8 @@ import kotlin.math.hypot
  */
 class InputSession(
     val engine: GameEngine,
-    private val lab: (String) -> Unit,
-    private val dlog: (String) -> Unit
+    private val lab: (String) -> Unit
 ) {
-    var debug = false
 
     var arm: Arm = Arms.DEFAULT
         private set
@@ -72,12 +70,10 @@ class InputSession(
             playStrokes = 0; playCmds = 0
             lab(LabLog.play(n, a, armN, t, wall))
         }
-        if (debug) dlog("game: ${a.name}")
     }
 
     /** The game was lost; returns true if it was a recorded one. */
     fun endPlay(t: Long): Boolean {
-        if (debug) dlog("GAME END: ${engine.lostReason}")
         if (playNo == 0) return false
         lab(LabLog.death(playNo, t, tickNo, engine))
         lab(LabLog.playEnd(playNo, arm, t, engine.score, t - playStartT,
@@ -94,7 +90,6 @@ class InputSession(
 
     /** One engine tick at time [t], logging what it moved. */
     fun tick(t: Long) {
-        val pd = engine.headDir
         val hx = engine.headX
         val hy = engine.headY
         val sc = engine.score
@@ -105,9 +100,6 @@ class InputSession(
         }
         knownSpears.clear()
         knownSpears.addAll(engine.spears)
-        if (debug && engine.headDir != pd && engine.phase == GameEngine.Phase.PLAYING) {
-            dlog(rotLine(pd, engine.headDir) + " (deq)")
-        }
         logMoves(t, hx, hy, sc, false)
     }
 
@@ -159,9 +151,6 @@ class InputSession(
             if (strokePlay == playNo) playStrokes++
             lab(LabLog.stroke(strokePlay, t0, how, pts.toString(), heads.toString()))
         }
-        if (debug && live) {
-            dlog("stroke ${hypot(lastX - downX, lastY - downY).toInt()}dp ${t - t0}ms x$strokeCmds")
-        }
     }
 
     private fun track(t: Long, x: Float, y: Float) {
@@ -200,32 +189,6 @@ class InputSession(
                 lab(LabLog.cmd(p, t, tickNo, c, r.tag, hd, ihd, engine.headDir, hx, hy, board))
                 if (playNo > 0) logMoves(t, hx, hy, sc, true)
             }
-            if (debug) {
-                dlog(when (r.tag) {
-                    "turn", "step", "flush", "re-aim", "rotate" ->
-                        "${c.kind} " + rotLine(hd, engine.headDir) + if (r.tag == "turn") "" else " (${r.tag})"
-                    "queued" -> "${c.kind} queue ${LabLog.dirLetter(c.dir)}"
-                    else -> "${c.kind} ${LabLog.dirLetter(c.dir)} ${r.tag}"
-                })
-            }
         }
-    }
-
-    private fun compass(d: Int) = when (d) {
-        GameEngine.UP -> "north"
-        GameEngine.RIGHT -> "east"
-        GameEngine.DOWN -> "south"
-        else -> "west"
-    }
-
-    /** "right to east" style description of a head rotation. */
-    private fun rotLine(from: Int, to: Int): String {
-        val word = when (to) {
-            (from + 1) % 4 -> "right"
-            (from + 3) % 4 -> "left"
-            from -> "same"
-            else -> "reverse"
-        }
-        return "$word to ${compass(to)}"
     }
 }
