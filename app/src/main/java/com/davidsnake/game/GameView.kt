@@ -1,7 +1,5 @@
 package com.davidsnake.game
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,18 +8,21 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.os.Build
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.abs
-import kotlin.math.hypot
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.min
 
 /**
  * Renders the fixed 1110x726 virtual board of the original game, letterboxed
  * and scaled to the screen with nearest-neighbor filtering so the 2012 pixel
- * art stays crisp. Also owns the frame loop (Choreographer, fixed-step ticks)
- * and swipe/tap input.
+ * art stays crisp. Also owns the frame loop (Choreographer, fixed-step ticks),
+ * touch input, and the debug-mode input test (see [InputLab]).
  */
 class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
@@ -30,14 +31,25 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         private const val VIRTUAL_H = 726f
         private const val CELL = 48
         private const val BOARD_OFF = 51f       // original x*48 + 48 + 3
-        private const val NO_SWIPE = -1
+        private const val TAP_MS = 300L         // a tap is short...
+        private const val TAP_DP = 10f          // ...and nearly still
+        private const val DOUBLE_TAP_MS = 300L  // 1st tap's lift to 2nd tap's touch
         private val FIELD_COLOR = Color.rgb(166, 202, 240)
         private val HUD_COLOR = Color.rgb(40, 60, 90)
+        private val ALERT_COLOR = Color.rgb(170, 30, 30)
     }
 
     val engine = GameEngine()
     var bestScore = 0
+    val lab = InputLab(context)
+    val version: String = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+    } catch (e: Exception) {
+        "?"
+    }
 
+    private val prefs = context.getSharedPreferences("david_snake", Context.MODE_PRIVATE)
+    private val density = context.resources.displayMetrics.density
     private val sprites = Sprites(context)
 
     private val bitmapPaint = Paint().apply {
@@ -51,55 +63,44 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         textSize = 30f
     }
     private val hudPaintSmall = Paint(hudPaint).apply { textSize = 22f }
+    private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = HUD_COLOR
+        textAlign = Paint.Align.RIGHT
+    }
 
     // fixed-step frame loop
     private var lastFrameNanos = 0L
     private var tickAccMs = 0L
     private var animAccMs = 0L
 
-    // touch state. Swipes are read in ABSOLUTE screen directions by
-    // displacement, not speed: once the finger has travelled swipeDp from
-    // the anchor along a clearly dominant axis (axisRatio), that direction
-    // is a command, sent at once, and the anchor jumps to the finger. The
-    // same direction never fires twice in a row within a stroke, so a long
-    // drag is one command, while a bend into a new axis is the next one
-    // (zigzags in one drag). Slow, short or fast swipes all work alike,
-    // and a command fires as soon as the finger has clearly moved.
-    private val density = context.resources.displayMetrics.density
-    private val swipeDp = 14f                   // displacement for a command
-    private val axisRatio = 1.5f                // dominant / minor axis
-    private val peakWinMs = 120L                // log only: peak-speed window
-    private var anchorX = 0f                    // px; where the next command
-    private var anchorY = 0f                    // is measured from
-    private var strokeDir = NO_SWIPE            // last command of this stroke
-    private var topBand = false                 // debug-toggle drag tracking
+    // the input path: recognizer, engine commands and test-file lines
+    val session = InputSession(engine, { lab.line(it) }, { dlog(it) })
+
+    // the one finger being followed (the latest to land), in px
+    private var activeId = -1
     private var downX = 0f
-    private var swiped = false                  // anything applied this stroke
-    private var gWasLive = false                // game was playing during it
-    private var strokeStartT = 0L               // finger-down time
-    private var strokeRot = 0                   // commands this stroke caused
-    private var strokePeak = 0f                 // best window speed (dp/s)
-    private var strokeHead = "?"                // heading letter at its start
-    private var lastQueuedDir = NO_SWIPE        // dedup queue log lines
+    private var downY = 0f
+    private var strokeT0 = 0L
+    private var topBand = false     // debug-toggle drag along the top edge
 
-    // raw finger trajectories (dp deltas per touch event) of the current
-    // and the last 3 completed gestures; clipboard-only, never on screen
-    private var lastEvX = 0f
-    private var lastEvY = 0f
-    private var lastEvT = 0L
-    private val curTraj = ArrayList<Triple<Long, Float, Float>>()  // (dt,dx,dy)
-    private val recentTrajs = ArrayDeque<List<Triple<Long, Float, Float>>>()
+    // taps: in debug mode a lone tap waits DOUBLE_TAP_MS for a second one
+    private var tapUpT = 0L
+    private var tapPending: Runnable? = null
+    private var awaitingSecond = false
+    private var flagShownUntil = 0L
 
-    // debug overlay (toggled by dragging across the top edge of the title
-    // screen); tap the panel to copy the whole log to the clipboard
-    private var debugMode = false
+    // debug mode (toggled by dragging along the top edge, end to end);
+    // runs the input test and shows a log panel in the bottom right
+    private var debugMode = prefs.getBoolean("debug", false)
     private val dbg = ArrayDeque<String>()
-    private var panelLeft = 0f
-    private var panelTop = 0f
     private val dbgBg = Paint().apply { color = Color.argb(170, 0, 0, 0) }
     private val dbgText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(130, 255, 130)
         typeface = Typeface.MONOSPACE
+    }
+
+    init {
+        session.debug = debugMode
     }
 
     override fun onAttachedToWindow() {
@@ -122,17 +123,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 tickAccMs += dtMs
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
-                    val pd = engine.headDir
-                    val pp = engine.phase
-                    engine.tick()
-                    if (debugMode && engine.headDir != pd) {
-                        logRotation(pd, engine.headDir, deq = true)
-                    }
-                    if (debugMode && pp == GameEngine.Phase.PLAYING &&
-                        engine.phase == GameEngine.Phase.LOST
-                    ) {
-                        dlog("GAME END: ${engine.lostReason}")
-                    }
+                    session.tick(SystemClock.uptimeMillis())
                     tickAccMs -= tickMs
                 }
             } else {
@@ -149,13 +140,18 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         Choreographer.getInstance().postFrameCallback(this)
     }
 
+    /** Left edge of the board: shifted left by up to 20% of the screen so
+     *  the right side stays vacant for gestures, never clipping the board. */
+    private fun boardOffsetX(scale: Float) =
+        maxOf(0f, (width - VIRTUAL_W * scale) / 2f - width * 0.2f)
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(FIELD_COLOR)
         val scale = min(width / VIRTUAL_W, height / VIRTUAL_H)
         canvas.save()
         // Board shifted left by up to 20% of the screen so the right side
         // stays vacant for gestures, without ever clipping the play area.
-        val ox = maxOf(0f, (width - VIRTUAL_W * scale) / 2f - width * 0.2f)
+        val ox = boardOffsetX(scale)
         canvas.translate(ox, (height - VIRTUAL_H * scale) / 2f)
         canvas.scale(scale, scale)
 
@@ -186,6 +182,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         }
         canvas.restore()
 
+        drawHud(canvas)
         if (debugMode) drawDebugPanel(canvas)
     }
 
@@ -212,179 +209,217 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         }
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                lastEvX = event.x
-                lastEvY = event.y
-                lastEvT = event.eventTime
-                curTraj.clear()
-                strokeStartT = event.eventTime
-                strokeRot = 0
-                strokePeak = 0f
-                strokeHead = dirName(engine.headDir)
-                lastQueuedDir = NO_SWIPE
-                gWasLive = engine.phase == GameEngine.Phase.PLAYING
-                swiped = false
-                topBand = event.y < height * 0.1f
-                downX = event.x
-                anchorX = event.x
-                anchorY = event.y
-                strokeDir = NO_SWIPE
-                return true
+    // ---------------------------------------------------------- phases
+
+    /** Called (via MainActivity) on every engine phase change. */
+    fun onPhase(phase: GameEngine.Phase) {
+        val t = SystemClock.uptimeMillis()
+        when (phase) {
+            GameEngine.Phase.PLAYING -> {
+                if (debugMode && lab.running) {
+                    val i = lab.playsDone
+                    session.startPlay(Arms.ORDER[i], i + 1, Arms.armPlay(i), t, wallClock())
+                    lab.flush()
+                } else {
+                    session.startPlay(Arms.DEFAULT, 0, 0, t, "")
+                }
+            }
+            GameEngine.Phase.LOST -> if (session.endPlay(t)) {
+                if (lab.completePlay()) dlog("TESTING DONE")
+                lab.flush()
+            }
+            GameEngine.Phase.READY -> Unit
+        }
+    }
+
+    /** App going to the background: write out what we have. */
+    fun onPauseApp() {
+        lab.flush()
+    }
+
+    /** True right after the last test game ended (for the lose screen). */
+    val testJustFinished: Boolean
+        get() = debugMode && lab.finished && engine.phase == GameEngine.Phase.LOST
+
+    // ----------------------------------------------------------- touch
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> begin(e, 0)
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // the newest finger takes over; the old stroke ends here
+                if (activeId >= 0) session.end(e.eventTime, "steal", 0f, 0f)
+                begin(e, e.actionIndex)
             }
             MotionEvent.ACTION_MOVE -> {
-                if (event.y >= height * 0.1f) topBand = false
-
-                // record the raw per-event finger delta for the trajectory
-                if (curTraj.size < 2000) {
-                    curTraj.add(Triple(
-                        event.eventTime - lastEvT,
-                        (event.x - lastEvX) / density,
-                        (event.y - lastEvY) / density
-                    ))
-                }
-                lastEvX = event.x
-                lastEvY = event.y
-                lastEvT = event.eventTime
-                if (engine.phase == GameEngine.Phase.PLAYING) gWasLive = true
-
-                // peak window speed, for the stroke's debug line only
-                var span = 0L
-                var wx = 0f
-                var wy = 0f
-                var i = curTraj.size - 1
-                while (i >= 0) {
-                    span += curTraj[i].first
-                    wx += curTraj[i].second
-                    wy += curTraj[i].third
-                    if (span >= peakWinMs) break
-                    i--
-                }
-                if (span >= peakWinMs) {
-                    val sp = hypot(wx, wy) / (span / 1000f)
-                    if (sp > strokePeak) strokePeak = sp
-                }
-
-                // the whole recognizer: displacement from the anchor along
-                // a clearly dominant axis. Turning into the current heading
-                // is a no-op and reversals, walls and the tail are blocked
-                // by the engine, which also rations rotations per step.
-                if (!topBand) {
-                    val dx = (event.x - anchorX) / density
-                    val dy = (event.y - anchorY) / density
-                    val ax = abs(dx)
-                    val ay = abs(dy)
-                    val dir = when {
-                        maxOf(ax, ay) < swipeDp -> NO_SWIPE
-                        ax >= axisRatio * ay ->
-                            if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT
-                        ay >= axisRatio * ax ->
-                            if (dy > 0) GameEngine.DOWN else GameEngine.UP
-                        else -> NO_SWIPE   // diagonal: wait until it resolves
+                val i = e.findPointerIndex(activeId)
+                if (i >= 0) {
+                    for (h in 0 until e.historySize) {
+                        val y = e.getHistoricalY(i, h)
+                        if (y >= height * 0.1f) topBand = false
+                        session.move(e.getHistoricalEventTime(h), e.getHistoricalX(i, h) / density, y / density)
                     }
-                    if (dir != NO_SWIPE) {
-                        anchorX = event.x
-                        anchorY = event.y
-                        // a swipe during play is never also a tap
-                        if (engine.phase == GameEngine.Phase.PLAYING) swiped = true
-                        if (dir != strokeDir) {
-                            strokeDir = dir
-                            val pre = engine.headDir
-                            val r = engine.onSwipe(dir)
-                            when (r.tag) {
-                                "turn" -> {
-                                    logRotation(pre, engine.headDir, deq = false)
-                                    strokeRot++
-                                    lastQueuedDir = NO_SWIPE
-                                }
-                                "queued" -> if (dir != lastQueuedDir) {
-                                    dlog("queue ${dirName(dir)}")
-                                    strokeRot++
-                                    lastQueuedDir = dir
-                                }
-                                "same", "off" -> {}
-                                else -> dlog("${dirName(dir)} ${r.tag}")
-                            }
-                        }
-                    }
+                    if (e.getY(i) >= height * 0.1f) topBand = false
+                    session.move(e.eventTime, e.getX(i) / density, e.getY(i) / density)
                 }
-                return true
             }
-            MotionEvent.ACTION_UP -> {
-                // debug toggle, any time: a drag along the top edge of the
-                // screen, spanning from one side (<10%) to the other (>90%)
-                if (topBand && event.y < height * 0.1f &&
-                    minOf(downX, event.x) < width * 0.1f &&
-                    maxOf(downX, event.x) > width * 0.9f
-                ) {
-                    debugMode = !debugMode
-                    if (debugMode) dlog("debug on")
-                    else {
-                        dbg.clear()
-                        recentTrajs.clear()
-                    }
-                    return true
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
+                val i = e.actionIndex
+                if (e.getPointerId(i) == activeId) finish(e.eventTime, e.getX(i), e.getY(i))
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (activeId >= 0) session.end(e.eventTime, "cancel", 0f, 0f)
+                activeId = -1
+                if (awaitingSecond) {
+                    awaitingSecond = false
+                    tapPending?.run()   // the held first tap still counts
+                    tapPending = null
                 }
-                logStroke(event.eventTime)
-                finalizeTraj()
-                if (!swiped) {
-                    if (debugMode && event.x >= panelLeft && event.y >= panelTop) {
-                        copyLog()
-                        return true
-                    }
-                    performClick()
-                }
-                return true
             }
         }
-        return super.onTouchEvent(event)
+        return true
     }
 
-    /** One summary line per stroke (finger down to lift): heading at its
-     *  start, net length, duration, how many commands it caused, and its
-     *  best window speed. */
-    private fun logStroke(endT: Long) {
-        if (!gWasLive) return
-        var nx = 0f
-        var ny = 0f
-        for ((_, dx, dy) in curTraj) { nx += dx; ny += dy }
-        val len = hypot(nx, ny).toInt()
-        val ms = (endT - strokeStartT).coerceAtLeast(0)
-        dlog("stroke $strokeHead ${len}dp ${ms}ms x$strokeRot p${strokePeak.toInt()}")
-    }
-
-    private fun compass(d: Int) = when (d) {
-        GameEngine.UP -> "north"
-        GameEngine.RIGHT -> "east"
-        GameEngine.DOWN -> "south"
-        else -> "west"
-    }
-
-    /** One line per physical rotation of the head: which way it turned,
-     *  the compass direction it now faces, and whether it was dequeued.
-     *  Instant rotations are emitted right AFTER their gesture's line. */
-    private fun rotLine(from: Int, to: Int, deq: Boolean): String {
-        val word = when (to) {
-            (from + 1) % 4 -> "turn right"
-            (from + 3) % 4 -> "turn left"
-            else -> "reverse"
+    private fun begin(e: MotionEvent, idx: Int) {
+        val t = e.eventTime
+        activeId = e.getPointerId(idx)
+        downX = e.getX(idx)
+        downY = e.getY(idx)
+        strokeT0 = t
+        topBand = downY < height * 0.1f
+        session.debug = debugMode
+        session.down(t, downX / density, downY / density)
+        // a touch soon after a lone tap may be its second tap: hold the
+        // first tap's action until this stroke ends
+        val pending = tapPending
+        if (pending != null && t - tapUpT <= DOUBLE_TAP_MS) {
+            removeCallbacks(pending)
+            awaitingSecond = true
         }
-        return "$word to ${compass(to)}" + if (deq) " (deq)" else ""
     }
 
-    private fun logRotation(from: Int, to: Int, deq: Boolean) {
+    /** The followed finger lifted at (x, y) px. */
+    private fun finish(t: Long, x: Float, y: Float) {
+        activeId = -1
+        session.end(t, "up", x / density, y / density)
+
+        // debug toggle: a drag along the top edge from one side to the other
+        if (topBand && y < height * 0.1f &&
+            minOf(downX, x) < width * 0.1f && maxOf(downX, x) > width * 0.9f
+        ) {
+            awaitingSecond = false
+            toggleDebug()
+            return
+        }
+
+        val click = session.strokeCmds == 0
+        val tap = click && session.maxDist <= TAP_DP && t - strokeT0 <= TAP_MS
+        if (awaitingSecond) {
+            awaitingSecond = false
+            val first = tapPending
+            tapPending = null
+            if (tap) {
+                if (session.flag(t)) lab.flush()
+                flagShownUntil = SystemClock.uptimeMillis() + 1200L
+                return
+            }
+            first?.run()        // the first tap was a lone tap after all
+        }
+        if (!click) return
+        if (!debugMode || !tap) {
+            performClick()
+            return
+        }
+        tapUpT = t
+        val r = Runnable { tapPending = null; performClick() }
+        tapPending = r
+        postDelayed(r, DOUBLE_TAP_MS)
+    }
+
+    private fun toggleDebug() {
+        debugMode = !debugMode
+        session.debug = debugMode
+        prefs.edit().putBoolean("debug", debugMode).apply()
+        if (debugMode) {
+            dlog("debug on")
+            if (!lab.running) {
+                lab.clearFinished()
+                lab.startNew(sessionHeader(), version)
+            }
+        } else {
+            session.abortPlay(SystemClock.uptimeMillis(), "debug off")
+            lab.flush()
+            dbg.clear()
+        }
+    }
+
+    private fun wallClock(): String =
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+
+    private fun sessionHeader(): String {
+        val scale = min(width / VIRTUAL_W, height / VIRTUAL_H)
+        val ox = boardOffsetX(scale)
+        val oy = (height - VIRTUAL_H * scale) / 2f
+        val cells = BOARD_OFF * scale
+        return LabLog.session(
+            version, "${Build.MANUFACTURER} ${Build.MODEL}", Build.VERSION.SDK_INT, density,
+            width / density, height / density,
+            (ox + cells) / density, (oy + cells) / density,
+            GameEngine.COLS * CELL * scale / density, GameEngine.ROWS * CELL * scale / density,
+            wallClock(), SystemClock.uptimeMillis()
+        )
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        engine.tapAction()  // start on the title screen, retry after a loss
+        return true
+    }
+
+    // ------------------------------------------------------------- HUD
+
+    /** Top-right corner: version always; in debug mode the test status. */
+    private fun drawHud(canvas: Canvas) {
+        val x = width - 10f * density
+        var y = 16f * density
+        cornerPaint.typeface = Typeface.DEFAULT
+        cornerPaint.textSize = 12f * density
+        cornerPaint.color = HUD_COLOR
+        canvas.drawText("v$version", x, y, cornerPaint)
         if (!debugMode) return
-        dlog(rotLine(from, to, deq))
+
+        val lines = ArrayList<Pair<String, Boolean>>()  // text, bold
+        val now = SystemClock.uptimeMillis()
+        if (lab.running) {
+            val live = session.playNo > 0
+            val i = if (live) session.playNo - 1 else lab.playsDone
+            val a = Arms.ORDER[i]
+            lines.add(Pair((if (live) "" else "next: ") + a.name, true))
+            lines.add(Pair("play ${Arms.armPlay(i)}/${Arms.PLAYS_PER_ARM} · game ${i + 1}/${Arms.ORDER.size}", false))
+        } else if (lab.finished) {
+            lines.add(Pair("TESTING DONE ✓", true))
+            lines.add(Pair(lab.fileLocation, false))
+        }
+        for ((text, bold) in lines) {
+            cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            cornerPaint.textSize = (if (bold) 15f else 12f) * density
+            y += cornerPaint.textSize * 1.3f
+            canvas.drawText(text, x, y, cornerPaint)
+        }
+        cornerPaint.typeface = Typeface.DEFAULT_BOLD
+        cornerPaint.textSize = 13f * density
+        cornerPaint.color = ALERT_COLOR
+        lab.lastError?.let {
+            y += cornerPaint.textSize * 1.3f
+            canvas.drawText(it.take(40), x, y, cornerPaint)
+        }
+        if (now < flagShownUntil) {
+            y += cornerPaint.textSize * 1.5f
+            canvas.drawText("FLAGGED", x, y, cornerPaint)
+        }
     }
 
-    private fun dirName(d: Int) = when (d) {
-        GameEngine.UP -> "U"
-        GameEngine.DOWN -> "D"
-        GameEngine.LEFT -> "L"
-        GameEngine.RIGHT -> "R"
-        else -> "?"
-    }
+    // ----------------------------------------------------------- debug log
 
     private fun dlog(msg: String) {
         dbg.addLast(msg)
@@ -397,51 +432,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val shown = 12
         val w = width * 0.20f
         val h = lh * shown + lh * 0.6f
-        panelLeft = width - w
-        panelTop = height - h
-        canvas.drawRect(panelLeft, panelTop, width.toFloat(), height.toFloat(), dbgBg)
-        var y = panelTop + lh
+        val left = width - w
+        val top = height - h
+        canvas.drawRect(left, top, width.toFloat(), height.toFloat(), dbgBg)
+        var y = top + lh
         val start = maxOf(0, dbg.size - shown)
         for (i in start until dbg.size) {
-            canvas.drawText(dbg.elementAt(i), panelLeft + 6f * density, y, dbgText)
+            canvas.drawText(dbg.elementAt(i), left + 6f * density, y, dbgText)
             y += lh
         }
-    }
-
-    /** Move the finished gesture's trajectory into the last-3 ring; taps
-     *  and touch noise (under 3dp of total path) are not kept. */
-    private fun finalizeTraj() {
-        var total = 0f
-        for ((_, dx, dy) in curTraj) total += hypot(dx, dy)
-        if (total >= 3f && gWasLive) {
-            recentTrajs.addLast(ArrayList(curTraj))
-            while (recentTrajs.size > 7) recentTrajs.removeFirst()
-        }
-        curTraj.clear()
-    }
-
-    private fun copyLog() {
-        val sb = StringBuilder(dbg.joinToString("\n"))
-        sb.append("\n--- trajectories of the last ")
-            .append(recentTrajs.size)
-            .append(" gestures, oldest first; (dt_ms,dx_dp,dy_dp) per touch event ---")
-        for ((i, traj) in recentTrajs.withIndex()) {
-            sb.append("\ng").append(i + 1 - recentTrajs.size).append(":")
-            for ((dt, dx, dy) in traj) {
-                sb.append(" (").append(dt)
-                    .append(",").append("%.1f".format(dx))
-                    .append(",").append("%.1f".format(dy)).append(")")
-            }
-        }
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("david-snake-debug", sb.toString()))
-        dlog("copied ${dbg.size} lines +traj")
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        engine.tapAction()  // start on the title screen, retry after a loss
-        return true
     }
 }
 

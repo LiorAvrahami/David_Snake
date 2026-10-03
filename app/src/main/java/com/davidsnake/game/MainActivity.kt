@@ -59,8 +59,16 @@ class MainActivity : Activity() {
         buildOverlay(root)
         setContentView(root)
 
-        gameView.engine.listener = { phase -> onPhase(phase) }
+        gameView.engine.listener = { phase ->
+            gameView.onPhase(phase)
+            onPhase(phase)
+        }
         onPhase(gameView.engine.phase)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        gameView.onPauseApp()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -138,9 +146,12 @@ class MainActivity : Activity() {
                 }
                 panel.visibility = View.VISIBLE
                 titleView.text = getString(R.string.you_lost)
-                subtitleView.text =
-                    getString(R.string.final_score, score, gameView.bestScore) +
-                        "\n" + getString(R.string.try_again)
+                var sub = getString(R.string.final_score, score, gameView.bestScore) +
+                    "\n" + getString(R.string.try_again)
+                if (gameView.testJustFinished) {
+                    sub += "\n\n" + getString(R.string.testing_done, gameView.lab.fileLocation)
+                }
+                subtitleView.text = sub
             }
         }
     }

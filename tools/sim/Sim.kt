@@ -365,5 +365,83 @@ fun main() {
         println("storm stress OK: maxWave=$maxWave, maxAlive=$maxAlive, spearsThrown=$thrown")
     }
 
+    // 10) STEP modes (the first commit's step-on-swipe): a turn arms a step
+    //     that lands on the very next tick; a second turn before it flushes
+    //     the armed step at once.
+    run {
+        val e = GameEngine(Random(1))
+        e.turnMode = GameEngine.TurnMode.STEP
+        e.tapAction()
+        check(e.onSwipe(GameEngine.RIGHT).tag == "step" && e.headX == 10, "STEP moved before the tick")
+        e.tick()
+        check(e.headX == 11 && e.headY == 6, "STEP armed step missing (${e.headX},${e.headY})")
+        e.onSwipe(GameEngine.UP)
+        val r = e.onSwipe(GameEngine.LEFT)
+        check(r.tag == "flush" && e.headX == 11 && e.headY == 5 && e.headDir == GameEngine.LEFT,
+            "STEP flush wrong (r=${r.tag} at ${e.headX},${e.headY} dir=${e.headDir})")
+        e.tick()
+        check(e.headX == 10 && e.headY == 5, "STEP step after flush wrong (${e.headX},${e.headY})")
+        check(e.onSwipe(GameEngine.LEFT).tag == "same", "STEP same-direction not ignored")
+        println("STEP mode OK (armed step on the next tick, flush on a quick second turn)")
+    }
+
+    // 10b) At the top wall: STEP keeps the original's quirk (a quick second
+    //      turn flushes the armed step into the wall); STEP_SAFE re-aims.
+    for (mode in listOf(GameEngine.TurnMode.STEP, GameEngine.TurnMode.STEP_SAFE)) {
+        val e = GameEngine(Random(1))
+        e.turnMode = mode
+        e.tapAction()
+        while (e.headY > 0) e.tick()
+        e.onSwipe(GameEngine.RIGHT); e.tick()     // along the wall to (11,0)
+        check(e.headX == 11 && e.headY == 0 && e.phase == GameEngine.Phase.PLAYING, "wall setup")
+        check(e.onSwipe(GameEngine.UP).tag == "step", "turn to face the wall not armed")
+        val r = e.onSwipe(GameEngine.DOWN)
+        if (mode == GameEngine.TurnMode.STEP) {
+            check(r.tag == "flush-died" && e.phase == GameEngine.Phase.LOST, "STEP wall flush quirk lost (r=${r.tag})")
+        } else {
+            check(r.tag == "re-aim" && e.phase == GameEngine.Phase.PLAYING, "STEP_SAFE wall flush (r=${r.tag})")
+            e.tick()
+            check(e.headX == 11 && e.headY == 1, "STEP_SAFE re-aimed step wrong (${e.headX},${e.headY})")
+        }
+    }
+    println("STEP wall flush: quirk kept in STEP, re-aim in STEP_SAFE OK")
+
+    // 10c) Random soak of both STEP modes: invariants hold; STEP_SAFE input
+    //      itself never kills and never turns straight into the tail.
+    for (mode in listOf(GameEngine.TurnMode.STEP, GameEngine.TurnMode.STEP_SAFE)) {
+        val e = GameEngine(Random(5))
+        e.turnMode = mode
+        e.tapAction()
+        val script = Random(11)
+        var games = 0
+        var turns = 0
+        repeat(60000) {
+            if (e.phase == GameEngine.Phase.LOST) { e.tapAction(); e.tapAction(); games++ }
+            if (script.nextInt(3) == 0) {
+                // steer toward the harp, with some random noise
+                val dx = e.harpX - e.headX
+                val dy = e.harpY - e.headY
+                val d = if (script.nextInt(4) == 0) script.nextInt(4)
+                    else if (abs(dx) >= abs(dy)) (if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT)
+                    else (if (dy > 0) GameEngine.DOWN else GameEngine.UP)
+                val r = e.onSwipe(d)
+                if (r.tag == "step" || r.tag == "flush" || r.tag == "re-aim") turns++
+                if (mode == GameEngine.TurnMode.STEP_SAFE) {
+                    check(e.phase == GameEngine.Phase.PLAYING, "STEP_SAFE input killed (r=${r.tag})")
+                    if (r.tag == "step" || r.tag == "re-aim" || r.tag == "flush") {
+                        check(e.room(e.headDir, 1) > 0 ||
+                            e.headX + (if (e.headDir == GameEngine.RIGHT) 1 else if (e.headDir == GameEngine.LEFT) -1 else 0) !in 0 until GameEngine.COLS ||
+                            e.headY + (if (e.headDir == GameEngine.DOWN) 1 else if (e.headDir == GameEngine.UP) -1 else 0) !in 0 until GameEngine.ROWS,
+                            "STEP_SAFE turned straight into the tail")
+                    }
+                }
+            }
+            e.tick()
+            invariants(e)
+        }
+        check(games > 5 && turns > 1000, "soak too small (games=$games turns=$turns)")
+        println("$mode soak OK: $games games, $turns turns")
+    }
+
     println("ALL CHECKS PASSED ($checksRun assertions)")
 }

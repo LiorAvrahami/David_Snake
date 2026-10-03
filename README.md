@@ -25,12 +25,11 @@ straight over the old one — no uninstalling.
 
 ## How to play
 
-Swipe anywhere to steer: up, down, left or right on the screen, no matter
-which way David faces. A swipe registers as soon as the finger has moved
-a short distance, at any speed. The first turn applies instantly, the next
-is queued for right after his next step, and bending a drag into a new
-direction is another turn, so you can carve zigzags in one continuous drag. Tap to start, and to
-retry after a loss.
+Swipe anywhere to steer: up, down, left or right on the screen. A turn
+moves David a step right away; keep dragging and every further 42dp is
+another command, so you can carve zigzags in one continuous drag. Tap to
+start, and to retry after a loss. The build number is in the top-right
+corner.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
 oldest falls out). When you're pressed against a wall you get a beat to
@@ -39,18 +38,38 @@ cell ahead of you. Waves come faster and larger the longer you survive.
 
 And yes — after you fall, they keep throwing. The original did that too.
 
+## Input test (debug mode)
+
+To compare input variants, drag along the very top edge of the screen
+from one side to the other: debug mode turns on (same gesture turns it
+off) and a 9-game test starts.
+
+- The top-right corner names the variant of the current (or next) game
+  and counts the games. Variants rotate automatically: three games each
+  of `O-ORIGINAL` (the first version's input), `S-STEP` (new swipe
+  reader, David steps on every turn) and `S-SCHED` (new swipe reader,
+  David moves on the beat).
+- Double-tap whenever an input went wrong: a swipe ignored, or a turn you
+  did not mean. "FLAGGED" confirms it. It marks whatever you did in the
+  1.5 seconds before; doing it right after dying is fine.
+- Everything is saved after every game to
+  `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`. After game 9 the
+  screen says *Testing done*; send that file over for analysis
+  (`python3 tools/lab_report.py FILE`).
+
+Leaving debug mode keeps the test where it was; turning it on again
+resumes it. Once a test is done, turning debug mode on starts a new one.
+
 ## Project notes
 
 Plain Kotlin with zero dependencies: one Activity, a custom Canvas view,
 and all UI built in code (no layout XML). The game logic lives in
 `GameEngine.kt`, a line-faithful port of the original's `Form1.cs`,
 `figure.cs`, `attaker.cs` and `math.cs`, preserving its tick structure
-(the snake steps every 4th tick, spears move every tick, and a swipe
-rotates the head instantly while movement stays on the step schedule,
-with at most one net rotation per movement plus one queued turn, turns
-never aiming at a wall or into the tail, and gestures scored so a
-low-confidence gesture's not-yet-committed effect can be revoked)
-at a relaxed
+(the snake steps every 4th tick and spears move every tick; a turn
+executes either as the original's immediate step or in a metronome mode
+with one instant rotation per movement plus one queued turn, see
+`TurnMode`) at a relaxed
 mobile pace, locked to the original's hard difficulty, and its quirks —
 including the difficulty-scaled wall-grace window and the post-death spear
 rain. One genuine bug in the original was fixed (the harp could briefly

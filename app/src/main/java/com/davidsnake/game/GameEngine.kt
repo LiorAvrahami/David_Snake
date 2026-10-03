@@ -18,12 +18,18 @@ import kotlin.random.Random
  *  - a new wave spawns every `attackerCountGoal` ticks; the goal ramps
  *    from 60 down to 19 and the wave size is (200 / goal - 2)
  *
- * Deliberately preserved quirks of the original:
- *  - deviating from the original's step-on-keypress: a turn intent only
- *    rotates the head instantly, movement happens strictly on the step
- *    schedule, turns queue at depth two (one instant rotation per
- *    movement -- a hard rule -- plus one queued turn applied at the
+ * How a turn is executed depends on [turnMode] (A/B tested, see InputLab):
+ *  - SCHED: a turn intent only rotates the head instantly, movement
+ *    happens strictly on the step schedule, turns queue at depth two (one
+ *    instant rotation per movement plus one queued turn applied at the
  *    step), and a turn can never aim at a wall or into the tail
+ *  - STEP: the original's step-on-keypress, exactly as first ported: a
+ *    turn arms an immediate step on the next tick, and a second turn
+ *    before that flushes the armed step at once
+ *  - STEP_SAFE: STEP, except a turn into the tail (certain death) is
+ *    ignored and a flush never steps into a wall or the tail
+ *
+ * Deliberately preserved quirks of the original:
  *  - at a wall the snake presses against it for a small, difficulty-based
  *    grace window (easy 3 / medium 2 / hard 1 extra ticks) before dying
  *  - attackers aim one cell ahead of you with +/-1 jitter, and always
@@ -55,6 +61,8 @@ class GameEngine(private val rng: Random = Random.Default) {
     }
 
     enum class Phase { READY, PLAYING, LOST }
+
+    enum class TurnMode { SCHED, STEP, STEP_SAFE }
 
     /** idx matches the original get_dificolty() mapping (200/320/400 -> 0/1/2). */
     enum class Difficulty(val idx: Int) { EASY(0), MEDIUM(1), HARD(2) }
@@ -115,6 +123,7 @@ class GameEngine(private val rng: Random = Random.Default) {
     private val roomRight = BooleanArray(ROWS)
 
     var difficulty = Difficulty.HARD
+    var turnMode = TurnMode.SCHED
 
     var phase = Phase.READY; private set
     var score = 0; private set
@@ -126,6 +135,8 @@ class GameEngine(private val rng: Random = Random.Default) {
     private var rotatedSinceStep = false // the instant turn of this window is used
     private var pendingDir = -1         // one queued turn, applied after the step
     private var rotPrevDir = 0          // heading to restore if it is canceled
+    private var keyCommand = false      // STEP modes: original 'key_commad'
+    private var lastMoveDir = UP        // direction of the last actual step
     private var attackerCount = 60      // ticks until the next wave
     private var attackerCountGoal = 60  // ramps 60 -> 19
     private var cont3 = 0               // original 'timer_2_cont_to_3'
@@ -152,6 +163,8 @@ class GameEngine(private val rng: Random = Random.Default) {
         stepCounter = 4
         rotatedSinceStep = false
         pendingDir = -1
+        keyCommand = false
+        lastMoveDir = UP
         cont3 = 0
         score = 0
 
@@ -198,6 +211,7 @@ class GameEngine(private val rng: Random = Random.Default) {
      */
     fun onSwipe(dir: Int): SwipeResult {
         if (phase != Phase.PLAYING) return SwipeResult("off")
+        if (turnMode != TurnMode.SCHED) return swipeStep(dir)
         if (!rotatedSinceStep) {
             if (dir == headDir) return SwipeResult("same")
             if (tail.isNotEmpty() && dir == (headDir + 2) % 4) return SwipeResult("rev-block")
@@ -217,7 +231,75 @@ class GameEngine(private val rng: Random = Random.Default) {
         return SwipeResult("same")
     }
 
+    /**
+     * STEP modes (original Form1_KeyDown): ignore the current direction,
+     * block a reversal while there is a tail, flush any armed step as an
+     * immediate step, then arm a step for the very next tick. STEP_SAFE
+     * also ignores a turn straight into the tail and never flushes into a
+     * wall or the tail (it just re-aims the armed step instead).
+     */
+    private fun swipeStep(dir: Int): SwipeResult {
+        if (dir == headDir) return SwipeResult("same")
+        val safe = turnMode == TurnMode.STEP_SAFE
+        // STEP_SAFE: an armed step pinned at a wall/tail is re-aimed, not
+        // flushed, so a reversal is judged against the way David last moved
+        val pinned = keyCommand && safe && room(headDir, 1) == 0
+        val ref = if (pinned) lastMoveDir else headDir
+        if (tail.isNotEmpty() && dir == (ref + 2) % 4) return SwipeResult("rev-block")
+        if (safe) {
+            val nx = nextX(headX, dir)
+            val ny = nextY(headY, dir)
+            if (inBounds(nx, ny) && isTailBlock(nx, ny) && !(keyCommand && !pinned)) {
+                return SwipeResult("tail-block")
+            }
+        }
+        var tag = "step"
+        if (keyCommand) {
+            if (pinned) {
+                tag = "re-aim"
+            } else {
+                val c = stepCounter
+                step(true)
+                stepCounter = c  // the original's flush leaves the counter alone
+                if (phase == Phase.LOST) return SwipeResult("flush-died")
+                tag = "flush"
+                if (safe && room(dir, 1) == 0) {
+                    val nx = nextX(headX, dir)
+                    val ny = nextY(headY, dir)
+                    if (inBounds(nx, ny)) {
+                        headDir = lastMoveDir
+                        return SwipeResult("flush-tail-block")
+                    }
+                }
+            }
+        }
+        headDir = dir
+        keyCommand = true
+        return SwipeResult(tag)
+    }
+
     data class SwipeResult(val tag: String)
+
+    /** Direction of David's last actual step. */
+    val movedDir: Int get() = lastMoveDir
+
+    /** The heading the next input should be judged against: the queued
+     *  turn if there is one, else the current heading. */
+    val intendedDir: Int get() = if (pendingDir >= 0) pendingDir else headDir
+
+    /** Free cells straight ahead of the head in [dir] (0 = wall or tail
+     *  right there), counted up to [cap]. */
+    fun room(dir: Int, cap: Int = 6): Int {
+        var x = headX
+        var y = headY
+        var n = 0
+        while (n < cap) {
+            x = nextX(x, dir); y = nextY(y, dir)
+            if (!inBounds(x, y) || blocks[x][y] == TAIL) break
+            n++
+        }
+        return n
+    }
 
     /** A cell blocks a turn if it holds any tail segment. The step checks
      *  the head's landing cell before the tail's last bit is removed
@@ -259,14 +341,15 @@ class GameEngine(private val rng: Random = Random.Default) {
 
     /** Original movment_Tick(sender, e). */
     private fun movementTick() {
-        if (stepCounter <= 0 && phase == Phase.PLAYING) {
+        val due = stepCounter <= 0 || (keyCommand && turnMode != TurnMode.SCHED)
+        if (due && phase == Phase.PLAYING) {
             val nx = nextX(headX, headDir)
             val ny = nextY(headY, headDir)
             // Wall grace: past the wall, the step is withheld until the
             // counter sinks to -(3 - difficulty), giving a last-moment out.
-            // Facing a wall by rotation is impossible, so this state only
-            // arises from travel and the instant rotation is always free
-            // to steer out of it.
+            // In SCHED, facing a wall by rotation is impossible, so this
+            // state only arises from travel and the instant rotation is
+            // always free to steer out of it.
             if (inBounds(nx, ny) || stepCounter <= -(3 - difficulty.idx)) {
                 step(true)
             }
@@ -277,8 +360,10 @@ class GameEngine(private val rng: Random = Random.Default) {
 
     /** Original movment_Tick(bool delet_last): one snake step. */
     private fun step(deleteLastIn: Boolean) {
+        keyCommand = false
         if (phase == Phase.LOST) return
         stepCounter = 4
+        lastMoveDir = headDir
         var deleteLast = deleteLastIn
 
         val lastX = headX

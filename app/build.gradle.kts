@@ -11,8 +11,10 @@ android {
         applicationId = "com.davidsnake.game"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // every CI build gets its own number, shown in the game's corner
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+        versionCode = run ?: 1
+        versionName = "1.1." + (run?.toString() ?: "dev")
     }
 
     // Committed debug keystore: every CI build carries the same signature,

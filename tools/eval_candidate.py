@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Replays every labeled trajectory through the SHIPPED anchored-displacement
-recognizer (absolute screen directions; a command fires once the finger is
+"""Replays every labeled trajectory through the anchored-displacement
+recognizer (shipped until the input A/B test; tools/recognizers.py has the
+current ones) (absolute screen directions; a command fires once the finger is
 SWIPE_DP from the anchor along an axis that dominates by AXIS_RATIO; the
 anchor then jumps to the finger; a stroke never repeats its last command)
 and, for comparison, through the previous 120ms sliding-window controller.
@@ -20,7 +21,7 @@ Run from anywhere: python3 tools/eval_candidate.py"""
 import csv, math, re, os, statistics
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SWIPE_DP, AXIS_RATIO = 14.0, 1.5          # shipped (GameView.kt)
+SWIPE_DP, AXIS_RATIO = 14.0, 1.5          # anchored model
 WIN, VMIN, TURN = 120.0, 250.0, 30.0      # previous sliding-window model
 FWD = {"R": (1, 0), "L": (-1, 0), "D": (0, 1), "U": (0, -1)}
 FWD_OVERRIDE = {"g040": (0, 1)}  # heading known from session context
@@ -137,7 +138,7 @@ if __name__ == "__main__":
     for s in S:
         print(f"{s.gid} labels={s.labels} anchored={['%.0f' % x for x in anchored(s)]}"
               f" window={['%.0f' % x for x in window(s)]}")
-    for name, model in (("ANCHORED (shipped)", anchored), ("WINDOW (previous)", window)):
+    for name, model in (("ANCHORED (previous)", anchored), ("WINDOW (older)", window)):
         m = confusion(S, model)
         lat = [model(s)[0] for s in S if s.labels[0].startswith("yes") and model(s)]
         print(f"{name}: TP={m['TP']} FP={m['FP']} TN={m['TN']} FN={m['FN']}"
