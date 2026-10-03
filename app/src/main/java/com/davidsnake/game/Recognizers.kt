@@ -40,11 +40,30 @@ private fun angleDeg(fx: Float, fy: Float, vx: Float, vy: Float): Double =
     Math.toDegrees(atan2((fx * vy - fy * vx).toDouble(), (fx * vx + fy * vy).toDouble()))
 
 /**
- * The first commit's recognizer, verbatim: once the finger is 42dp from
- * the anchor on either axis, the dominant axis is the command and the
- * anchor jumps to the finger. Nothing happens on lift.
+ * A U-turn for a backward swipe while there is a tail (a plain reversal
+ * would be blocked): turn to the side the swipe leans to by at least
+ * [leanDp], else to the roomier side, never into a wall/tail when the
+ * other side is open; then reverse.
  */
-class OriginalRecognizer : Recognizer {
+private fun uTurn(h: Int, vx: Float, vy: Float, g: GameInfo, leanDp: Float): List<Cmd> {
+    val cross = dirX(h) * vy - dirY(h) * vx      // > 0: leans to David's right
+    val right = (h + 1) % 4
+    val left = (h + 3) % 4
+    var side = if (cross > 0) right else left
+    val other = if (cross > 0) left else right
+    if (abs(cross) < leanDp && g.room(other) > g.room(side)) side = other
+    if (g.room(side) == 0 && g.room(other) > 0) side = if (side == right) left else right
+    return listOf(Cmd(side, "uturn"), Cmd((h + 2) % 4, "uturn"))
+}
+
+/**
+ * The first commit's recognizer: once the finger is 42dp from the anchor
+ * on either axis, the dominant axis is the command and the anchor jumps
+ * to the finger. Nothing happens on lift. With [uTurns], a clearly
+ * backward command while there is a tail becomes a U-turn instead of
+ * being blocked (the only change; the first commit had it off).
+ */
+class OriginalRecognizer(private val uTurns: Boolean = false) : Recognizer {
     private val threshold = 42f
     private var ax = 0f
     private var ay = 0f
@@ -61,6 +80,13 @@ class OriginalRecognizer : Recognizer {
             if (dy > 0) GameEngine.DOWN else GameEngine.UP
         }
         ax = x; ay = y
+        val h = g.heading
+        if (uTurns && g.hasTail && dir == (h + 2) % 4) {
+            // only a clearly backward swipe (within 35 degrees): a diagonal
+            // half-backward one stays blocked, as in the original
+            val back = -(dirX(h) * dx + dirY(h) * dy)
+            if (abs(dirX(h) * dy - dirY(h) * dx) <= 0.7f * back) return uTurn(h, dx, dy, g, 8f)
+        }
         return listOf(Cmd(dir, "orig"))
     }
 
@@ -185,12 +211,6 @@ class SmartRecognizer : Recognizer {
         if (len < thr * backFactor) return NONE
         val back = (h + 2) % 4
         if (!g.hasTail) return listOf(Cmd(back, "reverse"))
-        // U-turn: lean side if the swipe clearly leans, else the roomier one;
-        // never into a wall/tail when the other side is open
-        var side = if (a > 0) right else left
-        val other = if (a > 0) left else right
-        if (len * sin(Math.toRadians(absA)) < 3f && g.room(other) > g.room(side)) side = other
-        if (g.room(side) == 0 && g.room(other) > 0) side = if (side == right) left else right
-        return listOf(Cmd(side, "uturn"), Cmd(back, "uturn"))
+        return uTurn(h, vx, vy, g, 3f)
     }
 }

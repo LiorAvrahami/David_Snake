@@ -7,19 +7,19 @@ class Arm(val name: String, val mode: GameEngine.TurnMode, val make: () -> Recog
 
 object Arms {
     val ORIGINAL = Arm("O-ORIGINAL", GameEngine.TurnMode.STEP) { OriginalRecognizer() }
+    val PLUS = Arm("O-PLUS", GameEngine.TurnMode.STEP_SAFE) { OriginalRecognizer(uTurns = true) }
     val SMART_STEP = Arm("S-STEP", GameEngine.TurnMode.STEP_SAFE) { SmartRecognizer() }
     val SMART_SCHED = Arm("S-SCHED", GameEngine.TurnMode.SCHED) { SmartRecognizer() }
 
-    /** Normal play, outside a test. */
-    val DEFAULT = ORIGINAL
+    /** Normal play, outside a test. Chosen by the first test (v1.1.50):
+     *  the original input won; its only flagged failures were blocked
+     *  backward swipes, now U-turns. */
+    val DEFAULT = PLUS
 
-    /** Latin square: every arm once per round of three, and once in every
-     *  slot, so learning and fatigue spread evenly over the arms. */
-    val ORDER = listOf(
-        ORIGINAL, SMART_STEP, SMART_SCHED,
-        SMART_STEP, SMART_SCHED, ORIGINAL,
-        SMART_SCHED, ORIGINAL, SMART_STEP
-    )
+    /** The current test: three recorded games of the default input, to
+     *  check it with real play. (The first test ran O-ORIGINAL, S-STEP
+     *  and S-SCHED three games each, in a Latin square.) */
+    val ORDER = listOf(PLUS, PLUS, PLUS)
     const val PLAYS_PER_ARM = 3
 
     /** 1-based count of [ORDER]'s entry [i] among the plays of its arm. */

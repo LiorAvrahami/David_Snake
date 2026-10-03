@@ -29,11 +29,28 @@ class Game:
         return self._room(d)
 
 
+def u_turn(h, vx, vy, g, lean):
+    """Backward swipe with a tail: side (lean by >= `lean` dp, else the
+    roomier side, never a blocked side if the other is open), then back."""
+    fx, fy = VEC[h]
+    cross = fx * vy - fy * vx
+    right, left = (h + 1) % 4, (h + 3) % 4
+    side = right if cross > 0 else left
+    other = left if cross > 0 else right
+    if abs(cross) < lean and g.room(other) > g.room(side):
+        side = other
+    if g.room(side) == 0 and g.room(other) > 0:
+        side = left if side == right else right
+    return [(side, "uturn"), ((h + 2) % 4, "uturn")]
+
+
 class Original:
     """The first commit: 42dp from the anchor on either axis, dominant axis
-    wins, anchor jumps to the finger; nothing on lift."""
+    wins, anchor jumps to the finger; nothing on lift. With u_turns, a
+    backward command while there is a tail becomes a U-turn."""
     name = "O"
     threshold = 42.0
+    u_turns = False
 
     def down(self, t, x, y):
         self.ax, self.ay = x, y
@@ -47,6 +64,12 @@ class Original:
         else:
             d = DOWN if dy > 0 else UP
         self.ax, self.ay = x, y
+        h = g.heading
+        if self.u_turns and g.has_tail and d == (h + 2) % 4:
+            fx, fy = VEC[h]
+            back = -(fx * dx + fy * dy)
+            if abs(fx * dy - fy * dx) <= 0.7 * back:   # within 35 deg of backward
+                return u_turn(h, dx, dy, g, 8.0)
         return [(d, "orig")]
 
     def up(self, t, x, y, g):
@@ -143,13 +166,7 @@ class Smart:
         back = (h + 2) % 4
         if not g.has_tail:
             return [(back, "reverse")]
-        side = right if a > 0 else left
-        other = left if a > 0 else right
-        if ln * math.sin(math.radians(absA)) < 3.0 and g.room(other) > g.room(side):
-            side = other
-        if g.room(side) == 0 and g.room(other) > 0:
-            side = left if side == right else right
-        return [(side, "uturn"), (back, "uturn")]
+        return u_turn(h, vx, vy, g, 3.0)
 
 
 class Anchor:
@@ -181,7 +198,13 @@ class Anchor:
         return self.move(t, x, y, g)
 
 
-ALL = {"O": Original, "S": Smart, "A": Anchor}
+class Plus(Original):
+    """O-PLUS: the original with U-turns."""
+    name = "P"
+    u_turns = True
+
+
+ALL = {"O": Original, "P": Plus, "S": Smart, "A": Anchor}
 
 
 def replay(rec, samples, game, apply=None):

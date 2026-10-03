@@ -30,7 +30,9 @@ class InputLab(private val ctx: Context) {
     private val pending = StringBuilder()
 
     /** A test file exists and still has plays to go. */
-    val running: Boolean get() = prefs.getBoolean(K_ACTIVE, false) && !finished
+    val running: Boolean
+        get() = prefs.getBoolean(K_ACTIVE, false) && !finished &&
+            playsDone < Arms.ORDER.size   // a test from an older, longer plan
     val finished: Boolean get() = prefs.getBoolean(K_DONE, false)
     val playsDone: Int get() = prefs.getInt(K_PLAYS, 0)
     val fileName: String get() = prefs.getString(K_NAME, "") ?: ""

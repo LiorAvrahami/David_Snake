@@ -24,7 +24,7 @@ SILENT_DP = 15.0          # a stroke this long that fired nothing is "silent"
 DEATH_WINDOW_MS = 1000    # input this close before a death may have caused it
 TURNED = {"turn", "queued", "step", "flush", "re-aim"}
 BLOCKED = {"rev-block", "wall-block", "tail-block", "flush-tail-block"}
-ARM_REC = {"O-ORIGINAL": "O", "S-STEP": "S", "S-SCHED": "S"}
+ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "S-STEP": "S", "S-SCHED": "S"}
 DIR = {c: i for i, c in enumerate(R.LETTER)}
 
 
@@ -233,18 +233,21 @@ def report(path, show_strokes=False, only_play=None):
         for p in ps:
             for s in p.strokes:
                 logged = [(c["t"], DIR[c["dir"]], c["kind"]) for c in s.cmds]
-                mine = replay_stroke(p.rec, p, s, True)
+                dead = p.death["t"] if p.death else float("inf")
+                mine = [m for m in replay_stroke(p.rec, p, s, True) if m[0] < dead]
                 parity_n += 1
-                if [(t, d) for t, d, _ in mine] != [(t, d) for t, d, _ in logged]:
+                # directions must match; times may shift a sample, since
+                # positions are logged rounded to 0.1dp
+                if [d for _, d, _ in mine] != [d for _, d, _ in logged]:
                     parity_bad += 1
                     if parity_bad <= 5:
                         print(f"    PARITY g{p.n} stroke@{s.t0}: logged {logged} replay {mine}")
-                for name in ("O", "S", "A"):
+                for name in ("O", "P", "S", "A"):
                     n = len(replay_stroke(name, p, s, False))
                     alt[(name, "fires")] += n
                     alt[(name, "silent-fires")] += 1 if (s in silent and n) else 0
         print("  replay over these strokes (commands / silent strokes it would have fired on): " +
-              "  ".join(f"{n} {alt[(n, 'fires')]}/{alt[(n, 'silent-fires')]}" for n in ("O", "S", "A")))
+              "  ".join(f"{n} {alt[(n, 'fires')]}/{alt[(n, 'silent-fires')]}" for n in ("O", "P", "S", "A")))
         if show_strokes:
             for p in ps:
                 for s in p.strokes:

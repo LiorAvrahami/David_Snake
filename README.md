@@ -27,9 +27,10 @@ straight over the old one — no uninstalling.
 
 Swipe anywhere to steer: up, down, left or right on the screen. A turn
 moves David a step right away; keep dragging and every further 42dp is
-another command, so you can carve zigzags in one continuous drag. Tap to
-start, and to retry after a loss. The build number is in the top-right
-corner.
+another command, so you can carve zigzags in one continuous drag. Swiping
+straight back the way he came makes a U-turn (a step to the side, then
+back). Tap to start, and to retry after a loss. The build number is in
+the top-right corner.
 Collect harps to grow your trail of notes. Spears kill only on a head hit;
 they pass over your tail and stick into the far wall (six at most — the
 oldest falls out). When you're pressed against a wall you get a beat to
@@ -40,25 +41,27 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 ## Input test (debug mode)
 
-To compare input variants, drag along the very top edge of the screen
-from one side to the other: debug mode turns on (same gesture turns it
-off) and a 9-game test starts.
+Drag along the very top edge of the screen from one side to the other:
+debug mode turns on (same gesture turns it off) and a recorded test
+starts. The top-right corner names the input variant and counts the
+games.
 
-- The top-right corner names the variant of the current (or next) game
-  and counts the games. Variants rotate automatically: three games each
-  of `O-ORIGINAL` (the first version's input), `S-STEP` (new swipe
-  reader, David steps on every turn) and `S-SCHED` (new swipe reader,
-  David moves on the beat).
-- Double-tap whenever an input went wrong: a swipe ignored, or a turn you
-  did not mean. "FLAGGED" confirms it. It marks whatever you did in the
+- Double-tap whenever an input went wrong (a swipe ignored, or a turn you
+  did not mean); "FLAGGED" confirms it. It marks what you did in the
   1.5 seconds before; doing it right after dying is fine.
-- Everything is saved after every game to
-  `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`. After game 9 the
-  screen says *Testing done*; send that file over for analysis
-  (`python3 tools/lab_report.py FILE`).
+- Every game is appended to
+  `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`; at the end the
+  screen says *Testing done*. Analyze with `python3 tools/lab_report.py FILE`.
 
 Leaving debug mode keeps the test where it was; turning it on again
 resumes it. Once a test is done, turning debug mode on starts a new one.
+
+The first test (v1.1.50: the original input, a new heading-relative
+reader with step-on-turn, and the same reader with beat-timed movement,
+three games each) found the original input best for long continuous
+drags; beat-timed movement did worst. The original's only flagged
+failures were blocked backward swipes, now U-turns (`O-PLUS`, the
+default). The current test is three recorded games of `O-PLUS`.
 
 ## Project notes
 

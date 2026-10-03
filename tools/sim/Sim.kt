@@ -1,5 +1,5 @@
 // Headless test-drive of the engine. Run from the repo root with:
-//   kotlinc app/src/main/java/com/davidsnake/game/GameEngine.kt tools/sim/Sim.kt -include-runtime -d sim.jar && java -jar sim.jar
+//   kotlinc app/src/main/java/com/davidsnake/game/{GameEngine,Recognizers}.kt tools/sim/Sim.kt -include-runtime -d sim.jar && java -jar sim.jar
 
 package com.davidsnake.game
 
@@ -441,6 +441,54 @@ fun main() {
         }
         check(games > 5 && turns > 1000, "soak too small (games=$games turns=$turns)")
         println("$mode soak OK: $games games, $turns turns")
+    }
+
+    // 11) O-PLUS U-turn: with a tail, a straight backward drag turns to a
+    //     side and back (two quick steps), instead of being blocked.
+    run {
+        val e = GameEngine(Random(3))
+        e.turnMode = GameEngine.TurnMode.STEP_SAFE
+        e.tapAction()
+        var t = 0
+        // grow a tail by steering toward the harp, then get into open space
+        fun open(x: Int, y: Int) = e.blocks[x][y] != GameEngine.TAIL
+        while (t < 200000 && (e.score < 3 || e.headX !in 6..14 || e.headY !in 4..8 ||
+                e.headDir != GameEngine.UP || e.room(GameEngine.LEFT) < 2 || e.room(GameEngine.RIGHT) < 2 ||
+                !open(e.headX - 1, e.headY + 1) || !open(e.headX + 1, e.headY + 1))) {
+            if (e.phase == GameEngine.Phase.LOST) { e.tapAction(); e.tapAction() }
+            val dx = e.harpX - e.headX
+            val dy = e.harpY - e.headY
+            val want = if (e.score >= 3) GameEngine.UP
+                else if (abs(dx) >= abs(dy)) (if (dx > 0) GameEngine.RIGHT else GameEngine.LEFT)
+                else (if (dy > 0) GameEngine.DOWN else GameEngine.UP)
+            if (t % 4 == 0) e.onSwipe(want)
+            e.tick(); t++
+        }
+        check(e.phase == GameEngine.Phase.PLAYING && e.score >= 3, "U-turn setup failed")
+        val info = object : GameInfo {
+            override val heading get() = e.intendedDir
+            override val hasTail get() = e.tail.isNotEmpty()
+            override fun room(dir: Int) = e.room(dir)
+        }
+        val r = OriginalRecognizer(uTurns = true)
+        val x0 = e.headX
+        val y0 = e.headY
+        r.down(0L, 100f, 100f)
+        val cmds = ArrayList<Cmd>()
+        for (k in 1..10) cmds += r.move(k * 8L, 100f + k * 0.5f, 100f + k * 6f, info)  // straight down
+        check(cmds.size == 2 && cmds.all { it.kind == "uturn" } && cmds[1].dir == GameEngine.DOWN,
+            "backward drag did not make a U-turn ($cmds)")
+        for (c in cmds) e.onSwipe(c.dir)
+        e.tick()
+        check(e.phase == GameEngine.Phase.PLAYING && e.headDir == GameEngine.DOWN &&
+            abs(e.headX - x0) == 1 && e.headY == y0 + 1, "U-turn went wrong (${e.headX},${e.headY} dir=${e.headDir})")
+        // a diagonal half-backward drag (45 degrees) stays a blocked reversal
+        val r2 = OriginalRecognizer(uTurns = true)
+        r2.down(0L, 100f, 100f)
+        val c2 = ArrayList<Cmd>()
+        for (k in 1..10) c2 += r2.move(k * 8L, 100f + k * 5f, 100f - k * 5.2f, info)  // up-right, heading DOWN
+        check(c2.none { it.kind == "uturn" }, "diagonal drag made a U-turn ($c2)")
+        println("O-PLUS U-turn OK (side step then back, alive; diagonal stays blocked)")
     }
 
     println("ALL CHECKS PASSED ($checksRun assertions)")
