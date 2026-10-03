@@ -46,11 +46,11 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 Drag along the very top edge of the screen from one side to the other:
 debug mode turns on (same gesture turns it off; it is always off when the
-app starts, and it ends whenever the app leaves the screen) and recording starts, with the normal input (`S2-FAST`, the
+app starts) and recording starts, with the normal input (`S2-FAST`, the
 best so far). The top-right corner shows the input and counts the games.
 
-- Each recording (from turning debug mode on until it is turned off or
-  the app leaves the screen) goes into one file,
+- Each recording (from turning debug mode on until it is turned off)
+  goes into one file,
   `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, with its
   own game count; every game is written to it as it ends. *Save file* on the lose screen writes out the rest right away.
   Analyze with `python3 tools/lab_report.py FILE`; score options by

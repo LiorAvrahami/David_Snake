@@ -58,9 +58,8 @@ class InputLab(private val ctx: Context) {
      *  everything recorded since the app was opened. */
     private var fileOpen = false
 
-    /** Debug mode turned off or the app left the screen: write everything
-     *  out and end the recording; the next one starts a new file and a new
-     *  game count. */
+    /** Debug mode turned off: write everything out and end the recording;
+     *  the next one starts a new file and a new game count. */
     fun endRun() {
         flush()
         fileOpen = false
