@@ -15,7 +15,10 @@ game run on with no further turns:
   wall   -WALL if the very next cell ahead is a wall or the tail: no room
          left to react (a wall farther ahead costs nothing; he turns in time)
 
-Double-tap answers stay hard constraints, reported separately.
+A U-turn counts once (its back half), and a side step (a turn, then a
+turn back to the old direction within SIDESTEP_MS, about one step) is one
+move: the moments between its two turns are not scored, since the player
+plans the whole move at once.
 
 Usage: python3 tools/simscore.py FILE... """
 import os, sys
@@ -25,6 +28,7 @@ from gamestate import GameState, V, COLS, ROWS
 import intent, recognizers as R
 
 EVERY_MS = 90
+SIDESTEP_MS = 250
 HARP_CELLS = 10
 SPEAR_STEPS = 3
 SPEAR = 3.0
@@ -95,29 +99,50 @@ def moment_score(g, t, d):
     return r
 
 
-def evaluate(paths, fires_of):
-    """Sum of moment scores over all strokes, for one recognizer."""
-    tot = {"harp": 0.0, "wall": 0, "spear": 0, "spear_known": 0, "moments": 0}
+def load_plays(paths):
+    out = []
     for path in paths:
         _, plays = build(load(path))
+        out += plays
+    return out
+
+
+def evaluate(paths, fires_of):
+    """Sum of moment scores over all strokes, for one recognizer."""
+    return evaluate_plays(load_plays(paths), fires_of)
+
+
+def evaluate_plays(plays, fires_of):
+    tot = {"harp": 0.0, "wall": 0, "spear": 0, "spear_known": 0, "moments": 0}
+    if True:
         for p in plays:
             g = GameState(p)
             end = p.death["t"] if p.death else float("inf")
             for s in p.strokes:
                 fires = fires_of(p, s)
                 h = s.ih[:1] or "U"
+                skip = []                   # (from, to): inside a side step
+                prev = h
+                for a, b in zip(fires, fires[1:]):
+                    if b[1] == prev and b[0] - a[0] <= SIDESTEP_MS:
+                        skip.append((a[0], b[0]))
+                    prev = a[1]
                 t = s.t0 + EVERY_MS
                 k = 0
                 while t <= s.t1 + EVERY_MS and t < end:
                     while k < len(fires) and fires[k][0] <= t:
                         h = fires[k][1]
                         k += 1
+                    if any(lo <= t < hi for lo, hi in skip):
+                        t += EVERY_MS
+                        continue
                     r = moment_score(g, t, h)
                     for key in r:
                         tot[key] += r[key]
                     tot["moments"] += 1
                     t += EVERY_MS
     tot["score"] = tot["harp"] - WALL * tot["wall"] - SPEAR * tot["spear"]
+    tot["per1000"] = 1000.0 * tot["score"] / max(1, tot["moments"])
     return tot
 
 
