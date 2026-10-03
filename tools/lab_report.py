@@ -83,6 +83,7 @@ class Play:
         self.death = None
         self.aborted = False
         self.strokes, self.cmds, self.steps, self.flags, self.harps = [], [], [], [], []
+        self.spears = []        # throws (v1.6+ recordings)
 
     @property
     def rec(self):
@@ -123,6 +124,8 @@ def build(recs):
                 p.flags.append(r)
             elif k == "harp":
                 p.harps.append(r)
+            elif k == "spear":
+                p.spears.append(r)
             elif k == "death":
                 p.death = r
     # attach commands to strokes by time

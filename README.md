@@ -57,7 +57,10 @@ and counts the games.
   `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, holding
   everything since the app was opened; every game is written to it as it
   ends. *Save file* on the lose screen writes out the rest right away.
-  Analyze with `python3 tools/lab_report.py FILE`.
+  Analyze with `python3 tools/lab_report.py FILE`; score options by
+  simulating the game on with `python3 tools/simscore.py FILE...`
+  (harp straight ahead, spear hits within 3 steps, wall or tail right
+  ahead; spears are exact for v1.7+ recordings, which log every throw).
 
 Turning debug mode on again resumes the test.
 

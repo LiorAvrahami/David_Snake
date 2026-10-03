@@ -102,7 +102,9 @@ object LabLog {
         .s("play", "a game starts: n = game number in the test, arm = input variant, arm_n = its play count")
         .s("stroke", "one finger from down to up: pts = 'dt,x,y;...' dt ms since the previous sample (first since t0), x/y in 0.1dp; ih = per sample, the intended heading it was judged against; end = up | cancel | steal (another finger took over)")
         .s("cmd", "recognizer output: kind (orig | swipe | chain | lift | uturn | reverse), dir, engine result res, heading hd before and hd2 after, intended heading ihd, head cell")
-        .s("step", "David moved: head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
+        .s("step", "David moved: tk = game tick (45 ms each, counted from the game's start, paused while the flag menu is open), head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
+        .s("spear", "a spear was thrown: at its cell at the end of tick tk; it moves one cell in d each later tick until it sticks in a wall")
+        .s("harp", "a harp was eaten; next = where the new one appeared")
         .s("flag", "player double-tapped: an input went wrong; type = fp (a turn not wanted) | fn (no turn when wanted) | wrong (turned, but another way) | none; turn_t/turn_dir/turn_from = the turn picked; want = the direction wanted. The game paused from t until the next resume line (menu, then a 3 s countdown)")
         .s("board", "harp cell; tail cells head-first; flying spears x,y,dir; attackers wall,pos,state (w = winding up, t = throwing, v = done)")
         .toString()
@@ -142,10 +144,10 @@ object LabLog {
 
     /** [board] and the head cell are captured before the engine ran it. */
     fun cmd(
-        play: Int, t: Long, c: Cmd, res: String, hdBefore: Int, intended: Int,
+        play: Int, t: Long, tk: Int, c: Cmd, res: String, hdBefore: Int, intended: Int,
         hdAfter: Int, headX: Int, headY: Int, board: String
     ): String = Json()
-        .s("k", "cmd").n("play", play).n("t", t).s("kind", c.kind).s("dir", dirLetter(c.dir))
+        .s("k", "cmd").n("play", play).n("t", t).n("tk", tk).s("kind", c.kind).s("dir", dirLetter(c.dir))
         .s("res", res).s("hd", dirLetter(hdBefore)).s("ihd", dirLetter(intended))
         .s("hd2", dirLetter(hdAfter)).raw("head", "[$headX,$headY]")
         .raw("board", board).toString()
@@ -153,19 +155,26 @@ object LabLog {
     fun abort(play: Int, t: Long, why: String): String = Json()
         .s("k", "play_abort").n("play", play).n("t", t).s("why", why).toString()
 
-    fun step(play: Int, t: Long, e: GameEngine, flush: Boolean): String {
-        val j = Json().s("k", "step").n("play", play).n("t", t)
+    fun step(play: Int, t: Long, tk: Int, e: GameEngine, flush: Boolean): String {
+        val j = Json().s("k", "step").n("play", play).n("t", t).n("tk", tk)
             .raw("head", "[${e.headX},${e.headY}]").s("d", dirLetter(e.movedDir))
             .s("hd", dirLetter(e.headDir))
         if (flush) j.n("flush", 1)
         return j.toString()
     }
 
-    fun harp(play: Int, t: Long, score: Int): String = Json()
-        .s("k", "harp").n("play", play).n("t", t).n("score", score).toString()
+    fun harp(play: Int, t: Long, score: Int, e: GameEngine): String = Json()
+        .s("k", "harp").n("play", play).n("t", t).n("score", score)
+        .raw("next", "[${e.harpX},${e.harpY}]").toString()
 
-    fun death(play: Int, t: Long, e: GameEngine): String = Json()
-        .s("k", "death").n("play", play).n("t", t).s("reason", e.lostReason)
+    /** A spear was thrown: it sits at (x, y) at the end of game tick tk and
+     *  moves one cell in d every later tick, until it sticks in a wall. */
+    fun spear(play: Int, t: Long, tk: Int, s: GameEngine.Spear): String = Json()
+        .s("k", "spear").n("play", play).n("t", t).n("tk", tk)
+        .raw("at", "[${s.x},${s.y}]").s("d", dirLetter(s.dir)).toString()
+
+    fun death(play: Int, t: Long, tk: Int, e: GameEngine): String = Json()
+        .s("k", "death").n("play", play).n("t", t).n("tk", tk).s("reason", e.lostReason)
         .n("score", e.score).raw("head", "[${e.headX},${e.headY}]")
         .s("hd", dirLetter(e.headDir)).raw("board", board(e)).toString()
 

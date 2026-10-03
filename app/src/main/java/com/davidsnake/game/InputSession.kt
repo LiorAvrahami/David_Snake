@@ -72,6 +72,9 @@ class InputSession(
         if (playNo > 0) pausedMs += ms
     }
 
+    private var tickNo = 0                         // game ticks since the game started
+    private val knownSpears = HashSet<GameEngine.Spear>()   // by identity
+
     // ------------------------------------------------------------ games
 
     /** A game starts with [a]; [n] > 0 records it as test game n. */
@@ -83,6 +86,9 @@ class InputSession(
         lastPlayNo = 0      // flags now belong to this game, if recorded
         turns.clear()
         pausedMs = 0L
+        tickNo = 0
+        knownSpears.clear()
+        knownSpears.addAll(engine.spears)
         if (n > 0) {
             playStartT = t
             playStrokes = 0; playCmds = 0; playFlags = 0
@@ -95,7 +101,7 @@ class InputSession(
     fun endPlay(t: Long): Boolean {
         if (debug) dlog("GAME END: ${engine.lostReason}")
         if (playNo == 0) return false
-        lab(LabLog.death(playNo, t, engine))
+        lab(LabLog.death(playNo, t, tickNo, engine))
         lab(LabLog.playEnd(playNo, arm, t, engine.score, t - playStartT - pausedMs,
             engine.lostReason, playStrokes, playCmds, playFlags))
         lastPlayNo = playNo
@@ -127,7 +133,13 @@ class InputSession(
         val hx = engine.headX
         val hy = engine.headY
         val sc = engine.score
+        tickNo++               // first, so a death inside this tick carries it
         engine.tick()
+        if (playNo > 0) {
+            for (s in engine.spears) if (s !in knownSpears) lab(LabLog.spear(playNo, t, tickNo, s))
+        }
+        knownSpears.clear()
+        knownSpears.addAll(engine.spears)
         if (debug && engine.headDir != pd && engine.phase == GameEngine.Phase.PLAYING) {
             dlog(rotLine(pd, engine.headDir) + " (deq)")
         }
@@ -136,8 +148,8 @@ class InputSession(
 
     private fun logMoves(t: Long, hx: Int, hy: Int, sc: Int, flush: Boolean) {
         if (playNo == 0) return
-        if (engine.headX != hx || engine.headY != hy) lab(LabLog.step(playNo, t, engine, flush))
-        if (engine.score != sc) lab(LabLog.harp(playNo, t, engine.score))
+        if (engine.headX != hx || engine.headY != hy) lab(LabLog.step(playNo, t, tickNo, engine, flush))
+        if (engine.score != sc) lab(LabLog.harp(playNo, t, engine.score, engine))
     }
 
     // ---------------------------------------------------------- strokes
@@ -221,7 +233,7 @@ class InputSession(
             strokeCmds++
             if (r.tag in TURNED) turns.add(Turn(t, c.dir, hd))
             if (p > 0) {
-                lab(LabLog.cmd(p, t, c, r.tag, hd, ihd, engine.headDir, hx, hy, board))
+                lab(LabLog.cmd(p, t, tickNo, c, r.tag, hd, ihd, engine.headDir, hx, hy, board))
                 if (playNo > 0) logMoves(t, hx, hy, sc, true)
             }
             if (debug) {
