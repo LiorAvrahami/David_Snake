@@ -8,18 +8,26 @@ class Arm(val name: String, val mode: GameEngine.TurnMode, val make: () -> Recog
 object Arms {
     val ORIGINAL = Arm("O-ORIGINAL", GameEngine.TurnMode.STEP) { OriginalRecognizer() }
     val PLUS = Arm("O-PLUS", GameEngine.TurnMode.STEP_SAFE) { OriginalRecognizer(plus = true) }
+    val PLUS28 = Arm("O-PLUS-28", GameEngine.TurnMode.STEP_SAFE) {
+        OriginalRecognizer(plus = true, threshold = 28f)
+    }
     val SMART_STEP = Arm("S-STEP", GameEngine.TurnMode.STEP_SAFE) { SmartRecognizer() }
+    val SMART2 = Arm("S2-STEP", GameEngine.TurnMode.STEP_SAFE) { SmartRecognizer(v2 = true) }
     val SMART_SCHED = Arm("S-SCHED", GameEngine.TurnMode.SCHED) { SmartRecognizer() }
 
-    /** Normal play, outside a test. Chosen by the first test (v1.1.50):
-     *  the original input won; its only flagged failures were blocked
-     *  backward swipes, now U-turns. */
+    /** Normal play, outside a test. Chosen by test 1 (v1.1.50): the
+     *  original input won; its only flagged failures were blocked backward
+     *  swipes, now U-turns. */
     val DEFAULT = PLUS
 
-    /** The current test: three recorded games of the default input, to
-     *  check it with real play. (The first test ran O-ORIGINAL, S-STEP
-     *  and S-SCHED three games each, in a Latin square.) */
-    val ORDER = listOf(PLUS, PLUS, PLUS)
+    /** Test 2: the default, the same with 28dp chunks (earlier turns, a
+     *  few more of them), and S2 (test 1's fast reader with its flagged
+     *  failures fixed). Latin square, three games each. */
+    val ORDER = listOf(
+        PLUS, PLUS28, SMART2,
+        PLUS28, SMART2, PLUS,
+        SMART2, PLUS, PLUS28
+    )
     const val PLAYS_PER_ARM = 3
 
     /** 1-based count of [ORDER]'s entry [i] among the plays of its arm. */
@@ -80,7 +88,7 @@ object LabLog {
         .s("stroke", "one finger from down to up: pts = 'dt,x,y;...' dt ms since the previous sample (first since t0), x/y in 0.1dp; ih = per sample, the intended heading it was judged against; end = up | cancel | steal (another finger took over)")
         .s("cmd", "recognizer output: kind (orig | swipe | chain | lift | uturn | reverse), dir, engine result res, heading hd before and hd2 after, intended heading ihd, head cell")
         .s("step", "David moved: head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
-        .s("flag", "player double-tapped: an input in the ~1.5 s before t went wrong")
+        .s("flag", "player double-tapped: an input went wrong; type = fp (a turn not wanted) | fn (no turn when wanted) | wrong (turned, but another way) | none; turn_t/turn_dir/turn_from = the turn picked; want = the direction wanted. The game paused from t until the next resume line (menu, then a 3 s countdown)")
         .s("board", "harp cell; tail cells head-first; flying spears x,y,dir; attackers wall,pos,state (w = winding up, t = throwing, v = done)")
         .toString()
 
@@ -145,8 +153,19 @@ object LabLog {
         .n("score", e.score).raw("head", "[${e.headX},${e.headY}]")
         .s("hd", dirLetter(e.headDir)).raw("board", board(e)).toString()
 
-    fun flag(play: Int, t: Long, phase: GameEngine.Phase): String = Json()
-        .s("k", "flag").n("play", play).n("t", t).s("phase", phase.name).toString()
+    fun flag(
+        play: Int, t: Long, phase: GameEngine.Phase, type: String,
+        turn: InputSession.Turn?, want: Int
+    ): String {
+        val j = Json().s("k", "flag").n("play", play).n("t", t).s("phase", phase.name)
+            .s("type", type)
+        if (turn != null) j.n("turn_t", turn.t).s("turn_dir", dirLetter(turn.dir)).s("turn_from", dirLetter(turn.from))
+        if (want >= 0) j.s("want", dirLetter(want))
+        return j.toString()
+    }
+
+    fun resume(play: Int, t: Long, pausedMs: Long): String = Json()
+        .s("k", "resume").n("play", play).n("t", t).n("paused_ms", pausedMs).toString()
 
     fun board(e: GameEngine): String {
         val tail = e.tail.joinToString(";") { "${it.x},${it.y}" }

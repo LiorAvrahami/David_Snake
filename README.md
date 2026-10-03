@@ -47,9 +47,10 @@ debug mode turns on (same gesture turns it off; it is always off when the
 app starts) and a recorded test starts. The top-right corner names the input variant and counts the
 games.
 
-- Double-tap whenever an input went wrong (a swipe ignored, or a turn you
-  did not mean); "FLAGGED" confirms it. It marks what you did in the
-  1.5 seconds before; doing it right after dying is fine.
+- Double-tap whenever an input went wrong. The game pauses and asks what
+  happened: a turn you did not want (pick which of the last four turns),
+  no turn when you wanted one (pick the direction), or a turn the wrong
+  way (both). It resumes after a 3-2-1 countdown.
 - Every game is appended to
   `Downloads/DavidSnake_InputLab_v<version>_<date>.txt`; at the end the
   screen says *Testing done*. Analyze with `python3 tools/lab_report.py FILE`.
@@ -62,7 +63,13 @@ reader with step-on-turn, and the same reader with beat-timed movement,
 three games each) found the original input best for long continuous
 drags; beat-timed movement did worst. The original's only flagged
 failures were blocked backward swipes, now U-turns; short flicks now
-count on lift (`O-PLUS`, the default). The current test is three recorded games of `O-PLUS`.
+count on lift (`O-PLUS`, the default).
+
+Test 2 (current, three games each, rotating): `O-PLUS`, `O-PLUS-28`
+(the same with turns every 28dp instead of 42dp: earlier, a few more of
+them) and `S2-STEP` (test 1's fast heading-relative reader with its
+flagged failures fixed: a further turn within one drag needs the finger
+moving fast and clearly sideways).
 
 ## Project notes
 

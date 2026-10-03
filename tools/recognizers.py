@@ -104,6 +104,8 @@ class Smart:
     forwardDeg, backDeg, backFactor = 30.0, 160.0, 1.5
     cooldownMs = 150
     chainDp, cornerDeg = 14.0, 50.0
+    v2 = False
+    chainSpeed, chainSectorDeg = 200.0, 60.0
     liftDp, liftMaxMs = 10.0, 300
 
     def __init__(self, **over):
@@ -133,7 +135,13 @@ class Smart:
         thr = self.threshold(j)
         if self.fired > 0:
             thr = max(thr, self.chainDp)
-            if abs(angle_deg(self.mx, self.my, vx, vy)) < self.cornerDeg:
+            if self.v2:
+                if self.speed(j) < self.chainSpeed:
+                    return []
+                fx, fy = VEC[g.heading]
+                if abs(angle_deg(fx, fy, vx, vy)) < self.chainSectorDeg:
+                    return []
+            elif abs(angle_deg(self.mx, self.my, vx, vy)) < self.cornerDeg:
                 return []
         cmds = self.classify(vx, vy, thr, g, "chain" if self.fired > 0 else "swipe")
         if not cmds:
@@ -152,13 +160,16 @@ class Smart:
         return self.classify(self.xs[-1] - self.xs[0], self.ys[-1] - self.ys[0],
                              self.liftDp, g, "lift")
 
-    def threshold(self, j):
+    def speed(self, j):
         ts, xs, ys = self.ts, self.xs, self.ys
         i = j
         while i > 0 and ts[j] - ts[i - 1] <= self.speedWinMs:
             i -= 1
         dt = ts[j] - ts[i]
-        sp = math.hypot(xs[j] - xs[i], ys[j] - ys[i]) * 1000.0 / dt if dt > 0 else 0.0
+        return math.hypot(xs[j] - xs[i], ys[j] - ys[i]) * 1000.0 / dt if dt > 0 else 0.0
+
+    def threshold(self, j):
+        sp = self.speed(j)
         k = min(1.0, max(0.0, (sp - self.slowSpeed) / (self.fastSpeed - self.slowSpeed)))
         return self.slowDp + (self.fastDp - self.slowDp) * k
 
@@ -220,7 +231,19 @@ class Plus(Original):
     plus = True
 
 
-ALL = {"O": Original, "P": Plus, "S": Smart, "A": Anchor}
+class Plus28(Plus):
+    """O-PLUS-28: O-PLUS with 28dp chunks."""
+    name = "P28"
+    threshold = 28.0
+
+
+class Smart2(Smart):
+    """S2: chains need speed and a clear sideways direction."""
+    name = "S2"
+    v2 = True
+
+
+ALL = {"O": Original, "P": Plus, "P28": Plus28, "S": Smart, "S2": Smart2, "A": Anchor}
 
 
 def replay(rec, samples, game, apply=None):

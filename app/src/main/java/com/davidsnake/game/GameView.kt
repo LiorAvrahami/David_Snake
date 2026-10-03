@@ -118,7 +118,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             var dtMs = (frameTimeNanos - lastFrameNanos) / 1_000_000L
             if (dtMs > 100L) dtMs = 100L  // don't fast-forward after long stalls
             val phase = engine.phase
-            if (phase == GameEngine.Phase.PLAYING || phase == GameEngine.Phase.LOST) {
+            if (paused) {
+                tickAccMs = 0L
+                val now = SystemClock.uptimeMillis()
+                if (countdownEnd in 1..now) resume(now)
+            } else if (phase == GameEngine.Phase.PLAYING || phase == GameEngine.Phase.LOST) {
                 tickAccMs += dtMs
                 val tickMs = GameEngine.TICK_MS
                 while (tickAccMs >= tickMs) {
@@ -182,6 +186,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         canvas.restore()
 
         drawHud(canvas)
+        drawCountdown(canvas)
         if (debugMode) drawDebugPanel(canvas)
     }
 
@@ -318,8 +323,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             val first = tapPending
             tapPending = null
             if (tap) {
-                if (session.flag(t)) lab.flush()
-                flagShownUntil = SystemClock.uptimeMillis() + 1200L
+                requestFlag(t)
                 return
             }
             first?.run()        // the first tap was a lone tap after all
@@ -333,6 +337,46 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val r = Runnable { tapPending = null; performClick() }
         tapPending = r
         postDelayed(r, DOUBLE_TAP_MS)
+    }
+
+    // ------------------------------------------------------------ flags
+
+    /** Shows the flag menu (MainActivity): the last turns, newest first. */
+    var onFlag: ((List<InputSession.Turn>, Long) -> Unit)? = null
+    private var paused = false
+    private var pauseStart = 0L
+    private var countdownEnd = 0L
+    private var flagT = 0L
+
+    /** Double tap: pause a live game and ask what went wrong. */
+    private fun requestFlag(t: Long) {
+        if (paused) return
+        flagT = t
+        if (engine.phase == GameEngine.Phase.PLAYING) {
+            paused = true
+            pauseStart = SystemClock.uptimeMillis()
+            countdownEnd = 0L
+            session.frozen = true
+        }
+        val show = onFlag
+        if (show != null) show(session.recentTurns(4), t) else submitFlag("none", null, -1)
+    }
+
+    /** The menu's answer; a paused game resumes after a 3-2-1 countdown. */
+    fun submitFlag(type: String, turn: InputSession.Turn?, want: Int) {
+        if (session.flag(flagT, type, turn, want)) lab.flush()
+        val now = SystemClock.uptimeMillis()
+        flagShownUntil = now + 1200L
+        if (paused) countdownEnd = now + 3000L
+    }
+
+    private fun resume(now: Long) {
+        paused = false
+        countdownEnd = 0L
+        session.frozen = false
+        val ms = now - pauseStart
+        session.addPause(ms)
+        if (session.playNo > 0) lab.line(LabLog.resume(session.playNo, now, ms))
     }
 
     private fun toggleDebug() {
@@ -375,6 +419,21 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     }
 
     // ------------------------------------------------------------- HUD
+
+    private val countPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = HUD_COLOR
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    /** 3-2-1 before a flagged game resumes. */
+    private fun drawCountdown(canvas: Canvas) {
+        if (countdownEnd == 0L) return
+        val left = countdownEnd - SystemClock.uptimeMillis()
+        if (left <= 0) return
+        countPaint.textSize = 96f * density
+        canvas.drawText(((left + 999) / 1000).toString(), width / 2f, height / 2f + 32f * density, countPaint)
+    }
 
     /** Top-right corner: version always; in debug mode the test status. */
     private fun drawHud(canvas: Canvas) {

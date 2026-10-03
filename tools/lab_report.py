@@ -24,7 +24,7 @@ SILENT_DP = 15.0          # a stroke this long that fired nothing is "silent"
 DEATH_WINDOW_MS = 1000    # input this close before a death may have caused it
 TURNED = {"turn", "queued", "step", "flush", "re-aim"}
 BLOCKED = {"rev-block", "wall-block", "tail-block", "flush-tail-block"}
-ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "S-STEP": "S", "S-SCHED": "S"}
+ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "O-PLUS-28": "P28", "S-STEP": "S", "S-SCHED": "S", "S2-STEP": "S2"}
 DIR = {c: i for i, c in enumerate(R.LETTER)}
 
 
@@ -208,7 +208,8 @@ def report(path, show_strokes=False, only_play=None):
         print(f"  silent strokes (>= {SILENT_DP:.0f}dp, no command) {len(silent)} "
               f"({pct(len(silent), len(strokes))} of strokes)   multi-command strokes "
               f"{sum(1 for s in strokes if len(s.cmds) > 1)}")
-        print(f"  flags {len(flags)} ({len(flags) / mins:.1f}/min)")
+        types = Counter(f.get("type", "?") for f in flags)
+        print(f"  flags {len(flags)} ({len(flags) / mins:.1f}/min) {dict(types)}")
         for p in ps:
             for f in p.flags:
                 lo = f["t"] - FLAG_WINDOW_MS
@@ -217,7 +218,12 @@ def report(path, show_strokes=False, only_play=None):
                     f"{s.t0 - f['t']:+d}ms {s.length():.0f}dp/{s.dur}ms -> " +
                     (",".join(f"{c['kind']}:{c['dir']}:{c['res']}" for c in s.cmds) or "nothing")
                     for s in near) or "no stroke in window"
-                print(f"    flag g{p.n} {f['phase']}: {desc}")
+                pick = f.get("type", "?")
+                if "turn_t" in f:
+                    pick += f" turn {f['turn_from']}->{f['turn_dir']} {f['turn_t'] - f['t']:+d}ms"
+                if "want" in f:
+                    pick += f" wanted {f['want']}"
+                print(f"    flag g{p.n} {f['phase']} [{pick}]: {desc}")
         for p in ps:
             if not p.end or not p.death:
                 continue
@@ -238,16 +244,21 @@ def report(path, show_strokes=False, only_play=None):
                 parity_n += 1
                 # directions must match; times may shift a sample, since
                 # positions are logged rounded to 0.1dp
-                if [d for _, d, _ in mine] != [d for _, d, _ in logged]:
+                # a U-turn's side may differ: the replay does not know the
+                # board's free room the game used to pick it
+                def norm(cs):
+                    return [("u" if k == "uturn" and i + 1 < len(cs) and cs[i + 1][2] == "uturn"
+                             and cs[i + 1][0] == t else d) for i, (t, d, k) in enumerate(cs)]
+                if norm(mine) != norm(logged):
                     parity_bad += 1
                     if parity_bad <= 5:
                         print(f"    PARITY g{p.n} stroke@{s.t0}: logged {logged} replay {mine}")
-                for name in ("O", "P", "S", "A"):
+                for name in ("O", "P", "P28", "S", "S2", "A"):
                     n = len(replay_stroke(name, p, s, False))
                     alt[(name, "fires")] += n
                     alt[(name, "silent-fires")] += 1 if (s in silent and n) else 0
         print("  replay over these strokes (commands / silent strokes it would have fired on): " +
-              "  ".join(f"{n} {alt[(n, 'fires')]}/{alt[(n, 'silent-fires')]}" for n in ("O", "P", "S", "A")))
+              "  ".join(f"{n} {alt[(n, 'fires')]}/{alt[(n, 'silent-fires')]}" for n in ("O", "P", "P28", "S", "S2", "A")))
         if show_strokes:
             for p in ps:
                 for s in p.strokes:

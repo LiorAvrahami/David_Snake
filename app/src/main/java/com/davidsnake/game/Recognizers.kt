@@ -65,8 +65,10 @@ private fun uTurn(h: Int, vx: Float, vy: Float, g: GameInfo, leanDp: Float): Lis
  *  - a flick, a stroke of at most [flickMs] that fired nothing, counts on
  *    lift once it moved [flickDp] (taps move under 10dp).
  */
-class OriginalRecognizer(private val plus: Boolean = false) : Recognizer {
-    private val threshold = 42f
+class OriginalRecognizer(
+    private val plus: Boolean = false,
+    private val threshold: Float = 42f
+) : Recognizer {
     private val flickDp = 12f
     private val flickMs = 250L
     private var ax = 0f
@@ -135,10 +137,13 @@ class OriginalRecognizer(private val plus: Boolean = false) : Recognizer {
  *  - After a command, the next [cooldownMs] of motion is follow-through
  *    and ignored. A further command in the same stroke needs a real
  *    corner: at least [chainDp], bent [cornerDeg] from the last command.
+ *    With [v2] (S2, after test 1 showed slow-drift fires and missed bends
+ *    after a diagonal) it instead needs the finger moving at least
+ *    [chainSpeed] and at least [chainSectorDeg] off the current heading.
  *  - On lift, a short stroke ([liftMaxMs]) that fired nothing is read
  *    whole at [liftDp], so quick flicks still count.
  */
-class SmartRecognizer : Recognizer {
+class SmartRecognizer(private val v2: Boolean = false) : Recognizer {
     val fastDp = 8f
     val slowDp = 16f
     val fastSpeed = 400f
@@ -151,6 +156,8 @@ class SmartRecognizer : Recognizer {
     val cooldownMs = 150L
     val chainDp = 14f
     val cornerDeg = 50.0
+    val chainSpeed = 200f
+    val chainSectorDeg = 60.0
     val liftDp = 10f
     val liftMaxMs = 300L
 
@@ -193,7 +200,13 @@ class SmartRecognizer : Recognizer {
         var thr = threshold(j)
         if (fired > 0) {
             thr = maxOf(thr, chainDp)
-            if (abs(angleDeg(mx, my, vx, vy)) < cornerDeg) return NONE
+            if (v2) {
+                if (speed(j) < chainSpeed) return NONE
+                val h = g.heading
+                if (abs(angleDeg(dirX(h), dirY(h), vx, vy)) < chainSectorDeg) return NONE
+            } else if (abs(angleDeg(mx, my, vx, vy)) < cornerDeg) {
+                return NONE
+            }
         }
         val cmds = classify(vx, vy, thr, g, if (fired > 0) "chain" else "swipe")
         if (cmds.isEmpty()) return NONE
@@ -211,12 +224,17 @@ class SmartRecognizer : Recognizer {
         return classify(xs[n - 1] - xs[0], ys[n - 1] - ys[0], liftDp, g, "lift")
     }
 
-    /** Speed-scaled distance threshold at sample [j]. */
-    private fun threshold(j: Int): Float {
+    /** Finger speed (dp/s) over the last [speedWinMs] at sample [j]. */
+    private fun speed(j: Int): Float {
         var i = j
         while (i > 0 && ts[j] - ts[i - 1] <= speedWinMs) i--
         val dt = ts[j] - ts[i]
-        val sp = if (dt > 0) hypot(xs[j] - xs[i], ys[j] - ys[i]) * 1000f / dt else 0f
+        return if (dt > 0) hypot(xs[j] - xs[i], ys[j] - ys[i]) * 1000f / dt else 0f
+    }
+
+    /** Speed-scaled distance threshold at sample [j]. */
+    private fun threshold(j: Int): Float {
+        val sp = speed(j)
         val k = ((sp - slowSpeed) / (fastSpeed - slowSpeed)).coerceIn(0f, 1f)
         return slowDp + (fastDp - slowDp) * k
     }

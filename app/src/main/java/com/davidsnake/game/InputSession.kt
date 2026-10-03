@@ -56,6 +56,22 @@ class InputSession(
     private var ptX = 0
     private var ptY = 0
 
+    /** A command that changed (or queued a change of) the heading. */
+    data class Turn(val t: Long, val dir: Int, val from: Int)
+    private val turns = ArrayList<Turn>()
+
+    /** The last [n] turns of the current (or just ended) game, newest first. */
+    fun recentTurns(n: Int): List<Turn> = turns.takeLast(n).reversed()
+
+    /** While true (flag menu, countdown) commands are dropped. */
+    var frozen = false
+    private var pausedMs = 0L
+
+    /** Game time spent paused for a flag; excluded from the game's length. */
+    fun addPause(ms: Long) {
+        if (playNo > 0) pausedMs += ms
+    }
+
     // ------------------------------------------------------------ games
 
     /** A game starts with [a]; [n] > 0 records it as test game n. */
@@ -65,6 +81,8 @@ class InputSession(
         recognizer = a.make()
         playNo = n
         lastPlayNo = 0      // flags now belong to this game, if recorded
+        turns.clear()
+        pausedMs = 0L
         if (n > 0) {
             playStartT = t
             playStrokes = 0; playCmds = 0; playFlags = 0
@@ -78,7 +96,7 @@ class InputSession(
         if (debug) dlog("GAME END: ${engine.lostReason}")
         if (playNo == 0) return false
         lab(LabLog.death(playNo, t, engine))
-        lab(LabLog.playEnd(playNo, arm, t, engine.score, t - playStartT,
+        lab(LabLog.playEnd(playNo, arm, t, engine.score, t - playStartT - pausedMs,
             engine.lostReason, playStrokes, playCmds, playFlags))
         lastPlayNo = playNo
         playNo = 0
@@ -91,13 +109,15 @@ class InputSession(
         playNo = 0
     }
 
-    /** Double tap: "an input just now went wrong". False if no game to blame. */
-    fun flag(t: Long): Boolean {
+    /** Double tap: "an input just now went wrong", with what the player
+     *  picked ([type] fp | fn | wrong | none; the [turn] blamed; the
+     *  direction [want]ed, or -1). False if no game to blame. */
+    fun flag(t: Long, type: String, turn: Turn?, want: Int): Boolean {
         val p = if (playNo > 0) playNo else lastPlayNo
-        if (debug) dlog("FLAG")
+        if (debug) dlog("FLAG $type")
         if (p == 0) return false
         if (playNo > 0) playFlags++
-        lab(LabLog.flag(p, t, engine.phase))
+        lab(LabLog.flag(p, t, engine.phase, type, turn, want))
         return true
     }
 
@@ -187,7 +207,7 @@ class InputSession(
 
     private fun apply(cmds: List<Cmd>, t: Long) {
         for (c in cmds) {
-            if (engine.phase != GameEngine.Phase.PLAYING) return
+            if (engine.phase != GameEngine.Phase.PLAYING || frozen) return
             val hd = engine.headDir
             val ihd = engine.intendedDir
             val hx = engine.headX
@@ -198,6 +218,7 @@ class InputSession(
             if (p > 0) playCmds++
             val r = engine.onSwipe(c.dir)   // may end the game (and the play)
             strokeCmds++
+            if (r.tag in TURNED) turns.add(Turn(t, c.dir, hd))
             if (p > 0) {
                 lab(LabLog.cmd(p, t, c, r.tag, hd, ihd, engine.headDir, hx, hy, board))
                 if (playNo > 0) logMoves(t, hx, hy, sc, true)
@@ -211,6 +232,10 @@ class InputSession(
                 })
             }
         }
+    }
+
+    companion object {
+        private val TURNED = setOf("turn", "queued", "step", "flush", "re-aim")
     }
 
     private fun compass(d: Int) = when (d) {

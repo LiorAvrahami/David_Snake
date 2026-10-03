@@ -32,7 +32,7 @@ class InputLab(private val ctx: Context) {
     /** A test file exists and still has plays to go. */
     val running: Boolean
         get() = prefs.getBoolean(K_ACTIVE, false) && !finished &&
-            playsDone < Arms.ORDER.size   // a test from an older, longer plan
+            prefs.getString(K_PLAN, "") == PLAN   // not a test from an older plan
     val finished: Boolean get() = prefs.getBoolean(K_DONE, false)
     val playsDone: Int get() = prefs.getInt(K_PLAYS, 0)
     val fileName: String get() = prefs.getString(K_NAME, "") ?: ""
@@ -51,6 +51,7 @@ class InputLab(private val ctx: Context) {
         val name = "DavidSnake_InputLab_v${version}_$stamp.txt"
         prefs.edit().clear()  // forget any older test
             .putBoolean(K_ACTIVE, true)
+            .putString(K_PLAN, PLAN)
             .putString(K_NAME, name)
             .putString(K_HEADER, header)
             .putInt(K_PLAYS, 0)
@@ -156,6 +157,8 @@ class InputLab(private val ctx: Context) {
 
     companion object {
         private const val K_ACTIVE = "lab_active"
+        private const val K_PLAN = "lab_plan"
+        private val PLAN = Arms.ORDER.joinToString(",") { it.name }
         private const val K_URI = "lab_uri"
         private const val K_NAME = "lab_name"
         private const val K_WHERE = "lab_where"
