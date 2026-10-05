@@ -27,8 +27,8 @@ class MainActivity : Activity() {
     private lateinit var panel: LinearLayout
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
-    private lateinit var saveButton: TextView
-    private var loseText = ""
+    private lateinit var exportButton: TextView
+    private var panelText = ""
 
     private lateinit var prefs: SharedPreferences
 
@@ -61,6 +61,11 @@ class MainActivity : Activity() {
         buildOverlay(root)
         setContentView(root)
 
+        gameView.onDebugChanged = {
+            if (gameView.engine.phase != GameEngine.Phase.PLAYING) {
+                exportButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
+            }
+        }
         gameView.engine.listener = { phase ->
             gameView.onPhase(phase)
             onPhase(phase)
@@ -120,26 +125,30 @@ class MainActivity : Activity() {
         panel.addView(subtitleView)
 
         // debug mode: close the test file from the lose screen
-        saveButton = TextView(this)
-        saveButton.text = getString(R.string.save_file)
-        saveButton.textSize = 17f
-        saveButton.setTextColor(ink)
-        saveButton.gravity = Gravity.CENTER
-        saveButton.setPadding(dp(18), dp(10), dp(18), dp(10))
+        exportButton = TextView(this)
+        exportButton.text = getString(R.string.export_games)
+        exportButton.textSize = 17f
+        exportButton.setTextColor(ink)
+        exportButton.gravity = Gravity.CENTER
+        exportButton.setPadding(dp(18), dp(10), dp(18), dp(10))
         val sbg = GradientDrawable()
         sbg.cornerRadius = dp(12).toFloat()
         sbg.setColor(Color.rgb(222, 234, 248))
         sbg.setStroke(dp(1), inkSoft)
-        saveButton.background = sbg
-        saveButton.setOnClickListener {
-            val where = gameView.saveFile()
-            subtitleView.text = loseText + "\n\n" + getString(R.string.saved_to, where)
+        exportButton.background = sbg
+        exportButton.setOnClickListener {
+            exportButton.isEnabled = false
+            subtitleView.text = panelText + "\n\n" + getString(R.string.exporting)
+            gameView.exportGames { msg ->
+                exportButton.isEnabled = true
+                subtitleView.text = panelText + "\n\n" + msg
+            }
         }
         val lp = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         )
         lp.topMargin = dp(12)
-        panel.addView(saveButton, lp)
+        panel.addView(exportButton, lp)
 
         root.addView(
             panel,
@@ -158,10 +167,11 @@ class MainActivity : Activity() {
             GameEngine.Phase.PLAYING -> panel.visibility = View.GONE
             GameEngine.Phase.READY -> {
                 panel.visibility = View.VISIBLE
-                saveButton.visibility = View.GONE
                 titleView.text = getString(R.string.app_name)
                 subtitleView.text =
                     getString(R.string.swipe_hint) + "\n" + getString(R.string.tap_to_start)
+                panelText = subtitleView.text.toString()
+                exportButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
             }
             GameEngine.Phase.LOST -> {
                 val score = gameView.engine.score
@@ -173,9 +183,9 @@ class MainActivity : Activity() {
                 titleView.text = getString(R.string.you_lost)
                 var sub = getString(R.string.final_score, score, gameView.bestScore) +
                     "\n" + getString(R.string.try_again)
-                loseText = sub
+                panelText = sub
                 subtitleView.text = sub
-                saveButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
+                exportButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
             }
         }
     }

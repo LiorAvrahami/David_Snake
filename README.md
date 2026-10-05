@@ -46,13 +46,14 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 Drag along the very top edge of the screen from one side to the other:
 debug mode turns on (same gesture turns it off; it is always off when the
-app starts) and recording starts, with the normal input (`S2-FAST`, the
-best so far). The top-right corner shows the input and counts the games.
+app starts) and games are recorded, with the normal input (`S2-FAST`, the
+best so far). The top-right corner shows how many games are stored.
 
-- Each recording (from turning debug mode on until it is turned off)
-  goes into one file,
-  `Downloads/DavidSnake_InputLab_v<version>_<date>_<time>.txt`, with its
-  own game count; every game is written to it as it ends. *Save file* on the lose screen writes out the rest right away.
+- Every recorded game is saved as it ends, in the app's own storage, and
+  kept across app restarts and debug mode on/off. *Export games* (start
+  and lose screens, in debug mode) joins all stored games into one file,
+  `Downloads/DavidSnake_Games_v<version>_<date>_<time>_<N>games.txt`,
+  reads it back to check it is complete, and only then clears them.
   Analyze with `python3 tools/lab_report.py FILE`; score options by
   simulating the game on with `python3 tools/simscore.py FILE...`
   (harp straight ahead, spear hits within 3 steps, wall or tail right

@@ -195,28 +195,28 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val t = SystemClock.uptimeMillis()
         when (phase) {
             GameEngine.Phase.PLAYING -> {
-                if (debugMode && lab.running) {
-                    val i = lab.playsDone
-                    session.startPlay(Arms.armAt(i), i + 1, Arms.armPlay(i), t, wallClock())
+                if (debugMode) {
+                    val n = lab.nextGameNo()
+                    lab.beginGame(n)
+                    session.startPlay(Arms.DEFAULT, n, 1, t, wallClock())
                     lab.flush()
                 } else {
                     session.startPlay(Arms.DEFAULT, 0, 0, t, "")
                 }
             }
-            GameEngine.Phase.LOST -> if (session.endPlay(t)) {
-                lab.completePlay()
-                lab.flush()
-            }
+            GameEngine.Phase.LOST -> if (session.endPlay(t)) lab.flush()
             GameEngine.Phase.READY -> Unit
         }
     }
 
-    /** A recorded test is going on (debug mode on). */
-    val recording: Boolean get() = debugMode && lab.running
+    /** Debug mode is on (games are being recorded). */
+    val recording: Boolean get() = debugMode
 
-    /** Lose-screen button: write out everything recorded since the app
-     *  was opened. Returns where the file is. */
-    fun saveFile(): String = lab.save()
+    /** Export button: join all stored games into one file in Downloads,
+     *  check it, then clear them. [done] runs on the UI thread. */
+    fun exportGames(done: (String) -> Unit) {
+        lab.export(sessionHeader(), version) { msg -> post { done(msg) } }
+    }
 
     /** App going to the background: write out what we have. */
     fun onPauseApp() {
@@ -283,15 +283,16 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (session.strokeCmds == 0) performClick()   // start, or retry after a loss
     }
 
+    /** MainActivity refreshes its buttons when debug mode flips. */
+    var onDebugChanged: (() -> Unit)? = null
+
     private fun toggleDebug() {
         debugMode = !debugMode
-        if (debugMode) {
-            lab.startNew()                       // every recording starts fresh
-            lab.ensureFile(sessionHeader(), version)
-        } else {
+        if (!debugMode) {
             session.abortPlay(SystemClock.uptimeMillis(), "debug off")
-            lab.endRun()
+            lab.flush()
         }
+        onDebugChanged?.invoke()
     }
 
     private fun wallClock(): String =
@@ -330,17 +331,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (!debugMode) return
 
         val lines = ArrayList<Pair<String, Boolean>>()  // text, bold
-        val now = SystemClock.uptimeMillis()
-        if (lab.running) {
-            val live = session.playNo > 0
-            val i = if (live) session.playNo - 1 else lab.playsDone
-            val a = Arms.armAt(i)
-            lines.add(Pair((if (live) "" else "next: ") + a.name, true))
-            lines.add(Pair(
-                if (Arms.CYCLE.size > 1) "play ${Arms.armPlay(i)}/${Arms.BLOCK} · game ${i + 1}"
-                else "recording · game ${i + 1}", false
-            ))
-        }
+        lines.add(Pair("recording · ${Arms.DEFAULT.name}", true))
+        lines.add(Pair("${lab.storedGames} games stored", false))
         for ((text, bold) in lines) {
             cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             cornerPaint.textSize = (if (bold) 15f else 12f) * density
