@@ -78,6 +78,10 @@ best so far). The top-right corner shows how many games are stored.
   can be rebuilt from the file alone; every finger sample carries its game
   tick. `python3 tools/mlparity.py FILE` rebuilds the model from each
   game's model line, replays the game, and checks every decision.
+- `data/recordings` holds the recordings ML-1 was trained on (named and
+  hashed in its description). `python3 tools/retrain.py` retrains it from
+  its description (`tools/models/ml-1.json`, or any recorded game's model
+  line) and checks the weights come out identical.
 
 
 Earlier tests: test 1 (v1.1.50) found the original input best for long
