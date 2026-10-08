@@ -2,7 +2,10 @@
 """Scores input recognizers by simulating the game forward from the real
 situation, as the player defined it:
 
-  A window starts every STRIDE ticks while the finger is on the screen.
+  A window starts at every gesture: the finger starts moving (its speed
+  rises from under V_REST to over V_MOVE, and it travels GESTURE_DP), or,
+  while moving, turns by SPLIT_DEG or more from where it was going. A
+  finger resting on the screen starts nothing.
   From David's real state at that moment (enginesim, an exact port of the
   engine), a recognizer reads the recorded finger input for W steps and
   the engine executes its turns; then David goes straight, with no more
@@ -27,7 +30,7 @@ The "as played" row runs the game's own logged commands through the same
 windows; S2F (the recognizer that was live) should come out close to it.
 
 Usage: python3 tools/windowsim.py FILE... [--w 2,3]"""
-import bisect, copy, os, random, sys
+import bisect, copy, math, os, random, sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +38,10 @@ from lab_report import load, build
 import enginesim as E
 import recognizers as R
 
-STRIDE = 2              # ticks between window starts (90 ms)
+V_REST, V_MOVE = 60.0, 150.0     # finger speed, dp/s
+GESTURE_DP = 10.0       # a gesture travels at least this far
+SPLIT_DEG = 60.0        # a turn this sharp while moving starts a new gesture
+SPEED_MS = 40           # finger speed is measured over this long
 HORIZON = 13            # steps simulated from the window start
 CUT = {"hit the wall": 1, "speared": 4, "ran into the tail": 5}
 DEATH = 3.0
@@ -55,6 +61,45 @@ def samples_of(p):
         for i, (t, x, y) in enumerate(s.samples):
             out.append((t, x, y, i == 0, i == n - 1, i == n - 1 and s.end == "up"))
     out.sort(key=lambda a: a[0])
+    return out
+
+
+def gesture_starts(stroke):
+    """Times the finger starts a gesture within one stroke (see top)."""
+    sm = stroke.samples
+    out = []
+    j = 0
+    moving = False
+    for i, (t, x, y) in enumerate(sm):
+        while sm[j][0] < t - SPEED_MS:
+            j += 1
+        dt = t - sm[j][0]
+        vx = (x - sm[j][1]) * 1000.0 / dt if dt > 0 else 0.0
+        vy = (y - sm[j][2]) * 1000.0 / dt if dt > 0 else 0.0
+        v = math.hypot(vx, vy)
+        if not moving:
+            if v >= V_REST:     # starts moving: the gesture starts at the last rest
+                moving, start, peak, ref, counted, corner = True, max(i - 1, 0), v, None, False, None
+            continue
+        if v < V_REST:
+            moving = False
+            continue
+        peak = max(peak, v)
+        _, sx, sy = sm[start]
+        if not counted and peak >= V_MOVE and math.hypot(x - sx, y - sy) >= GESTURE_DP:
+            counted = True
+            out.append(sm[start][0])
+        if ref is None:         # where this gesture goes, once it is clear
+            if math.hypot(x - sx, y - sy) >= 8.0:
+                ref = (x - sx, y - sy)
+            continue
+        if corner is None or v < corner[0]:
+            corner = (v, i)
+        cross = ref[0] * vy - ref[1] * vx
+        dot = ref[0] * vx + ref[1] * vy
+        if v >= V_MOVE and abs(math.degrees(math.atan2(cross, dot))) >= SPLIT_DEG:
+            # a sharp turn: a new gesture from the slowest point of the corner
+            start, peak, ref, counted, corner = corner[1], v, None, False, None
     return out
 
 
@@ -246,12 +291,14 @@ def evaluate_play(p, Ws, models=MODELS):
     out = defaultdict(list)
     last_tk = p.death["tk"] if p.death else max([s["tk"] for s in p.steps] + [0])
     i = j = 0                           # next sample, next logged command
+    times = [smp[0] for smp in samples]
+    starts = set()
+    for s in p.strokes:
+        for t in gesture_starts(s):
+            starts.add(slots[bisect.bisect_left(times, t)])
     for k in range(0, last_tk + 1):
-        if k % STRIDE == 0:
+        if k in starts:
             for W in Ws:
-                i_end = bisect.bisect_left(slots, k + 4 * W, lo=i)
-                if i_end == i:
-                    continue            # no finger input in this window
                 out[(W, "as played")].append(
                     run_window(real, k, W, LogInputs(k, W, cmds, bisect.bisect_left(cmd_tk, k))))
                 for m in models:
@@ -286,9 +333,9 @@ def summarize(per_game, Ws, rows, ref="as played", boots=2000, seed=1):
     games = list(per_game)
     for W in Ws:
         n = sum(len(per_game[g][(W, ref)]) for g in games)
-        print(f"\nW = {W} steps of input, horizon {HORIZON} steps: {n} windows, {len(games)} games")
+        print(f"\nW = {W} steps of input, horizon {HORIZON} steps: {n} gestures, {len(games)} games")
         print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>5s} {'tail':>5s} {'spear':>5s}"
-              f"   vs {ref} [90% range over games]   (per 1000 windows; deaths = penalized ones)")
+              f"   vs {ref} [90% range over games]   (per 1000 gestures; deaths = penalized ones)")
         tot = {}
         for m in rows:
             ws = [w for g in games for w in per_game[g][(W, m)]]

@@ -55,11 +55,12 @@ best so far). The top-right corner shows how many games are stored.
   `Downloads/DavidSnake_Games_v<version>_<date>_<time>_<N>games.txt`,
   reads it back to check it is complete, and only then clears them.
   Analyze with `python3 tools/lab_report.py FILE`; score input methods
-  with `python3 tools/windowsim.py FILE...`: every 90 ms of finger
-  input, each method reads the next 2 (or 3) steps of it from the real
-  situation, an exact port of the engine (`tools/enginesim.py`, checked
-  by replaying every recorded game) plays its turns, and David goes on
-  straight to 13 steps; a harp eaten scores +1, a death -3, both less
+  with `python3 tools/windowsim.py FILE...`: at every gesture start
+  (the finger starts moving after resting, or turns sharply while
+  moving; a resting finger starts nothing), each method reads the next
+  2 (or 3) steps of input from the real situation, an exact port of the
+  engine (`tools/enginesim.py`, checked by replaying every recorded
+  game) plays its turns, and David goes on straight to 13 steps; a harp eaten scores +1, a death -3, both less
   the later they come, and a death counts only soon after the input
   ends (wall 1 step, spear 4, tail 5). Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
