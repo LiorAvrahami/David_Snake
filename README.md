@@ -54,12 +54,16 @@ best so far). The top-right corner shows how many games are stored.
   and lose screens, in debug mode) joins all stored games into one file,
   `Downloads/DavidSnake_Games_v<version>_<date>_<time>_<N>games.txt`,
   reads it back to check it is complete, and only then clears them.
-  Analyze with `python3 tools/lab_report.py FILE`; score options by
-  simulating the game on with `python3 tools/simscore.py FILE...`
-  (harp straight ahead, spear hits within 3 steps, wall or tail right
-  ahead; spears are exact for v1.7+ recordings, which log every throw).
-  Model choices and training use only v1.7+ recordings; older ones are
-  for sanity checks.
+  Analyze with `python3 tools/lab_report.py FILE`; score input methods
+  with `python3 tools/windowsim.py FILE...`: every 90 ms of finger
+  input, each method reads the next 2 (or 3) steps of it from the real
+  situation, an exact port of the engine (`tools/enginesim.py`, checked
+  by replaying every recorded game) plays its turns, and David goes on
+  straight to 13 steps; a harp eaten scores +1, a death -3, both less
+  the later they come, and a death counts only soon after the input
+  ends (wall 1 step, spear 4, tail 5). Needs v1.7+ recordings (every
+  spear throw logged); model choices and training use only those, older
+  ones are for sanity checks.
 
 
 Earlier tests: test 1 (v1.1.50) found the original input best for long
