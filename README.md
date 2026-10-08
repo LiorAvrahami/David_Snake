@@ -65,6 +65,11 @@ best so far). The top-right corner shows how many games are stored.
   ends (wall 1 step, spear 4, tail 5). Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.
+  `python3 tools/simlearn.py FILE...` trains a small weighted-formula turn
+  model on that score (finger movement only; at each tick it tries all
+  four answers, none/left/right/back, in the simulation and learns from
+  the outcomes), cross-validated by game; `--export 3` prints the weights
+  trained on all games (`tools/models/simlearn_w3.json`).
 
 
 Earlier tests: test 1 (v1.1.50) found the original input best for long
