@@ -13,7 +13,7 @@
              (parity), the others show what they would have done
 
 Usage: python3 tools/lab_report.py FILE [--strokes] [--play N]"""
-import json, math, os, statistics, sys
+import json, math, os, re, statistics, sys
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,6 +25,7 @@ DEATH_WINDOW_MS = 1000    # input this close before a death may have caused it
 TURNED = {"turn", "queued", "step", "flush", "re-aim", "rotate"}
 BLOCKED = {"rev-block", "wall-block", "tail-block", "flush-tail-block"}
 ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "O-PLUS-28": "P28", "S-STEP": "S", "S-SCHED": "S", "S2-STEP": "S2", "O-HOLD-UTURN": "P", "O-HOLD-ALL": "P", "S2-FAST": "S2F"}
+PER_TICK = {"ML-1"}       # trained models decide per tick: tools/mlparity.py checks them
 DIR = {c: i for i, c in enumerate(R.LETTER)}
 
 
@@ -54,6 +55,15 @@ class Stroke:
             t += int(dt)
             self.samples.append((t, int(x) / 10.0, int(y) / 10.0))
         self.ih = r.get("ih", "")
+        # game ticks done when each sample was handled (v1.15+ recordings)
+        self.tks = None
+        if "tk0" in r and "tkd" in r:
+            k, self.tks = r["tk0"], []
+            for m in re.finditer(r"\((\d+)\)|(\d)", r["tkd"]):
+                k += int(m.group(1) or m.group(2))
+                self.tks.append(k)
+            if len(self.tks) != len(self.samples):
+                self.tks = None
         self.cmds = []          # logged cmd records within this stroke
 
     @property
@@ -84,6 +94,7 @@ class Play:
         self.aborted = False
         self.strokes, self.cmds, self.steps, self.flags, self.harps = [], [], [], [], []
         self.spears = []        # throws (v1.6+ recordings)
+        self.model = None       # the input in full (v1.15+ recordings)
 
     @property
     def rec(self):
@@ -126,6 +137,8 @@ def build(recs):
                 p.harps.append(r)
             elif k == "spear":
                 p.spears.append(r)
+            elif k == "model":
+                p.model = r
             elif k == "death":
                 p.death = r
     # attach commands to strokes by time
@@ -241,6 +254,8 @@ def report(path, show_strokes=False, only_play=None):
         alt = Counter()
         for p in ps:
             for s in p.strokes:
+                if p.arm in PER_TICK:
+                    continue
                 logged = [(c["t"], DIR[c["dir"]], c["kind"]) for c in s.cmds]
                 dead = p.death["t"] if p.death else float("inf")
                 mine = [m for m in replay_stroke(p.rec, p, s, True) if m[0] < dead]
@@ -270,6 +285,8 @@ def report(path, show_strokes=False, only_play=None):
                           (",".join(f"{c['kind']}:{c['dir']}:{c['res']}" for c in s.cmds) or "-"))
         print()
     print(f"parity (active recognizer re-run on its own strokes): {parity_n - parity_bad}/{parity_n} identical")
+    if any(p.arm in PER_TICK for p in plays):
+        print("trained models decide per tick: check them with python3 tools/mlparity.py FILE")
     return parity_bad
 
 

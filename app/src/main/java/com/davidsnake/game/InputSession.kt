@@ -15,6 +15,8 @@ class InputSession(
 
     var arm: Arm = Arms.DEFAULT
         private set
+    /** App version, logged with every recorded game. */
+    var appVersion = "?"
     private var recognizer: Recognizer = arm.make()
     private val info = object : GameInfo {
         override val heading get() = engine.intendedDir
@@ -47,9 +49,12 @@ class InputSession(
         private set
     private val pts = StringBuilder()
     private val heads = StringBuilder()
+    private val ticks = StringBuilder()
     private var ptT = 0L
     private var ptX = 0
     private var ptY = 0
+    private var tk0 = 0
+    private var ptTick = 0
 
     private var tickNo = 0                         // game ticks since the game started
     private val knownSpears = HashSet<GameEngine.Spear>()   // by identity
@@ -68,7 +73,8 @@ class InputSession(
         if (n > 0) {
             playStartT = t
             playStrokes = 0; playCmds = 0
-            lab(LabLog.play(n, a, armN, t, wall))
+            lab(LabLog.play(n, a, armN, t, wall, appVersion))
+            lab(LabLog.model(n, a, appVersion))
         }
     }
 
@@ -88,8 +94,14 @@ class InputSession(
         playNo = 0
     }
 
-    /** One engine tick at time [t], logging what it moved. */
+    /** One engine tick at time [t], logging what it moved. A recognizer
+     *  that decides per tick does so first. */
     fun tick(t: Long) {
+        if (engine.phase == GameEngine.Phase.PLAYING) {
+            val cmds = recognizer.tick(info)
+            if (cmds.isNotEmpty()) apply(cmds, recognizer.tickT)
+            recognizer.ticked(info)
+        }
         val hx = engine.headX
         val hy = engine.headY
         val sc = engine.score
@@ -120,8 +132,9 @@ class InputSession(
         lastT = t; lastX = x; lastY = y
         maxDist = 0f
         strokeCmds = 0
-        pts.setLength(0); heads.setLength(0)
+        pts.setLength(0); heads.setLength(0); ticks.setLength(0)
         ptT = t; ptX = 0; ptY = 0
+        tk0 = tickNo; ptTick = tickNo
         point(t, x, y)
         recognizer.down(t, x, y)
     }
@@ -149,7 +162,7 @@ class InputSession(
         inStroke = false
         if (strokePlay > 0 && live) {
             if (strokePlay == playNo) playStrokes++
-            lab(LabLog.stroke(strokePlay, t0, how, pts.toString(), heads.toString()))
+            lab(LabLog.stroke(strokePlay, t0, how, pts.toString(), heads.toString(), tk0, ticks.toString()))
         }
     }
 
@@ -160,15 +173,18 @@ class InputSession(
         point(t, x, y)
     }
 
-    /** Compact sample log: dt,x,y (ms, 0.1dp) plus the heading the
-     *  recognizer judged it against. */
+    /** Compact sample log: dt,x,y (ms, 0.1dp), the heading the recognizer
+     *  judged it against, and the game ticks done since the last sample
+     *  (a digit, or (n) from 10 on). */
     private fun point(t: Long, x: Float, y: Float) {
         val qx = Math.round(x * 10f)
         val qy = Math.round(y * 10f)
         if (pts.isNotEmpty()) pts.append(';')
         pts.append(t - ptT).append(',').append(qx).append(',').append(qy)
         heads.append(LabLog.dirLetter(engine.intendedDir))
-        ptT = t; ptX = qx; ptY = qy
+        val d = tickNo - ptTick
+        if (d < 10) ticks.append(d) else ticks.append('(').append(d).append(')')
+        ptT = t; ptX = qx; ptY = qy; ptTick = tickNo
     }
 
     private fun apply(cmds: List<Cmd>, t: Long) {

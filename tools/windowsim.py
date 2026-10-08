@@ -104,9 +104,16 @@ def gesture_starts(stroke):
 
 
 def slots_of(p, samples):
-    """Game ticks done before each sample was handled. Tick times are known
-    at steps (interpolated between); samples that fired a logged command
-    take its tick count, and the rest are kept in order around them."""
+    """Game ticks done before each sample was handled: logged with every
+    sample from v1.15 on. For older recordings, estimated: tick times are
+    known at steps (interpolated between); samples that fired a logged
+    command take its tick count, and the rest are kept in order around
+    them."""
+    strokes = sorted(p.strokes, key=lambda s: s.t0)
+    if strokes and all(s.tks is not None for s in strokes):
+        exact = [k for s in strokes for k in s.tks]
+        if len(exact) == len(samples):
+            return exact
     pts = [(0, p.t)] + [(s["tk"], s["t"]) for s in p.steps if not s.get("flush")]
     ks, ts = [], []
     for (k0, t0), (k1, t1) in zip(pts, pts[1:]):

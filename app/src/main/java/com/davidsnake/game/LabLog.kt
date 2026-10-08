@@ -9,7 +9,11 @@ class Arm(
     /** The U-turn's second turn waits for the first one's step. */
     val holdUTurn: Boolean = false,
     val make: () -> Recognizer
-)
+) {
+    /** Everything needed to rebuild this input, as a JSON object. */
+    fun describe(): String = Json().s("arm", name).s("turn_mode", mode.name)
+        .raw("hold_uturn", holdUTurn.toString()).raw("recognizer", make().describe()).toString()
+}
 
 object Arms {
     val ORIGINAL = Arm("O-ORIGINAL", GameEngine.TurnMode.STEP) { OriginalRecognizer() }
@@ -29,12 +33,13 @@ object Arms {
     val SMART2_FAST = Arm("S2-FAST", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
         SmartRecognizer(v2 = true, cooldownMs = 120L)
     }
+    /** The model trained on the game simulation ([MlModel]). */
+    val ML1 = Arm(MlModel.NAME, GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) { LearnedRecognizer() }
 
-    /** Normal play and debug recording: the best input to date. S2-FAST
-     *  (S2 with a 0.12 s blind spot after a turn) led the replays and the
-     *  game simulation (tools/simscore.py) and won two of three play
-     *  sessions against O-HOLD-UTURN. */
-    val DEFAULT = SMART2_FAST
+    /** Normal play and debug recording: the best input to date. ML-1 beat
+     *  S2-FAST (the previous best) on held-out games of the window
+     *  simulation (tools/simlearn.py, tools/windowsim.py). */
+    val DEFAULT = ML1
 
     /** Debug mode records with these arms in turn, [BLOCK] games each; a
      *  single arm means no A/B test, just data collection. */
@@ -99,9 +104,10 @@ object LabLog {
         .s("time", "t/t0 = Android uptime ms, one clock for touches and game events")
         .s("session", "device and screen; board = the 21x13 play area on screen in dp")
         .s("play", "a game starts: n = game number in the test, arm = input variant, arm_n = its play count")
-        .s("stroke", "one finger from down to up: pts = 'dt,x,y;...' dt ms since the previous sample (first since t0), x/y in 0.1dp; ih = per sample, the intended heading it was judged against; end = up | cancel | steal (another finger took over)")
-        .s("cmd", "recognizer output: kind (orig | swipe | chain | lift | uturn | reverse), dir, engine result res, heading hd before and hd2 after, intended heading ihd, head cell")
-        .s("step", "David moved: tk = game tick (45 ms each, counted from the game's start, paused while the flag menu is open), head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
+        .s("stroke", "one finger from down to up: pts = 'dt,x,y;...' dt ms since the previous sample (first since t0), x/y in 0.1dp; ih = per sample, the intended heading it was judged against; tk0 = game ticks done when the finger landed; tkd = per sample, game ticks done since the previous sample (a digit, or (n) from 10 on); end = up | cancel | steal (another finger took over)")
+        .s("model", "the input this game was played with, complete enough to rebuild it: arm, turn mode, recognizer and all its settings; a trained model adds its weights, features and how it was trained (code commit, training files with sha256, settings); app = app version")
+        .s("cmd", "recognizer output: kind (orig | swipe | chain | lift | ml | uturn | reverse), dir, engine result res, heading hd before and hd2 after, intended heading ihd, head cell; tk = game ticks done")
+        .s("step", "David moved: tk = game tick (45 ms each, counted from the game's start), head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
         .s("spear", "a spear was thrown: at its cell at the end of tick tk; it moves one cell in d each later tick until it sticks in a wall")
         .s("harp", "a harp was eaten; next = where the new one appeared")
         .s("board", "harp cell; tail cells head-first; flying spears x,y,dir; attackers wall,pos,state (w = winding up, t = throwing, v = done)")
@@ -124,9 +130,13 @@ object LabLog {
         .raw("legend", LEGEND)
         .toString()
 
-    fun play(n: Int, arm: Arm, armN: Int, t: Long, wall: String): String = Json()
+    fun play(n: Int, arm: Arm, armN: Int, t: Long, wall: String, ver: String): String = Json()
         .s("k", "play").n("n", n).s("arm", arm.name).s("mode", arm.mode.name)
-        .n("arm_n", armN).n("t", t).s("wall", wall).toString()
+        .n("arm_n", armN).n("t", t).s("wall", wall).s("app", ver).toString()
+
+    /** The game's input in full ([Arm.describe]). */
+    fun model(n: Int, arm: Arm, ver: String): String = Json()
+        .s("k", "model").n("play", n).s("app", ver).raw("spec", arm.describe()).toString()
 
     fun playEnd(
         n: Int, arm: Arm, t: Long, score: Int, durMs: Long, reason: String,
@@ -135,9 +145,9 @@ object LabLog {
         .s("k", "play_end").n("n", n).s("arm", arm.name).n("t", t).n("score", score)
         .n("dur_ms", durMs).s("reason", reason).n("strokes", strokes).n("cmds", cmds).toString()
 
-    fun stroke(play: Int, t0: Long, end: String, pts: String, ih: String): String = Json()
+    fun stroke(play: Int, t0: Long, end: String, pts: String, ih: String, tk0: Int, tkd: String): String = Json()
         .s("k", "stroke").n("play", play).n("t0", t0).s("end", end)
-        .s("pts", pts).s("ih", ih).toString()
+        .s("pts", pts).s("ih", ih).n("tk0", tk0).s("tkd", tkd).toString()
 
     /** [board] and the head cell are captured before the engine ran it. */
     fun cmd(

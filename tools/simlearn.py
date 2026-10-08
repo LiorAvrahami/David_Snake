@@ -28,7 +28,7 @@ on the others. Reported per 1000 gestures, against S2-FAST on the same
 games.
 
 Usage: python3 tools/simlearn.py FILE... [--w 2,3] [--iters N] [--export W]"""
-import bisect, json, math, os, random, sys
+import bisect, hashlib, json, math, os, random, sys
 from multiprocessing import Pool
 
 import numpy as np
@@ -106,6 +106,17 @@ class Policy:
 
     def to_json(self):
         return {"features": NF, "w_side": self.ws, "w_back": self.wb}
+
+    @staticmethod
+    def from_spec(spec):
+        """The model a game logged (its model line's recognizer spec, as
+        tools/export_model.py writes it), checked against this code."""
+        ws, wb = spec["w_side"], spec["w_back"]
+        sha = hashlib.sha256(json.dumps({"w_side": ws, "w_back": wb}, separators=(",", ":")).encode()).hexdigest()
+        assert sha == spec["weights_sha256"], "weights do not match their hash"
+        assert len(ws) == len(wb) == NF and spec["side_features"] == SIDE, "different features"
+        assert len(spec["features"]) == NF and all(f"over the last {w} ms" in " ".join(spec["features"]) for w in WIN_MS)
+        return Policy(ws, wb)
 
 
 def commands(a, h, sim, vec):

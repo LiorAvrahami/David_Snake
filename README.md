@@ -46,7 +46,7 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 Drag along the very top edge of the screen from one side to the other:
 debug mode turns on (same gesture turns it off; it is always off when the
-app starts) and games are recorded, with the normal input (`S2-FAST`, the
+app starts) and games are recorded, with the normal input (`ML-1`, the
 best so far). The top-right corner shows how many games are stored.
 
 - Every recorded game is saved as it ends, in the app's own storage, and
@@ -69,7 +69,15 @@ best so far). The top-right corner shows how many games are stored.
   model on that score (finger movement only; at each tick it tries all
   four answers, none/left/right/back, in the simulation and learns from
   the outcomes), cross-validated by game; `--export 3` prints the weights
-  trained on all games (`tools/models/simlearn_w3.json`).
+  trained on all games, and `tools/export_model.py` puts them in the game
+  (`MlModel.kt`) with a complete description (`tools/models/ml-1.json`).
+- The input is `ML-1`, that model trained on 41 games (it beat S2-FAST on
+  held-out games). Every recorded game starts with a `model` line holding
+  the input in full: recognizer, settings, weights, features, and how it
+  was trained (code commit, training files with sha256, settings), so it
+  can be rebuilt from the file alone; every finger sample carries its game
+  tick. `python3 tools/mlparity.py FILE` rebuilds the model from each
+  game's model line, replays the game, and checks every decision.
 
 
 Earlier tests: test 1 (v1.1.50) found the original input best for long

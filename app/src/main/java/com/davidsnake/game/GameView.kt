@@ -70,7 +70,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var animAccMs = 0L
 
     // the input path: recognizer, engine commands and test-file lines
-    val session = InputSession(engine) { lab.line(it) }
+    val session = InputSession(engine) { lab.line(it) }.also { it.appVersion = version }
 
     // the one finger being followed (the latest to land), in px
     private var activeId = -1

@@ -26,6 +26,16 @@ interface Recognizer {
     fun down(t: Long, x: Float, y: Float)
     fun move(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd>
     fun up(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd>
+
+    /** For recognizers that decide once per game tick: the commands to run
+     *  just before the next tick, decided on the finger sample at [tickT]. */
+    fun tick(g: GameInfo): List<Cmd> = NONE
+    val tickT: Long get() = 0L
+    /** Called once [tick]'s commands have run. */
+    fun ticked(g: GameInfo) {}
+
+    /** Everything needed to rebuild this recognizer, as a JSON object. */
+    fun describe(): String
 }
 
 private val NONE = emptyList<Cmd>()
@@ -83,6 +93,11 @@ class OriginalRecognizer(
         x0 = x; y0 = y; t0 = t
         fired = false
     }
+
+    override fun describe(): String = Json().s("recognizer", "OriginalRecognizer")
+        .s("source", "app/src/main/java/com/davidsnake/game/Recognizers.kt")
+        .raw("plus", plus.toString()).f("threshold_dp", threshold)
+        .f("flick_dp", flickDp).n("flick_ms", flickMs).toString()
 
     override fun move(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd> {
         val dx = x - ax
@@ -180,6 +195,16 @@ class SmartRecognizer(
         add(t, x, y)
     }
 
+    override fun describe(): String = Json().s("recognizer", "SmartRecognizer")
+        .s("source", "app/src/main/java/com/davidsnake/game/Recognizers.kt")
+        .raw("v2", v2.toString()).n("cooldown_ms", cooldownMs)
+        .f("fast_dp", fastDp).f("slow_dp", slowDp).f("fast_speed", fastSpeed).f("slow_speed", slowSpeed)
+        .n("speed_win_ms", speedWinMs).n("anchor_age_ms", anchorAgeMs)
+        .f("forward_deg", forwardDeg.toFloat()).f("back_deg", backDeg.toFloat()).f("back_factor", backFactor)
+        .f("chain_dp", chainDp).f("corner_deg", cornerDeg.toFloat()).f("chain_speed", chainSpeed)
+        .f("chain_sector_deg", chainSectorDeg.toFloat()).f("lift_dp", liftDp).n("lift_max_ms", liftMaxMs)
+        .toString()
+
     private fun add(t: Long, x: Float, y: Float) {
         if (n == ts.size) {
             ts = ts.copyOf(n * 2); xs = xs.copyOf(n * 2); ys = ys.copyOf(n * 2)
@@ -258,5 +283,189 @@ class SmartRecognizer(
         val back = (h + 2) % 4
         if (!g.hasTail) return listOf(Cmd(back, "reverse"))
         return uTurn(h, vx, vy, g, 3f)
+    }
+}
+
+/**
+ * A trained model ([MlModel], tools/simlearn.py): a weighted formula over
+ * finger movement only, relative to David's heading. It decides once per
+ * game tick, just before it (the engine acts on a turn at the next tick
+ * anyway), on the latest finger sample: none, right, left or back.
+ * Positions are rounded to 0.1 dp as the test file logs them, and all math
+ * is in doubles as in the Python twin, so a recorded game replays exactly
+ * (tools/mlparity.py). The full rule is in [MlModel.SPEC].
+ */
+class LearnedRecognizer(
+    private val wSide: DoubleArray = MlModel.W_SIDE,
+    private val wBack: DoubleArray = MlModel.W_BACK,
+    private val spec: String = MlModel.SPEC
+) : Recognizer {
+
+    private class Stroke {
+        var n = 0
+        var ts = LongArray(256)
+        var xs = DoubleArray(256)
+        var ys = DoubleArray(256)
+        var lt = 0              // sample of the last turn (or touch-down)
+        var fresh = false       // samples arrived since the last decision
+
+        fun add(t: Long, x: Float, y: Float) {
+            if (n == ts.size) {
+                ts = ts.copyOf(n * 2); xs = xs.copyOf(n * 2); ys = ys.copyOf(n * 2)
+            }
+            ts[n] = t
+            xs[n] = Math.round(x * 10f) / 10.0
+            ys[n] = Math.round(y * 10f) / 10.0
+            n++
+            fresh = true
+        }
+
+        /** First sample in [0, end) at or after time [t]. */
+        fun firstAtOrAfter(t: Long, end: Int): Int {
+            var lo = 0
+            var hi = end
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (ts[mid] < t) lo = mid + 1 else hi = mid
+            }
+            return lo
+        }
+    }
+
+    private var cur: Stroke? = null         // the finger on the screen
+    private val ended = ArrayDeque<Stroke>() // lifted or replaced, last samples undecided
+    private var decided: Stroke? = null     // stroke of this tick's commands
+    private var decidedH = 0
+    private var decidedK = 0
+    override var tickT = 0L
+        private set
+
+    override fun down(t: Long, x: Float, y: Float) {
+        cur?.let { if (it.fresh) ended.addLast(it) }
+        cur = Stroke().also { it.add(t, x, y) }
+    }
+
+    override fun move(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd> {
+        cur?.add(t, x, y)
+        return NONE
+    }
+
+    override fun up(t: Long, x: Float, y: Float, g: GameInfo): List<Cmd> {
+        cur?.let {
+            it.add(t, x, y)
+            ended.addLast(it)
+        }
+        cur = null
+        return NONE
+    }
+
+    override fun tick(g: GameInfo): List<Cmd> {
+        decided = null
+        // a lifted stroke's last samples first, one stroke per tick; the
+        // finger now on the screen waits for the next tick
+        val s = ended.removeFirstOrNull() ?: cur ?: return NONE
+        if (!s.fresh) return NONE
+        s.fresh = false
+        val k = s.n - 1
+        val h = g.heading
+        val a = best(features(s, k, h))
+        if (a == 0) return NONE
+        tickT = s.ts[k]
+        decided = s
+        decidedH = h
+        decidedK = k
+        return when (a) {
+            1 -> listOf(Cmd((h + 1) % 4, "ml"))
+            2 -> listOf(Cmd((h + 3) % 4, "ml"))
+            else -> if (g.hasTail) {
+                val j = s.firstAtOrAfter(s.ts[k] - 160, s.n)
+                uTurnD(h, s.xs[k] - s.xs[j], s.ys[k] - s.ys[j], g)
+            } else {
+                listOf(Cmd((h + 2) % 4, "reverse"))
+            }
+        }
+    }
+
+    override fun ticked(g: GameInfo) {
+        val s = decided ?: return
+        if (g.heading != decidedH) s.lt = decidedK
+        decided = null
+    }
+
+    override fun describe(): String = spec
+
+    private fun features(s: Stroke, k: Int, h: Int): DoubleArray {
+        val f = DoubleArray(NF)
+        val fx = dirXd(h)
+        val fy = dirYd(h)
+        val rx = -fy
+        val ry = fx
+        val t = s.ts[k]
+        val x = s.xs[k]
+        val y = s.ys[k]
+        var i = 0
+        var j40 = k
+        for (w in WIN_MS) {
+            val j = s.firstAtOrAfter(t - w, k + 1)
+            if (w == 40L) j40 = j
+            val dx = x - s.xs[j]
+            val dy = y - s.ys[j]
+            val side = (dx * rx + dy * ry) / 20.0
+            f[i++] = (dx * fx + dy * fy) / 20.0
+            f[i++] = side
+            f[i++] = abs(side)
+        }
+        val dt = t - s.ts[j40]
+        f[i++] = if (dt > 0) hypot(x - s.xs[j40], y - s.ys[j40]) * 2.0 / dt else 0.0
+        val lt = s.lt
+        val dx = x - s.xs[lt]
+        val dy = y - s.ys[lt]
+        val side = (dx * rx + dy * ry) / 40.0
+        f[i++] = minOf(t - s.ts[lt], 400L) / 400.0
+        f[i++] = (dx * fx + dy * fy) / 40.0
+        f[i++] = side
+        f[i++] = abs(side)
+        f[i] = 1.0
+        return f
+    }
+
+    /** 0 none, 1 right, 2 left, 3 back: the highest score, ties to the first. */
+    private fun best(f: DoubleArray): Int {
+        var r = 0.0
+        var l = 0.0
+        var b = 0.0
+        for (i in 0 until NF) {
+            val side = IS_SIDE[i]
+            r += wSide[i] * f[i]
+            l += wSide[i] * (if (side) -f[i] else f[i])
+            b += wBack[i] * (if (side) 0.0 else f[i])
+        }
+        var a = 0
+        var v = 0.0
+        if (r > v) { a = 1; v = r }
+        if (l > v) { a = 2; v = l }
+        if (b > v) a = 3
+        return a
+    }
+
+    /** [uTurn] in doubles, as tools/recognizers.py u_turn (lean 3 dp). */
+    private fun uTurnD(h: Int, vx: Double, vy: Double, g: GameInfo): List<Cmd> {
+        val cross = dirXd(h) * vy - dirYd(h) * vx
+        val right = (h + 1) % 4
+        val left = (h + 3) % 4
+        var side = if (cross > 0) right else left
+        val other = if (cross > 0) left else right
+        if (abs(cross) < 3.0 && g.room(other) > g.room(side)) side = other
+        if (g.room(side) == 0 && g.room(other) > 0) side = if (side == right) left else right
+        return listOf(Cmd(side, "uturn"), Cmd((h + 2) % 4, "uturn"))
+    }
+
+    private companion object {
+        val WIN_MS = longArrayOf(40L, 80L, 160L, 300L)
+        const val NF = 18
+        val IS_SIDE = BooleanArray(NF).also { for (i in intArrayOf(1, 4, 7, 10, 15)) it[i] = true }
+
+        fun dirXd(d: Int) = when (d) { GameEngine.RIGHT -> 1.0; GameEngine.LEFT -> -1.0; else -> 0.0 }
+        fun dirYd(d: Int) = when (d) { GameEngine.DOWN -> 1.0; GameEngine.UP -> -1.0; else -> 0.0 }
     }
 }
