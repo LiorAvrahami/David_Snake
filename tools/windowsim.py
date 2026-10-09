@@ -17,7 +17,8 @@ situation, as the player defined it:
   death  -DEATH, less the later it is: times exp(-(s - 1) / DECAY), s the
          steps from the window start to the death, DECAY by cause (wall
          2 steps, spear 3.7, tail 4.2; fitted to the earlier linear
-         penalty with its cut-offs)
+         penalty with its cut-offs); a spear that hits David from the
+         side (flying across the way he moves) costs nothing
 
 A turn that comes within COMPLETE_MS of the window's last turn, after the
 input ended, still counts: a side step or U-turn is one move, never cut
@@ -188,6 +189,8 @@ def outcome(sim, k0, W, eaten_tick):
     w = Window()
     if eaten_tick is not None:
         w.harp = 1.0
+    elif sim.lost == "speared" and sim.spear_dir % 2 != sim.last % 2:
+        w.why = "speared from the side"     # no penalty
     elif sim.lost:
         s = (sim.tick_no - k0) / 4.0
         w.death = DEATH * min(1.0, math.exp(-(s - 1.0) / DECAY[sim.lost]))

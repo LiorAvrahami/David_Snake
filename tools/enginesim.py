@@ -36,6 +36,7 @@ class Sim:
         self.key = False                # engine keyCommand: a turn's step is armed
         self.pending = -1
         self.lost = None                # reason once dead
+        self.spear_dir = -1             # flight direction of the spear that killed him
         self.spears = []                # [x, y, dir]
         self.throws = {}                # tick -> [(x, y, dir)]
         self.throw_limit = float("inf") # throws after this tick are left out
@@ -74,6 +75,11 @@ class Sim:
         return n
 
     # --- engine
+    def speared_by(self, d):
+        if self.lost is None:
+            self.spear_dir = d
+        self.lose("speared")
+
     def lose(self, why):
         if self.lost is None:
             self.lost = why
@@ -173,11 +179,11 @@ class Sim:
                 s[0] += DX[s[2]]
                 s[1] += DY[s[2]]
                 if (s[0], s[1]) == (self.hx, self.hy):
-                    self.lose("speared")
+                    self.speared_by(s[2])
                 if not inb(s[0] + DX[s[2]], s[1] + DY[s[2]]):
                     continue            # stuck in the wall
             else:
-                self.lose("speared")
+                self.speared_by(s[2])
             keep.append(s)
         self.spears = keep
         if self.tick_no <= self.throw_limit:

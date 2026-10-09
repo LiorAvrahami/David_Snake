@@ -106,7 +106,8 @@ def spec_of(name, weights, commit, data, result):
                 "run": "after the input David goes straight until he eats the harp or dies",
                 "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
                 "death": f"-{WS.DEATH:g} times exp(-(s - 1) / decay), s = steps from the window start "
-                         "to the death, decay by cause",
+                         "to the death, decay by cause; a spear hitting David from the side (flying "
+                         "across the direction of his last step) costs nothing",
                 "death_decay_steps": WS.DECAY,
                 "completion_ms": WS.COMPLETE_MS,
                 "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
