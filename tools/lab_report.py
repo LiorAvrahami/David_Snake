@@ -25,7 +25,7 @@ DEATH_WINDOW_MS = 1000    # input this close before a death may have caused it
 TURNED = {"turn", "queued", "step", "flush", "re-aim", "rotate"}
 BLOCKED = {"rev-block", "wall-block", "tail-block", "flush-tail-block"}
 ARM_REC = {"O-ORIGINAL": "O", "O-PLUS": "P", "O-PLUS-28": "P28", "S-STEP": "S", "S-SCHED": "S", "S2-STEP": "S2", "O-HOLD-UTURN": "P", "O-HOLD-ALL": "P", "S2-FAST": "S2F"}
-PER_TICK = {"ML-1"}       # trained models decide per tick: tools/mlparity.py checks them
+PER_TICK = {"ML-1", "ML-1-BEAT"}   # trained models decide per tick: tools/mlparity.py checks them
 DIR = {c: i for i, c in enumerate(R.LETTER)}
 
 
@@ -90,6 +90,7 @@ class Play:
         self.arm_n = r.get("arm_n")
         self.t = r["t"]
         self.wall = r.get("wall")
+        self.mode = r.get("mode")
         self.end = None
         self.death = None
         self.aborted = False

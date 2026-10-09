@@ -35,15 +35,22 @@ object Arms {
     }
     /** The model trained on the game simulation ([MlModel]). */
     val ML1 = Arm(MlModel.NAME, GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) { LearnedRecognizer() }
+    /** ML-1 with David moving on a steady beat: a turn turns his head at
+     *  once and he moves on the next beat; turns never move him sooner. */
+    val ML1_BEAT = Arm(MlModel.NAME + "-BEAT", GameEngine.TurnMode.SCHED) { LearnedRecognizer() }
 
     /** Normal play and debug recording: the best input to date. ML-1 beat
      *  S2-FAST (the previous best) on held-out games of the window
-     *  simulation (tools/simlearn.py, tools/windowsim.py). */
+     *  simulation (tools/simlearn.py, tools/windowsim.py). The start screen
+     *  picks the steady-beat variant or this one. */
     val DEFAULT = ML1
+
+    /** The input in play: ML-1, moving on a steady beat or on turns. */
+    fun current(steadyBeat: Boolean): Arm = if (steadyBeat) ML1_BEAT else ML1
 
     /** Debug mode records with these arms in turn, [BLOCK] games each; a
      *  single arm means no A/B test, just data collection. */
-    val CYCLE = listOf(DEFAULT)
+    val CYCLE = listOf(ML1, ML1_BEAT)
     const val BLOCK = 3
 
     /** Arm of test game [i] (0-based). */

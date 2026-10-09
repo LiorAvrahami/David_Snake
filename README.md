@@ -74,7 +74,12 @@ edge of the screen from one side to the other turns it off, and on again. The to
   complete description (`tools/models/<name>.json`), and with `--game`
   puts them in the game (`MlModel.kt`).
 - The input is `ML-1`, that model trained on 41 games (it beat S2-FAST on
-  held-out games). Every recorded game starts with a `model` line holding
+  held-out games). The start screen picks how David moves with it:
+  *steady beat* (`ML-1-BEAT`, the default for now: a turn turns his head
+  at once and he moves on the next beat, every 4 ticks, so turning never
+  moves him sooner; a second quick turn waits for that step; a turn into
+  an adjacent wall or the tail is ignored) or *also when turning* (`ML-1`:
+  a turn moves him on the next tick). Every recorded game starts with a `model` line holding
   the input in full: recognizer, settings, weights, features, and how it
   was trained (code commit, training files with sha256, settings), so it
   can be rebuilt from the file alone; every finger sample carries its game
