@@ -69,8 +69,9 @@ edge of the screen from one side to the other turns it off, and on again. The to
   model on that score (finger movement only; at each tick it tries all
   four answers, none/left/right/back, in the simulation and learns from
   the outcomes), cross-validated by game; `--export 3` prints the weights
-  trained on all games, and `tools/export_model.py` puts them in the game
-  (`MlModel.kt`) with a complete description (`tools/models/ml-1.json`).
+  trained on all games, and `tools/export_model.py` records them with a
+  complete description (`tools/models/<name>.json`), and with `--game`
+  puts them in the game (`MlModel.kt`).
 - The input is `ML-1`, that model trained on 41 games (it beat S2-FAST on
   held-out games). Every recorded game starts with a `model` line holding
   the input in full: recognizer, settings, weights, features, and how it
@@ -78,8 +79,11 @@ edge of the screen from one side to the other turns it off, and on again. The to
   can be rebuilt from the file alone; every finger sample carries its game
   tick. `python3 tools/mlparity.py FILE` rebuilds the model from each
   game's model line, replays the game, and checks every decision.
-- `data/recordings` holds the recordings ML-1 was trained on (named and
-  hashed in its description). `python3 tools/retrain.py` retrains it from
+- `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the current
+  scoring, on 53 games; not in the game, since on held-out games it did
+  not beat ML-1 or S2-FAST.
+- `data/recordings` holds the recordings the models were trained on (named
+  and hashed in their descriptions). `python3 tools/retrain.py` retrains it from
   its description (`tools/models/ml-1.json`, or any recorded game's model
   line) and checks the weights come out identical.
 

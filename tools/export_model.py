@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Puts a turn model trained by tools/simlearn.py into the game.
+"""Records a turn model trained by tools/simlearn.py, and puts it into the
+game on request.
 
 Writes tools/models/<name>.json, the model's complete description (inputs,
 features, decision rule, weights, and how it was trained, down to the
-code commit and the training files' hashes), and
+code commit and the training files' hashes); with --game also
 app/src/main/java/com/davidsnake/game/MlModel.kt with the same weights and
-description; the game logs that description with every recorded game.
+description, which the game logs with every recorded game.
 
-Usage: python3 tools/export_model.py NAME WEIGHTS.json COMMIT FILE=PATH...
+Usage: python3 tools/export_model.py NAME WEIGHTS.json COMMIT RESULT FILE=PATH... [--game]
   WEIGHTS.json  output of `simlearn.py ... --export W`
-  COMMIT        the commit of tools/simlearn.py that trained it
+  COMMIT        the commit of tools/ that trained it
+  RESULT        how it tested (recorded as is)
   FILE=PATH     each training recording, in training order: the name to
                 record and where it is"""
 import hashlib, json, os, sys
@@ -33,7 +35,7 @@ def describe_data(name, path):
             "session_start": session.get("wall") if session else None, "games": len(games)}
 
 
-def spec_of(name, weights, commit, data):
+def spec_of(name, weights, commit, data, result):
     ws, wb = weights["w_side"], weights["w_back"]
     assert len(ws) == len(wb) == L.NF
     wsha = hashlib.sha256(json.dumps({"w_side": ws, "w_back": wb}, separators=(",", ":")).encode()).hexdigest()
@@ -109,9 +111,7 @@ def spec_of(name, weights, commit, data):
                 "completion_ms": WS.COMPLETE_MS,
                 "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
             },
-            "result": "3-fold cross-validation by game (game i of the files in order is in fold i % 3): "
-                      "held-out gain over S2-FAST +18.1 per 1000 gestures (90% range +5.6 to +32.3); "
-                      "this model is then trained on all the games",
+            "result": result,
         },
     }
 
@@ -144,20 +144,23 @@ object MlModel {{
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 5:
+    args = [a for a in sys.argv[1:] if a != "--game"]
+    if len(args) < 5:
         print(__doc__)
         sys.exit(2)
-    name, wpath, commit = sys.argv[1:4]
+    name, wpath, commit, result = args[:4]
     data = []
-    for a in sys.argv[4:]:
+    for a in args[4:]:
         fname, path = a.split("=", 1)
         data.append(describe_data(fname, path))
-    spec = spec_of(name, json.load(open(wpath)), commit, data)
+    spec = spec_of(name, json.load(open(wpath)), commit, data, result)
     out = os.path.join(ROOT, "tools", "models", name.lower() + ".json")
     with open(out, "w") as f:
         json.dump(spec, f, indent=1)
         f.write("\n")
-    kt = os.path.join(ROOT, "app", "src", "main", "java", "com", "davidsnake", "game", "MlModel.kt")
-    with open(kt, "w") as f:
-        f.write(kotlin(spec))
-    print("wrote", out, "and", kt)
+    print("wrote", out)
+    if "--game" in sys.argv:
+        kt = os.path.join(ROOT, "app", "src", "main", "java", "com", "davidsnake", "game", "MlModel.kt")
+        with open(kt, "w") as f:
+            f.write(kotlin(spec))
+        print("wrote", kt)
