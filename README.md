@@ -83,6 +83,10 @@ edge of the screen from one side to the other turns it off, and on again. The to
 - `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the current
   scoring, on 121 games; not in the game, since on held-out games it did
   not beat ML-1.
+- `viewer/decisions.html` (open it in a browser) replays example gestures
+  from the recordings as the game screen, once per input method (S2-FAST,
+  ML-1, ML-2), next to the finger movement, with how often the methods
+  decide differently; `python3 tools/make_viewer.py` rebuilds it.
 - `training_recordings/` holds the recordings for scoring and training,
   as the app exported them, with a list of what is in it (its README).
   Add new exports with `python3 tools/add_recordings.py FILE...`, which
