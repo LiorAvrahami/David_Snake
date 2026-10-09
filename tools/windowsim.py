@@ -23,6 +23,12 @@ A turn that comes within COMPLETE_MS of the window's last turn, after the
 input ended, still counts: a side step or U-turn is one move, never cut
 in half by the window's end.
 
+Replayed timing (REPLAY_TIMING): in every window David steps exactly when
+he stepped in the recorded game, whichever method is turning him, so a
+method's turns change where he goes but never when he moves (otherwise
+the method that was played gets the real game's step-on-turn timing).
+Past the recorded game's end he steps every 4 ticks.
+
 Spears are the recorded ones, but only those an attacker aimed before the
 window started (attackers aim AIM_TICKS before the spear flies, at where
 David is): later ones were aimed at the path David really took.
@@ -44,6 +50,7 @@ GESTURE_DP = 10.0       # a gesture travels at least this far
 SPLIT_DEG = 60.0        # a turn this sharp while moving starts a new gesture
 SPEED_MS = 40           # finger speed is measured over this long
 MAX_STEPS = 200         # safety cap on a run (going straight, a wall comes within 21)
+REPLAY_TIMING = True    # David steps when he did in the recorded game (see top)
 DECAY = {"hit the wall": 1.0, "speared": 3.7, "ran into the tail": 1.0}
 DEATH = 0.5
 AIM_TICKS = 18
@@ -197,16 +204,31 @@ def outcome(sim, k0, W, eaten_tick):
     return w
 
 
-def run_window(real, k0, W, inputs):
+def run_window(real, k0, W, inputs, timing=None, watch=None):
     """Simulate from the real state after tick k0; inputs.slot(k, sim)
     yields the commands to run before tick k+1, one sample's at a time,
-    as (t, [(dir, hold), ...])."""
+    as (t, [(dir, hold), ...]). With timing (an enginesim.Timing of the
+    recorded game) David steps when he did in the recording. watch(event,
+    sim, k, t, heading_before) sees every command ("cmd") and tick ("tick")."""
     sim = real.copy()
     sim.throw_limit = k0 + AIM_TICKS
     sim.harp_next = lambda: None
+    flushes = {}
+    if timing is not None and REPLAY_TIMING:
+        sim.timing = timing
+        sim.last_step_tick = timing.last_step_before(k0)
+        sim.rotated = sim.hd != sim.last
+        sim.wall_wait = False
+        flushes = timing.flush
     for k in range(k0, k0 + 4 * MAX_STEPS):
+        pend = list(flushes.get(k, ()))         # recorded flush steps in this slot, by time
         for t, cmds in inputs.slot(k, sim):
-            turned = False
+            while pend and pend[0] <= t and not (sim.lost or sim.eaten):
+                pend.pop(0)
+                sim.timed_step()
+            if sim.lost or sim.eaten:
+                break
+            h0, turned = sim.heading, False
             for d, hold in cmds:
                 if sim.swipe(d, hold) in TURNED:
                     turned = True
@@ -214,11 +236,18 @@ def run_window(real, k0, W, inputs):
                     break
             if turned:
                 inputs.last_turn = t
+            if watch:
+                watch("cmd", sim, k, t, h0)
             if sim.lost or sim.eaten:
                 break
+        while pend and not (sim.lost or sim.eaten):
+            pend.pop(0)
+            sim.timed_step()
         if sim.lost or sim.eaten:
             break
         sim.tick()
+        if watch:
+            watch("tick", sim, k + 1, None, None)
         if sim.lost or sim.eaten:
             break
     return outcome(sim, k0, W, sim.eaten[0] if sim.eaten else None)
@@ -293,6 +322,7 @@ def evaluate_play(p, Ws, models=MODELS):
     cmds = list(zip(p.cmds, E.held_flags(p.cmds)))
     cmd_tk = [c["tk"] for c, _ in cmds]
     real = E.start_sim(p)
+    timing = E.Timing(p)
     classes = {m: R.ALL[m] for m in models}
     shadow = {m: None for m in models}
     out = defaultdict(list)
@@ -307,10 +337,10 @@ def evaluate_play(p, Ws, models=MODELS):
         if k in starts:
             for W in Ws:
                 out[(W, "as played")].append(
-                    run_window(real, k, W, LogInputs(k, W, cmds, bisect.bisect_left(cmd_tk, k))))
+                    run_window(real, k, W, LogInputs(k, W, cmds, bisect.bisect_left(cmd_tk, k)), timing))
                 for m in models:
                     out[(W, m)].append(run_window(
-                        real, k, W, RecInputs(k, W, classes[m], shadow[m], samples, slots, i)))
+                        real, k, W, RecInputs(k, W, classes[m], shadow[m], samples, slots, i), timing))
         # the real game: this slot's samples (shadow recognizers read them
         # against the real game) and logged commands, in time order
         while True:

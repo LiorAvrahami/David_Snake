@@ -38,43 +38,27 @@ def policies():
     return out
 
 
-def traced(real, k0, inputs):
-    """A gesture window as tools/windowsim.py runs it, recording every tick:
-    David (cell, heading), his tail, the spears, and the turns made."""
-    sim = real.copy()
-    sim.throw_limit = k0 + WS.AIM_TICKS
-    sim.harp_next = lambda: None
+def traced(real, k0, inputs, timing):
+    """A gesture window exactly as tools/windowsim.py runs it, recording
+    every tick: David (cell, heading), his tail, the spears, and the turns."""
+    def frame(sim):
+        return [sim.hx, sim.hy, sim.hd, [c for xy in sim.tail for c in xy], [c for sp in sim.spears for c in sp]]
 
-    def frame():
-        return [sim.hx, sim.hy, sim.hd, [c for xy in sim.tail for c in xy], [c for s in sim.spears for c in s]]
+    frames, turns, ref = [frame(real)], [], {}
 
-    frames = [frame()]
-    turns = []
-    for k in range(k0, k0 + 4 * WS.MAX_STEPS):
-        for t, cmds in inputs.slot(k, sim):
-            h0, turned = sim.heading, False
-            for d, hold in cmds:
-                if sim.swipe(d, hold) in WS.TURNED:
-                    turned = True
-                if sim.lost or sim.eaten:
-                    break
-            if turned:
-                inputs.last_turn = t
-            if sim.heading != h0:
-                turns.append([k - k0, t, sim.heading])
-            if sim.lost or sim.eaten:
-                break
-        if sim.lost or sim.eaten:
-            frames.append(frame())
-            break
-        sim.tick()
-        frames.append(frame())
-        if sim.lost or sim.eaten:
-            break
-    w = WS.outcome(sim, k0, W, sim.eaten[0] if sim.eaten else None)
-    why = "harp" if sim.eaten else w.why
-    return {"frames": frames, "turns": turns, "score": round(w.score, 4), "why": why,
-            "end": sim.tick_no - k0}
+    def watch(ev, sim, k, t, h0):
+        ref["sim"] = sim
+        if ev == "cmd" and sim.heading != h0:
+            turns.append([k - k0, t, sim.heading])
+        elif ev == "tick":
+            frames.append(frame(sim))
+
+    w = WS.run_window(real, k0, W, inputs, timing, watch)
+    sim = ref.get("sim")
+    if sim is not None and frames[-1] != frame(sim):
+        frames.append(frame(sim))           # the run ended during a command
+    return {"frames": frames, "turns": turns, "score": round(w.score, 4),
+            "why": "harp" if w.harp > 0 else w.why, "end": (sim.tick_no - k0) if sim else 0}
 
 
 def game_windows(job):
@@ -88,6 +72,7 @@ def game_windows(job):
     starts = {s.k: s for s in g.specs}
     cmds = list(zip(p.cmds, E.held_flags(p.cmds)))
     real = E.start_sim(p)
+    timing = E.Timing(p)
     cls = R.ALL["S2F"]
     shadow = None
     last_tk = p.death["tk"] if p.death else max([s["tk"] for s in p.steps] + [0])
@@ -100,9 +85,9 @@ def game_windows(job):
     for k in range(0, last_tk + 1):
         if k in starts:
             s = starts[k]
-            res = {"S2-FAST": traced(real, k, WS.RecInputs(k, W, cls, shadow, samples, slots, s.i))}
+            res = {"S2-FAST": traced(real, k, WS.RecInputs(k, W, cls, shadow, samples, slots, s.i), timing)}
             for m in ("ML-1", "ML-2"):
-                res[m] = traced(real, k, L.PolicyInputs(k, W, pols[m], samples, slots, s.i, s.stroke))
+                res[m] = traced(real, k, L.PolicyInputs(k, W, pols[m], samples, slots, s.i, s.stroke), timing)
             end = k + 4 * W + 8
             fin = []
             for x in range(len(samples)):
@@ -212,7 +197,8 @@ def main():
         with open(os.path.join(SPRITES, name + ".png"), "rb") as f:
             sprites[name] = "data:image/png;base64," + base64.b64encode(f.read()).decode()
     data = {"windows": n, "games": len(jobs), "stats": stats, "allsame": allsame, "scenarios": scen,
-            "tick_ms": 45, "input_ticks": 4 * W, "pre_ticks": PRE_TICKS, "decay": WS.DECAY, "death": WS.DEATH}
+            "tick_ms": 45, "input_ticks": 4 * W, "pre_ticks": PRE_TICKS, "decay": WS.DECAY, "death": WS.DEATH,
+            "replay_timing": WS.REPLAY_TIMING}
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer_template.html")) as f:
         html = f.read()
     html = html.replace("/*SPRITES*/{}", json.dumps(sprites)).replace("/*DATA*/{}", json.dumps(data, separators=(",", ":")))

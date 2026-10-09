@@ -52,7 +52,7 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         gameView = GameView(this)
         gameView.bestScore = prefs.getInt("best", 0)
-        gameView.steadyBeat = prefs.getBoolean("steady_beat", true)
+        gameView.steadyBeat = prefs.getBoolean("steady_beat", false)
         root.addView(
             gameView,
             FrameLayout.LayoutParams(

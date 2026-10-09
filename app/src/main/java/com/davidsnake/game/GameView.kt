@@ -84,8 +84,8 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var debugMode = true    // on at every app start, for now
 
     /** David moves on a steady beat (turns never move him sooner); set
-     *  from the start screen. */
-    var steadyBeat = true
+     *  from the start screen. Off by default: moving on turns is better. */
+    var steadyBeat = false
     val arm: Arm get() = Arms.current(steadyBeat)
 
     override fun onAttachedToWindow() {

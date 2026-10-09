@@ -207,6 +207,7 @@ class Game:
         self.key = key
         self.samples = WS.samples_of(p)
         self.slots = WS.slots_of(p, self.samples)
+        self.timing = E.Timing(p)
         times = [s[0] for s in self.samples]
         starts = set()
         for s in p.strokes:
@@ -269,7 +270,7 @@ class Game:
 
 def run(g, spec, W, pol, force=None, record=None):
     inp = PolicyInputs(spec.k, W, pol, g.samples, g.slots, spec.i, spec.stroke, force, record)
-    return WS.run_window(spec.real, spec.k, W, inp).score
+    return WS.run_window(spec.real, spec.k, W, inp, g.timing).score
 
 
 def examples(g, W, pol):
