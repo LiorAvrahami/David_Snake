@@ -16,8 +16,7 @@ situation, as the player defined it:
          next one appears at random); the run ends there
   death  -DEATH, less the later it is: times exp(-(s - 1) / DECAY), s the
          steps from the window start to the death, DECAY by cause (wall
-         2 steps, spear 3.7, tail 4.2; fitted to the earlier linear
-         penalty with its cut-offs); a spear that hits David from the
+         and tail 1 step, spear 3.7); a spear that hits David from the
          side (flying across the way he moves) costs nothing
 
 A turn that comes within COMPLETE_MS of the window's last turn, after the
@@ -45,7 +44,7 @@ GESTURE_DP = 10.0       # a gesture travels at least this far
 SPLIT_DEG = 60.0        # a turn this sharp while moving starts a new gesture
 SPEED_MS = 40           # finger speed is measured over this long
 MAX_STEPS = 200         # safety cap on a run (going straight, a wall comes within 21)
-DECAY = {"hit the wall": 2.0, "speared": 3.7, "ran into the tail": 4.2}
+DECAY = {"hit the wall": 1.0, "speared": 3.7, "ran into the tail": 1.0}
 DEATH = 0.5
 AIM_TICKS = 18
 COMPLETE_MS = 250

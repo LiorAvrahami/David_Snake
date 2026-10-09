@@ -61,8 +61,8 @@ edge of the screen from one side to the other turns it off, and on again. The to
   engine (`tools/enginesim.py`, checked by replaying every recorded
   game) plays its turns, and David goes on straight until he eats the
   harp (+1, whenever it comes) or dies (-0.5, times exp(-(s-1)/d) for a
-  death s steps after the gesture start; d = 2 steps for a wall, 3.7 for
-  a spear, 4.2 for the tail; a spear hitting him from the side costs
+  death s steps after the gesture start; d = 1 step for a wall or the
+  tail, 3.7 for a spear; a spear hitting him from the side costs
   nothing). Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.
