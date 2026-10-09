@@ -19,6 +19,4 @@
     <string name="final_score">Notes: %1$d · Best: %2$d</string>
     <string name="export_games">Export games</string>
     <string name="exporting">Exporting…</string>
-    <string name="movement_beat">Movement: steady beat</string>
-    <string name="movement_turns">Movement: also when turning</string>
 </resources>

@@ -83,11 +83,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     // records every game to a file
     private var debugMode = true    // on at every app start, for now
 
-    /** David moves on a steady beat (turns never move him sooner); set
-     *  from the start screen. Off by default: moving on turns is better. */
-    var steadyBeat = false
-    val arm: Arm get() = Arms.current(steadyBeat)
-
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         lastFrameNanos = 0L
@@ -203,10 +198,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
                 if (debugMode) {
                     val n = lab.nextGameNo()
                     lab.beginGame(n)
-                    session.startPlay(arm, n, 1, t, wallClock())
+                    session.startPlay(Arms.DEFAULT, n, 1, t, wallClock())
                     lab.flush()
                 } else {
-                    session.startPlay(arm, 0, 0, t, "")
+                    session.startPlay(Arms.DEFAULT, 0, 0, t, "")
                 }
             }
             GameEngine.Phase.LOST -> if (session.endPlay(t)) lab.flush()
@@ -336,7 +331,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         if (!debugMode) return
 
         val lines = ArrayList<Pair<String, Boolean>>()  // text, bold
-        lines.add(Pair("recording · ${arm.name}", true))
+        lines.add(Pair("recording · ${Arms.DEFAULT.name}", true))
         lines.add(Pair("${lab.storedGames} games stored", false))
         for ((text, bold) in lines) {
             cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT

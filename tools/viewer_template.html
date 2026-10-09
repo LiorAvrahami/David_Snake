@@ -96,7 +96,6 @@
       <ul>
         <li>Each example opens about 1.1 s before your gesture, with the real game as you played it (the same on all three boards; gray line = where David came from). From the moment the gesture began, each board shows what that method does with your actual finger movement: for 3 steps (12 ticks, 0.54 s) it reads your finger; then David goes straight until he eats the harp or dies, as the scoring assumes.</li>
         <li>Only spears from attackers already on screen when the gesture began are simulated (attackers aim at where David is, so later ones would differ).</li>
-        <li id="timingnote"></li>
         <li>Score: harp +1; a death costs −0.5, less the later it comes (decay length 1 step for wall and tail, 3.7 for spears); a spear from the side costs nothing.</li>
         <li>Paths: the line shows the whole run (dashed = still to come); rings mark the turns. On the finger panel, the rings mark the finger sample at which each method turned (biggest = S2-FAST, middle = ML-1, smallest = ML-2); gray = finger movement before or after the gesture's input.</li>
         <li>Keys: <kbd>space</kbd> play/pause, <kbd>←</kbd> <kbd>→</kbd> one tick, <kbd>g</kbd> gesture start, <kbd>↑</kbd> <kbd>↓</kbd> previous / next example.</li>
@@ -364,9 +363,6 @@ function buildPage() {
   document.getElementById("stats").innerHTML =
     `<tr><th>Pair (all ${DATA.windows} gestures)</th><th>identical turns</th><th>same turns, other timing</th>` +
     `<th>different turns</th><th>different outcome (score differs by more than 0.01)</th></tr>` + s;
-  document.getElementById("timingnote").textContent = DATA.replay_timing
-    ? "Replayed timing: in every board David steps exactly when he stepped in the real game; the methods' turns change only where he goes, not when he moves."
-    : "Each method's own timing: a turn moves David on the next tick (as in the game), so a method that turns at a different moment also moves at a different moment.";
   document.getElementById("summary").textContent =
     `${DATA.windows} gestures from ${DATA.games} recorded games. All three methods make identical turns in ` +
     `${(100 * DATA.allsame).toFixed(1)}% of them. Below: ${DATA.scenarios.length} examples; pick one on the left.`;

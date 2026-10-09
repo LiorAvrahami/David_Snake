@@ -63,8 +63,7 @@ edge of the screen from one side to the other turns it off, and on again. The to
   harp (+1, whenever it comes) or dies (-0.5, times exp(-(s-1)/d) for a
   death s steps after the gesture start; d = 1 step for a wall or the
   tail, 3.7 for a spear; a spear hitting him from the side costs
-  nothing). With replayed timing (`REPLAY_TIMING`) David steps exactly
-  when he stepped in the recorded game, whichever method turns him. Needs v1.7+ recordings (every
+  nothing). Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.
   `python3 tools/simlearn.py FILE...` trains a small weighted-formula turn
@@ -75,12 +74,7 @@ edge of the screen from one side to the other turns it off, and on again. The to
   complete description (`tools/models/<name>.json`), and with `--game`
   puts them in the game (`MlModel.kt`).
 - The input is `ML-1`, that model trained on 41 games (it beat S2-FAST on
-  held-out games). The start screen picks how David moves with it:
-  *also when turning* (`ML-1`, the default: a turn moves him on the next
-  tick) or *steady beat* (`ML-1-BEAT`: a turn turns his head at once and
-  he moves on the next beat, every 4 ticks, so turning never moves him
-  sooner; a second quick turn waits for that step; a turn into an
-  adjacent wall or the tail is ignored). Every recorded game starts with a `model` line holding
+  held-out games). Every recorded game starts with a `model` line holding
   the input in full: recognizer, settings, weights, features, and how it
   was trained (code commit, training files with sha256, settings), so it
   can be rebuilt from the file alone; every finger sample carries its game

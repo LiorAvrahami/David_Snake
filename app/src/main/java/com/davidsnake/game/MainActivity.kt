@@ -28,7 +28,6 @@ class MainActivity : Activity() {
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
     private lateinit var exportButton: TextView
-    private lateinit var beatButton: TextView
     private var panelText = ""
 
     private lateinit var prefs: SharedPreferences
@@ -52,7 +51,6 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         gameView = GameView(this)
         gameView.bestScore = prefs.getInt("best", 0)
-        gameView.steadyBeat = prefs.getBoolean("steady_beat", false)
         root.addView(
             gameView,
             FrameLayout.LayoutParams(
@@ -126,29 +124,6 @@ class MainActivity : Activity() {
         subtitleView.setPadding(0, dp(8), 0, 0)
         panel.addView(subtitleView)
 
-        // how David moves: on a steady beat, or also right when he turns
-        beatButton = TextView(this)
-        beatButton.textSize = 16f
-        beatButton.setTextColor(ink)
-        beatButton.gravity = Gravity.CENTER
-        beatButton.setPadding(dp(18), dp(9), dp(18), dp(9))
-        val bbg = GradientDrawable()
-        bbg.cornerRadius = dp(12).toFloat()
-        bbg.setColor(Color.rgb(240, 240, 236))
-        bbg.setStroke(dp(1), inkSoft)
-        beatButton.background = bbg
-        beatButton.setOnClickListener {
-            gameView.steadyBeat = !gameView.steadyBeat
-            prefs.edit().putBoolean("steady_beat", gameView.steadyBeat).apply()
-            showBeat()
-        }
-        showBeat()
-        val blp = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-        blp.topMargin = dp(14)
-        panel.addView(beatButton, blp)
-
         // debug mode: close the test file from the lose screen
         exportButton = TextView(this)
         exportButton.text = getString(R.string.export_games)
@@ -183,10 +158,6 @@ class MainActivity : Activity() {
                 Gravity.CENTER
             )
         )
-    }
-
-    private fun showBeat() {
-        beatButton.text = getString(if (gameView.steadyBeat) R.string.movement_beat else R.string.movement_turns)
     }
 
     // --------------------------------------------------------- phase handling

@@ -18,6 +18,4 @@
     <string name="final_score">תווים: %1$d · שיא: %2$d</string>
     <string name="export_games">ייצוא משחקים</string>
     <string name="exporting">מייצא…</string>
-    <string name="movement_beat">תנועה: בקצב קבוע</string>
-    <string name="movement_turns">תנועה: גם בזמן פנייה</string>
 </resources>

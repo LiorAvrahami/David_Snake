@@ -1,22 +1,14 @@
 """A Python port of GameEngine's movement for offline simulation: David's
-steps, turns (STEP_SAFE with the U-turn hold, the mode recordings from
-v1.7 on were played in, and SCHED, the steady beat), the tail, the harp,
-flying spears and the HARD difficulty's wall grace. Attackers are not simulated: spears enter
+steps, turns (STEP_SAFE with the U-turn hold, the mode every recording
+from v1.7 on was played in), the tail, the harp, flying spears and the
+HARD difficulty's wall grace. Attackers are not simulated: spears enter
 from a list of throws (the recorded ones).
 
 replay(play) re-runs a recorded game from its logged commands and spear
 throws; it must land every step exactly where the game logged it, which
 checks the port against the real engine.
 
-With a Timing (the scoring's "replayed timing"), David steps only when he
-stepped in the recorded game, at the same ticks (and between ticks where a
-quick second turn flushed a step), whatever turns are made: turns change
-his heading, and the next of those steps goes that way. Past the recorded
-game's end he steps every 4 ticks.
-
 Directions use the engine's numbering: UP=0, RIGHT=1, DOWN=2, LEFT=3."""
-import bisect
-
 COLS, ROWS = 21, 13
 UP, RIGHT, DOWN, LEFT = 0, 1, 2, 3
 DX = (0, 1, 0, -1)
@@ -43,11 +35,6 @@ class Sim:
         self.counter = 4                # engine stepCounter
         self.key = False                # engine keyCommand: a turn's step is armed
         self.pending = -1
-        self.mode = "STEP_SAFE"         # or "SCHED": moves only on the beat
-        self.rotated = False            # SCHED / timing: the head turned since the last step
-        self.timing = None              # Timing: step only when the recorded game did
-        self.wall_wait = False          # timing: facing the wall at a step, one tick of grace
-        self.last_step_tick = 0
         self.lost = None                # reason once dead
         self.spear_dir = -1             # flight direction of the spear that killed him
         self.spears = []                # [x, y, dir]
@@ -128,7 +115,6 @@ class Sim:
             self.tails.discard((lx, ly))
             self.tail.insert(0, (ox, oy))
             self.tails.add((ox, oy))
-        self.rotated = False
         d = self.pending                # promotePendingDir
         if d >= 0:
             self.pending = -1
@@ -136,32 +122,11 @@ class Sim:
             if d != self.hd and not (self.tail and d == (self.hd + 2) % 4) \
                     and inb(nx, ny) and (nx, ny) not in self.tails:
                 self.hd = d
-                self.rotated = True
 
     def swipe(self, d, hold=False):
-        """Engine onSwipe (STEP_SAFE or SCHED); returns the engine's result tag."""
+        """Engine onSwipe in STEP_SAFE; returns the engine's result tag."""
         if self.lost:
             return "off"
-        if self.timing is not None:
-            return self.swipe_timed(d, hold)
-        if self.mode == "SCHED":
-            if not self.rotated:
-                if d == self.hd:
-                    return "same"
-                if self.tail and d == (self.hd + 2) % 4:
-                    return "rev-block"
-                nx, ny = self.hx + DX[d], self.hy + DY[d]
-                if not inb(nx, ny):
-                    return "wall-block"
-                if (nx, ny) in self.tails:
-                    return "tail-block"
-                self.hd = d
-                self.rotated = True
-                return "turn"
-            if d != self.hd:
-                self.pending = d
-                return "queued"
-            return "same"
         if d == self.hd:
             return "same"
         if hold:
@@ -200,44 +165,13 @@ class Sim:
         self.key = True
         return tag
 
-    def swipe_timed(self, d, hold):
-        """A turn when steps follow a Timing: it only changes the heading
-        (STEP_SAFE's checks); the second half of a U-turn waits for the
-        next step if the first half has not stepped yet."""
-        if d == self.hd:
-            return "same"
-        if hold and self.rotated:
-            self.pending = d
-            return "queued"
-        if self.tail and d == (self.last + 2) % 4:
-            return "rev-block"
-        nx, ny = self.hx + DX[d], self.hy + DY[d]
-        if inb(nx, ny) and (nx, ny) in self.tails:
-            return "tail-block"
-        self.hd = d
-        self.rotated = True
-        return "turn"
-
-    def timed_step(self):
-        """A step the Timing calls for; facing the wall, it waits one tick."""
-        if not inb(self.hx + DX[self.hd], self.hy + DY[self.hd]) and not self.wall_wait:
-            self.wall_wait = True
-            return
-        self.wall_wait = False
-        self.step()
-        self.last_step_tick = self.tick_no
-
     def tick(self):
         """One base tick: movement, spears, then this tick's throws."""
         self.tick_no += 1
-        if self.timing is not None:
-            if not self.lost and (self.wall_wait or self.timing.due(self.tick_no, self.last_step_tick)):
-                self.timed_step()
-        else:
-            due = self.counter <= 0 or (self.key and self.mode != "SCHED")
-            if due and not self.lost:
-                if inb(self.hx + DX[self.hd], self.hy + DY[self.hd]) or self.counter <= GRACE:
-                    self.step()
+        due = self.counter <= 0 or self.key
+        if due and not self.lost:
+            if inb(self.hx + DX[self.hd], self.hy + DY[self.hd]) or self.counter <= GRACE:
+                self.step()
         self.counter -= 1
         keep = []
         for s in self.spears:
@@ -255,31 +189,6 @@ class Sim:
         if self.tick_no <= self.throw_limit:
             for x, y, d in self.throws.get(self.tick_no, ()):
                 self.spears.append([x, y, d])
-
-
-class Timing:
-    """When David moved in a recorded game: steps in the movement of ticks,
-    and flush steps between ticks (slot -> the times they happened)."""
-
-    def __init__(self, play):
-        self.ticks, self.flush, every = set(), {}, []
-        for st in play.steps:
-            if st.get("flush"):
-                self.flush.setdefault(st["tk"], []).append(st["t"])
-            else:
-                self.ticks.add(st["tk"])
-            every.append(st["tk"])
-        self.sorted = sorted(every)
-        self.end = play.death["tk"] if play.death else (self.sorted[-1] if every else 0)
-
-    def due(self, tick, last_step_tick):
-        if tick <= self.end:
-            return tick in self.ticks
-        return tick - last_step_tick >= 4       # past the recording: the plain beat
-
-    def last_step_before(self, k):
-        i = bisect.bisect_right(self.sorted, k) - 1
-        return self.sorted[i] if i >= 0 else 0
 
 
 def held_flags(cmds):
@@ -305,7 +214,6 @@ def held_flags(cmds):
 def start_sim(play):
     """A fresh game for `play` with its recorded throws and harps."""
     s = Sim()
-    s.mode = getattr(play, "mode", None) or "STEP_SAFE"
     for th in play.spears:
         s.throws.setdefault(th["tk"], []).append((th["at"][0], th["at"][1], LET.index(th["d"])))
     nexts = iter([tuple(h["next"]) for h in play.harps if "next" in h])
