@@ -79,7 +79,8 @@
       <figure><figcaption><b>Your finger</b><span class="out" id="fingerinfo"></span></figcaption><canvas width="1110" height="726" id="c-finger"></canvas></figure>
     </div>
     <div id="controls">
-      <button id="b-start" title="Start (Home)">⏮</button>
+      <button id="b-start" title="Start, before the gesture (Home)">⏮</button>
+      <button id="b-gesture" title="Jump to the gesture start (g)">gesture start</button>
       <button id="b-back" title="One tick back (←)">◀</button>
       <button id="b-play" title="Play / pause (space)">▶</button>
       <button id="b-fwd" title="One tick forward (→)">▶|</button>
@@ -93,11 +94,11 @@
     <div id="info"></div>
     <div class="help">
       <ul>
-        <li>Each board starts from the real moment your gesture began (from a recorded game) and shows what that method does with your actual finger movement. For 3 steps (12 ticks, 0.54 s) the method reads your finger; then David goes straight until he eats the harp or dies, as the scoring assumes.</li>
+        <li>Each example opens about 1.1 s before your gesture, with the real game as you played it (the same on all three boards; gray line = where David came from). From the moment the gesture began, each board shows what that method does with your actual finger movement: for 3 steps (12 ticks, 0.54 s) it reads your finger; then David goes straight until he eats the harp or dies, as the scoring assumes.</li>
         <li>Only spears from attackers already on screen when the gesture began are simulated (attackers aim at where David is, so later ones would differ).</li>
         <li>Score: harp +1; a death costs −0.5, less the later it comes (decay length 1 step for wall and tail, 3.7 for spears); a spear from the side costs nothing.</li>
         <li>Paths: the line shows the whole run (dashed = still to come); rings mark the turns. On the finger panel, the rings mark the finger sample at which each method turned (biggest = S2-FAST, middle = ML-1, smallest = ML-2); gray = finger movement before or after the gesture's input.</li>
-        <li>Keys: <kbd>space</kbd> play/pause, <kbd>←</kbd> <kbd>→</kbd> one tick, <kbd>↑</kbd> <kbd>↓</kbd> previous / next example.</li>
+        <li>Keys: <kbd>space</kbd> play/pause, <kbd>←</kbd> <kbd>→</kbd> one tick, <kbd>g</kbd> gesture start, <kbd>↑</kbd> <kbd>↓</kbd> previous / next example.</li>
       </ul>
     </div>
   </section>
@@ -146,6 +147,7 @@ function fmtScore(s) {
 }
 
 function lastTick(sc) { return Math.max(...MODELS.map(m => sc.res[m].frames.length - 1)); }
+function firstTick(sc) { return -sc.pre.length; }
 
 // ------------------------------------------------------------- the board
 function drawBoard(m) {
@@ -154,12 +156,15 @@ function drawBoard(m) {
   const ctx = document.getElementById("c-" + m).getContext("2d");
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(IMG.background, 0, 0);
-  const i = Math.min(tick, r.frames.length - 1);
-  const ended = tick >= r.frames.length - 1;
-  const [hx, hy, hd, tail, spears] = r.frames[i];
-  // attackers that throw within the simulation, on their walls
+  const before = tick < 0;
+  const i = Math.max(0, Math.min(tick, r.frames.length - 1));
+  const ended = !before && tick >= r.frames.length - 1;
+  const fr = before ? sc.pre[sc.pre.length + tick] : r.frames[i];
+  const [hx, hy, hd, tail, spears] = fr;
+  const harp = before ? fr[5] : sc.harp;
+  // attackers on their walls: each shows AIM_TICKS before its throw and lingers after
   for (const [T, sx, sy, d] of sc.attackers) {
-    if (tick > T + 19) continue;
+    if (tick < T - 18 || tick > T + 19) continue;
     const wall = [2, 3, 0, 1][d];                // a spear flying DOWN came from the top wall, ...
     const pos = (wall === 0 || wall === 2) ? sx : sy;
     const img = (tick >= T - 11 && tick < T) ? IMG.attacker_throw : IMG.attacker_steady;
@@ -172,17 +177,23 @@ function drawBoard(m) {
     sprite(ctx, IMG["note" + (1 + (k / 2) % 3)], px(tail[k]), px(tail[k + 1]), 0);
   }
   const ateHarp = ended && r.why === "harp";
-  if (sc.harp && !ateHarp) sprite(ctx, IMG["harp" + (1 + Math.floor(tick / 2) % 3)], px(sc.harp[0]), px(sc.harp[1]), 0);
+  if (harp && !ateHarp) sprite(ctx, IMG["harp" + (1 + Math.floor((tick + 99) / 2) % 3)], px(harp[0]), px(harp[1]), 0);
   const inside = hx >= 0 && hx < COLS && hy >= 0 && hy < ROWS;
   if (inside) sprite(ctx, IMG.davide, px(hx), px(hy), hd);
   for (let k = 0; k < spears.length; k += 3) sprite(ctx, IMG.spear, px(spears[k]), px(spears[k + 1]), spears[k + 2]);
   // the run as a line: past solid, still to come dashed; rings at the turns
   if (document.getElementById("paths").checked) {
+    // where David came from in the real game (gray), then this method's run
+    const prePts = sc.pre.slice(0, before ? sc.pre.length + tick + 1 : sc.pre.length).map(f => [center(f[0]), center(f[1])]);
+    if (!before) prePts.push([center(r.frames[0][0]), center(r.frames[0][1])]);
+    ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(60,60,60,0.45)";
+    ctx.beginPath(); prePts.forEach((p, j) => j ? ctx.lineTo(...p) : ctx.moveTo(...p)); ctx.stroke();
+    if (before) return clockLabel(ctx, before);   // the methods' runs appear when the gesture begins
     const pts = r.frames.map(f => [center(f[0]), center(f[1])]);
     ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round";
     ctx.strokeStyle = COLOR[m];
     ctx.globalAlpha = 0.85;
-    ctx.beginPath(); pts.slice(0, i + 1).forEach((p, j) => j ? ctx.lineTo(...p) : ctx.moveTo(...p)); ctx.stroke();
+    if (!before) { ctx.beginPath(); pts.slice(0, i + 1).forEach((p, j) => j ? ctx.lineTo(...p) : ctx.moveTo(...p)); ctx.stroke(); }
     ctx.setLineDash([10, 9]); ctx.globalAlpha = 0.6;
     ctx.beginPath(); pts.slice(i).forEach((p, j) => j ? ctx.lineTo(...p) : ctx.moveTo(...p)); ctx.stroke();
     ctx.setLineDash([]); ctx.globalAlpha = 1;
@@ -202,10 +213,16 @@ function drawBoard(m) {
     }
     banner(ctx, (r.why === "harp" ? "ate the harp  +1" : WHY[r.why] + "  " + fmtScore(r.score)), cx, cy);
   }
-  // clock on the board
+  clockLabel(ctx, before);
+}
+
+function clockLabel(ctx, before) {
   ctx.font = "bold 26px system-ui, sans-serif";
-  ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(OFF, 6, 250, 38);
-  ctx.fillStyle = "#0b0b0b"; ctx.fillText(`tick +${tick}  (${(tick * DATA.tick_ms / 1000).toFixed(2)} s)`, OFF + 10, 34);
+  const label = before ? `${(tick * DATA.tick_ms / 1000).toFixed(2)} s: the real game, before the gesture`
+                       : `tick +${tick}  (${(tick * DATA.tick_ms / 1000).toFixed(2)} s)`;
+  ctx.fillStyle = before ? "rgba(255,243,196,0.95)" : "rgba(255,255,255,0.85)";
+  ctx.fillRect(OFF, 6, ctx.measureText(label).width + 20, 38);
+  ctx.fillStyle = "#0b0b0b"; ctx.fillText(label, OFF + 10, 34);
 }
 
 function banner(ctx, text, cx, cy) {
@@ -246,7 +263,7 @@ function drawFinger() {
     if (f[k][4]) continue;                       // a new stroke: no line from the last one
     const during = f[k][3] >= 0 && f[k][3] < inputEnd;
     const shown = f[k][3] <= tick;
-    ctx.strokeStyle = during ? (shown ? "#0b0b0b" : "#b9b8b2") : "#cfcec8";
+    ctx.strokeStyle = during ? (shown ? "#0b0b0b" : "#b9b8b2") : (shown ? "#a3a29c" : "#dddcd6");
     ctx.lineWidth = during ? 5 : 4;
     ctx.beginPath(); ctx.moveTo(X(f[k - 1][1]), Y(f[k - 1][2])); ctx.lineTo(X(f[k][1]), Y(f[k][2])); ctx.stroke();
   }
@@ -289,16 +306,18 @@ function describe(m) {
 function render() {
   const sc = DATA.scenarios[scen];
   const max = lastTick(sc);
-  tick = Math.max(0, Math.min(tick, max));
+  tick = Math.max(firstTick(sc), Math.min(tick, max));
   for (const m of MODELS) drawBoard(m);
   drawFinger();
   const sl = document.getElementById("slider");
-  sl.max = max; sl.value = tick;
-  document.getElementById("clock").textContent = `tick +${tick} of ${max}  ·  ${(tick * DATA.tick_ms / 1000).toFixed(2)} s after the gesture began`;
+  sl.min = firstTick(sc); sl.max = max; sl.value = tick;
+  document.getElementById("clock").textContent = tick < 0
+    ? `${(-tick * DATA.tick_ms / 1000).toFixed(2)} s before the gesture`
+    : `tick +${tick} of ${max}  ·  ${(tick * DATA.tick_ms / 1000).toFixed(2)} s after the gesture began`;
   const fl = document.getElementById("inputflag");
-  const on = tick < DATA.input_ticks;
+  const on = tick >= 0 && tick < DATA.input_ticks;
   fl.className = on ? "on" : "off";
-  fl.textContent = on ? "reading your finger" : "input over: David goes straight";
+  fl.textContent = tick < 0 ? "the real game, before the gesture" : on ? "reading your finger" : "input over: David goes straight";
   for (const m of MODELS) {
     const [, end] = describe(m);
     document.getElementById("out-" + m).textContent = end;
@@ -307,7 +326,7 @@ function render() {
 
 function select(i) {
   scen = (i + DATA.scenarios.length) % DATA.scenarios.length;
-  tick = 0;
+  tick = firstTick(DATA.scenarios[scen]);
   const sc = DATA.scenarios[scen];
   document.getElementById("title").textContent = sc.category;
   document.getElementById("meta").textContent =
@@ -323,7 +342,7 @@ function select(i) {
 
 function play() {
   if (playing) return stop();
-  if (tick >= lastTick(DATA.scenarios[scen])) tick = 0;
+  if (tick >= lastTick(DATA.scenarios[scen])) tick = firstTick(DATA.scenarios[scen]);
   playing = true;
   document.getElementById("b-play").textContent = "❚❚";
   const speed = parseFloat(document.getElementById("speed").value);
@@ -361,7 +380,8 @@ function buildPage() {
     b.onclick = () => select(i);
     list.appendChild(b);
   });
-  document.getElementById("b-start").onclick = () => { stop(); tick = 0; render(); };
+  document.getElementById("b-start").onclick = () => { stop(); tick = firstTick(DATA.scenarios[scen]); render(); };
+  document.getElementById("b-gesture").onclick = () => { stop(); tick = 0; render(); };
   document.getElementById("b-back").onclick = () => { stop(); tick--; render(); };
   document.getElementById("b-fwd").onclick = () => { stop(); tick++; render(); };
   document.getElementById("b-end").onclick = () => { stop(); tick = lastTick(DATA.scenarios[scen]); render(); };
@@ -376,7 +396,8 @@ function buildPage() {
     else if (e.key === "ArrowLeft") { e.preventDefault(); stop(); tick--; render(); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(scen + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(scen - 1); }
-    else if (e.key === "Home") { e.preventDefault(); stop(); tick = 0; render(); }
+    else if (e.key === "Home") { e.preventDefault(); stop(); tick = firstTick(DATA.scenarios[scen]); render(); }
+    else if (e.key === "g") { stop(); tick = 0; render(); }
     else if (e.key === "End") { e.preventDefault(); stop(); tick = lastTick(DATA.scenarios[scen]); render(); }
   });
   select(0);

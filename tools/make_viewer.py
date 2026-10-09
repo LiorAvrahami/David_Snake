@@ -6,7 +6,9 @@ input method (S2-FAST, ML-1, ML-2), next to the finger movement.
 Every gesture window of every recording is simulated for the three methods
 (tools/windowsim.py scoring; spears as the scorer sees them); example
 windows are picked by kind (different turns, timing only, ML-1 vs ML-2,
-all the same), and the page also shows how often the methods differ.
+all the same), and the page also shows how often the methods differ. Each
+example starts PRE_TICKS before the gesture, with the real game, for
+context.
 
 Usage: python3 tools/make_viewer.py [--per N]   (N examples per kind, default 8)"""
 import base64, json, os, random, re, sys
@@ -25,7 +27,7 @@ REC = os.path.join(ROOT, "training_recordings")
 SPRITES = os.path.join(ROOT, "app", "src", "main", "res", "drawable-nodpi")
 W = 3
 MODELS = ("S2-FAST", "ML-1", "ML-2")
-FINGER_BEFORE_MS = 300
+PRE_TICKS = 24          # the real game shown before the gesture (about 1.1 s)
 
 
 def policies():
@@ -89,6 +91,11 @@ def game_windows(job):
     cls = R.ALL["S2F"]
     shadow = None
     last_tk = p.death["tk"] if p.death else max([s["tk"] for s in p.steps] + [0])
+    def frame(sim):
+        return [sim.hx, sim.hy, sim.hd, [c for xy in sim.tail for c in xy],
+                [c for sp in sim.spears for c in sp], list(sim.harp) if sim.harp else None]
+
+    hist = [frame(real)]                # the real game after each tick
     out, i, j = [], 0, 0
     for k in range(0, last_tk + 1):
         if k in starts:
@@ -96,21 +103,22 @@ def game_windows(job):
             res = {"S2-FAST": traced(real, k, WS.RecInputs(k, W, cls, shadow, samples, slots, s.i))}
             for m in ("ML-1", "ML-2"):
                 res[m] = traced(real, k, L.PolicyInputs(k, W, pols[m], samples, slots, s.i, s.stroke))
-            t0 = samples[s.i][0] if s.i < len(samples) else 0
             end = k + 4 * W + 8
             fin = []
             for x in range(len(samples)):
                 t, fx, fy, first, last, up = samples[x]
                 if slots[x] > end:
                     break
-                if t >= t0 - FINGER_BEFORE_MS or x >= s.i:
+                if slots[x] >= k - PRE_TICKS:
                     fin.append([t, fx, fy, slots[x] - k, int(first), int(last)])
-            # attackers on screen at the start: their spears come within AIM_TICKS
-            att = [[tk - k, sx, sy, d] for tk, lst in real.throws.items() if k < tk <= k + WS.AIM_TICKS
-                   for sx, sy, d in lst]
+            # attackers: those on screen before the gesture and at its start (their
+            # spears come by AIM_TICKS after it); an attacker shows AIM_TICKS before
+            # its throw and lingers a while after
+            att = [[tk - k, sx, sy, d] for tk, lst in real.throws.items()
+                   if k - PRE_TICKS - 20 < tk <= k + WS.AIM_TICKS for sx, sy, d in lst]
             out.append({"file": os.path.basename(path), "game": n, "arm": p.arm, "k": k,
                         "harp": list(real.harp) if real.harp else None, "score0": real.score,
-                        "attackers": att, "finger": fin, "res": res})
+                        "pre": hist[-(PRE_TICKS + 1):-1], "attackers": att, "finger": fin, "res": res})
         while True:
             ns = samples[i][0] if i < len(samples) and slots[i] == k else None
             nc = cmds[j][0]["t"] if j < len(cmds) and cmds[j][0]["tk"] == k else None
@@ -128,6 +136,9 @@ def game_windows(job):
         if real.lost:
             break
         real.tick()
+        hist.append(frame(real))
+        if len(hist) > PRE_TICKS + 2:
+            del hist[0]
         if real.lost:
             break
     return out
@@ -201,7 +212,7 @@ def main():
         with open(os.path.join(SPRITES, name + ".png"), "rb") as f:
             sprites[name] = "data:image/png;base64," + base64.b64encode(f.read()).decode()
     data = {"windows": n, "games": len(jobs), "stats": stats, "allsame": allsame, "scenarios": scen,
-            "tick_ms": 45, "input_ticks": 4 * W, "decay": WS.DECAY, "death": WS.DEATH}
+            "tick_ms": 45, "input_ticks": 4 * W, "pre_ticks": PRE_TICKS, "decay": WS.DECAY, "death": WS.DEATH}
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer_template.html")) as f:
         html = f.read()
     html = html.replace("/*SPRITES*/{}", json.dumps(sprites)).replace("/*DATA*/{}", json.dumps(data, separators=(",", ":")))
