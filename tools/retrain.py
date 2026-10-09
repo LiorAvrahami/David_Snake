@@ -4,7 +4,7 @@ the weights come out identical.
 
 The description is tools/models/<name>.json, or the model line of any game
 the model played (give the recording). The training recordings it names
-are found in data/recordings and checked against their sha256; then the
+are found in training_recordings/ and checked against their sha256; then the
 training command it names is run, with tools/ as of the commit it names
 (the scoring may have changed since), and the weights compared.
 
@@ -12,7 +12,7 @@ Usage: python3 tools/retrain.py [tools/models/ml-1.json | RECORDING]"""
 import hashlib, json, os, shlex, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA = os.path.join(ROOT, "data", "recordings")
+DATA = os.path.join(ROOT, "training_recordings")
 
 
 def spec_from(path):

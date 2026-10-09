@@ -82,8 +82,11 @@ edge of the screen from one side to the other turns it off, and on again. The to
 - `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the current
   scoring, on 53 games; not in the game, since on held-out games it did
   not beat ML-1 or S2-FAST.
-- `data/recordings` holds the recordings the models were trained on (named
-  and hashed in their descriptions). `python3 tools/retrain.py` retrains it from
+- `training_recordings/` holds the recordings for scoring and training,
+  as the app exported them, with a list of what is in it (its README).
+  Add new exports with `python3 tools/add_recordings.py FILE...`, which
+  skips duplicate files and games and checks every game replays exactly.
+  The models' descriptions name the files they were trained on, with hashes. `python3 tools/retrain.py` retrains it from
   its description (`tools/models/ml-1.json`, or any recorded game's model
   line) and checks the weights come out identical.
 

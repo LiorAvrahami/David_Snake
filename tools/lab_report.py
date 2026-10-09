@@ -89,6 +89,7 @@ class Play:
         self.arm = r["arm"]
         self.arm_n = r.get("arm_n")
         self.t = r["t"]
+        self.wall = r.get("wall")
         self.end = None
         self.death = None
         self.aborted = False
