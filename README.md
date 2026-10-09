@@ -81,8 +81,8 @@ edge of the screen from one side to the other turns it off, and on again. The to
   tick. `python3 tools/mlparity.py FILE` rebuilds the model from each
   game's model line, replays the game, and checks every decision.
 - `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the current
-  scoring, on 53 games; not in the game, since on held-out games it did
-  not beat ML-1 or S2-FAST.
+  scoring, on 121 games; not in the game, since on held-out games it did
+  not beat ML-1.
 - `training_recordings/` holds the recordings for scoring and training,
   as the app exported them, with a list of what is in it (its README).
   Add new exports with `python3 tools/add_recordings.py FILE...`, which

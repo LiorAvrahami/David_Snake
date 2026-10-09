@@ -42,49 +42,49 @@
  },
  "last_turn": "after a decision's commands run, if David's heading changed, the latest sample becomes the last-turn sample; it starts at the stroke's first sample",
  "w_side": [
-  -0.22418447364285268,
-  0.8568099806787784,
-  0.1708565000011676,
-  -0.567305078087176,
-  0.9165977216762597,
-  0.2020067798719912,
-  -0.8226407523017917,
-  0.9207589081991208,
-  0.21103444656622344,
-  -1.0172948067408702,
-  0.8936839106681236,
-  0.12259000661827384,
-  -0.10753710400812831,
-  -0.4845220699463158,
-  -0.7022114172690813,
-  0.5844370256285603,
-  0.12676219266766825,
-  -1.579533875080889
+  -0.20953834542073813,
+  0.9849523190926353,
+  0.24132324748287406,
+  -0.5861327454542906,
+  0.9138829310923006,
+  0.12525458313700896,
+  -0.7997596089847822,
+  0.8477105273118539,
+  0.05082450235355133,
+  -0.9066471257876325,
+  0.8722862285515041,
+  0.02214528954183108,
+  -0.0632194940815551,
+  -0.34043580558200837,
+  -0.5159067685762643,
+  0.6311672277396898,
+  0.142488754990852,
+  -1.7674928069845337
  ],
  "w_back": [
-  -0.09300731401238582,
+  -0.07806987759943021,
   0.0,
-  -0.19798041346846662,
-  -0.17691724806430512,
+  -0.21769456644948532,
+  -0.1710742210838206,
   0.0,
-  -0.23363938718473798,
-  -0.31938250666541496,
+  -0.25338936096806647,
+  -0.30307562208200184,
   0.0,
-  -0.2704456931453793,
-  -0.7152582817792169,
+  -0.2910880770104223,
+  -0.6354764839548354,
   0.0,
-  -0.37042456315136707,
-  -0.3696123819224099,
-  -0.4475590939041651,
-  -0.525452465321414,
+  -0.37465307360499217,
+  -0.42147955921880703,
+  -0.3778831256272257,
+  -0.44206813026113156,
   0.0,
-  -0.23496504112029212,
-  -1.6078239192342603
+  -0.21498421197618045,
+  -1.728738665528362
  ],
- "weights_sha256": "bcfec9edcedb811227cb440b852626532a6fc431c1b6fa89964350295bd77f19",
+ "weights_sha256": "9290d0b6bd426604e4d98192e727d27c48e253d3196468aeea32db6ffe8f7add",
  "training": {
-  "code": "tools/simlearn.py at commit 7cc37cb",
-  "command": "python3 tools/simlearn.py DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt --iters 6 --export 3",
+  "code": "tools/simlearn.py at commit 1858ec1",
+  "command": "python3 tools/simlearn.py DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt --iters 6 --export 3",
   "deterministic": "re-running the command on the same files gives identical weights",
   "data": [
    {
@@ -114,6 +114,27 @@
     "app": "1.15.72",
     "session_start": "2026-10-08 21:00:16",
     "games": 12
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "sha256": "d6d60de321b55200a0af6e9ed4df68f924e2d390dd0a2cf2070469c117224b53",
+    "app": "1.15.73",
+    "session_start": "2026-10-09 08:50:06",
+    "games": 24
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "sha256": "4c5df9aa5674b8b6fb36aeea26d5f2c3ccac19b3ebc74e2aab6814501ea6535a",
+    "app": "1.15.73",
+    "session_start": "2026-10-09 09:28:05",
+    "games": 15
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "sha256": "980ec6293a81d5a940f8762f19c4dafcbd9cf2a8bab2259b710ded22343a6437",
+    "app": "1.15.73",
+    "session_start": "2026-10-09 09:59:16",
+    "games": 29
    }
   ],
   "method": "learning to search on the window simulation (tools/windowsim.py): in every gesture window of the training games the model plays the window; at each tick it decided, each of the four answers is tried, the model deciding the rest; the four window scores are that tick's example; weights minimize the expected loss against the best answer (softmax, L2) by Adam; examples accumulate over rounds; round 0 copies the live game's own turns",
@@ -131,7 +152,7 @@
    "input_steps": 3,
    "run": "after the input David goes straight until he eats the harp or dies",
    "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
-   "death": "-0.5 times exp(-(s - 1) / decay), s = steps from the window start to the death, decay by cause",
+   "death": "-0.5 times exp(-(s - 1) / decay), s = steps from the window start to the death, decay by cause; a spear hitting David from the side (flying across the direction of his last step) costs nothing",
    "death_decay_steps": {
     "hit the wall": 2.0,
     "speared": 3.7,
@@ -140,6 +161,6 @@
    "completion_ms": 250,
    "spears": "recorded throws aimed before the window started (throw tick <= start + 18)"
   },
-  "result": "3-fold cross-validation by game (game i of the files in order is in fold i % 3), per 1000 gestures on held-out games: ML-2 minus S2-FAST +0.4 (90% range -9.7 to +10.6), ML-2 minus ML-1 -3.8 (-10.9 to +3.1); on the 12 games no model was trained on: ML-2 minus S2-FAST -19.4 (-45.4 to +1.6), ML-2 minus ML-1 -7.9 (-15.6 to -0.7); this model is then trained on all the games"
+  "result": "3-fold cross-validation by game (game i of the files in order is in fold i % 3), per 1000 gestures on validation games: ML-2 436.0, ML-1 438.7, S2-FAST 429.8; ML-2 minus S2-FAST +6.2 (90% range -0.3 to +13.0); this model is then trained on all the games"
  }
 }
