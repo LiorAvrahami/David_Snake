@@ -59,9 +59,10 @@ edge of the screen from one side to the other turns it off, and on again. The to
   moving; a resting finger starts nothing), each method reads the next
   2 (or 3) steps of input from the real situation, an exact port of the
   engine (`tools/enginesim.py`, checked by replaying every recorded
-  game) plays its turns, and David goes on straight to 13 steps; a harp eaten scores +1, a death -3, both less
-  the later they come, and a death counts only soon after the input
-  ends (wall 1 step, spear 4, tail 5). Needs v1.7+ recordings (every
+  game) plays its turns, and David goes on straight until he eats the
+  harp (+1, whenever it comes) or dies (-0.5, times exp(-(s-1)/d) for a
+  death s steps after the gesture start; d = 2 steps for a wall, 3.7 for
+  a spear, 4.2 for the tail). Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.
   `python3 tools/simlearn.py FILE...` trains a small weighted-formula turn

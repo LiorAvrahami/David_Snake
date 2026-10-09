@@ -9,14 +9,15 @@ situation, as the player defined it:
   From David's real state at that moment (enginesim, an exact port of the
   engine), a recognizer reads the recorded finger input for W steps and
   the engine executes its turns; then David goes straight, with no more
-  input, until HORIZON steps after the window started. The game runs on
-  all along: David steps, the tail follows and grows, spears fly.
+  input, until he eats the harp or dies. The game runs on all along:
+  David steps, the tail follows and grows, spears fly.
 
-  harp   +1 for the harp eaten, less the later it is: linearly from 1
-         (within the first step) down to 1/HORIZON (last step)
-  death  -DEATH, less the later it is, and only if it comes soon enough
-         after the input ends (CUT: wall 1 step, spear 4, tail 5):
-         linearly from DEATH (first step) to DEATH/(W + cut) at the cut
+  harp   +1 for eating the harp, whenever it happens (only the first: the
+         next one appears at random); the run ends there
+  death  -DEATH, less the later it is: times exp(-(s - 1) / DECAY), s the
+         steps from the window start to the death, DECAY by cause (wall
+         2 steps, spear 3.7, tail 4.2; fitted to the earlier linear
+         penalty with its cut-offs)
 
 A turn that comes within COMPLETE_MS of the window's last turn, after the
 input ended, still counts: a side step or U-turn is one move, never cut
@@ -42,9 +43,9 @@ V_REST, V_MOVE = 60.0, 150.0     # finger speed, dp/s
 GESTURE_DP = 10.0       # a gesture travels at least this far
 SPLIT_DEG = 60.0        # a turn this sharp while moving starts a new gesture
 SPEED_MS = 40           # finger speed is measured over this long
-HORIZON = 13            # steps simulated from the window start
-CUT = {"hit the wall": 1, "speared": 4, "ran into the tail": 5}
-DEATH = 3.0
+MAX_STEPS = 200         # safety cap on a run (going straight, a wall comes within 21)
+DECAY = {"hit the wall": 2.0, "speared": 3.7, "ran into the tail": 4.2}
+DEATH = 0.5
 AIM_TICKS = 18
 COMPLETE_MS = 250
 SLOT_LAG_MS = 5         # a touch sample is handled ~5 ms after its time stamp
@@ -186,14 +187,11 @@ class Window:
 def outcome(sim, k0, W, eaten_tick):
     w = Window()
     if eaten_tick is not None:
-        s = (eaten_tick - k0) / 4.0
-        w.harp = max(0.0, min(1.0, 1.0 - (s - 1.0) / HORIZON))
-    if sim.lost:
+        w.harp = 1.0
+    elif sim.lost:
         s = (sim.tick_no - k0) / 4.0
-        lim = W + CUT[sim.lost]
-        if s <= lim:
-            w.death = DEATH * min(1.0, 1.0 - (s - 1.0) / lim)
-            w.why = sim.lost
+        w.death = DEATH * min(1.0, math.exp(-(s - 1.0) / DECAY[sim.lost]))
+        w.why = sim.lost
     return w
 
 
@@ -204,22 +202,22 @@ def run_window(real, k0, W, inputs):
     sim = real.copy()
     sim.throw_limit = k0 + AIM_TICKS
     sim.harp_next = lambda: None
-    for k in range(k0, k0 + 4 * HORIZON):
+    for k in range(k0, k0 + 4 * MAX_STEPS):
         for t, cmds in inputs.slot(k, sim):
             turned = False
             for d, hold in cmds:
                 if sim.swipe(d, hold) in TURNED:
                     turned = True
-                if sim.lost:
+                if sim.lost or sim.eaten:
                     break
             if turned:
                 inputs.last_turn = t
-            if sim.lost:
+            if sim.lost or sim.eaten:
                 break
-        if sim.lost:
+        if sim.lost or sim.eaten:
             break
         sim.tick()
-        if sim.lost:
+        if sim.lost or sim.eaten:
             break
     return outcome(sim, k0, W, sim.eaten[0] if sim.eaten else None)
 
@@ -340,22 +338,22 @@ def summarize(per_game, Ws, rows, ref="as played", boots=2000, seed=1):
     games = list(per_game)
     for W in Ws:
         n = sum(len(per_game[g][(W, ref)]) for g in games)
-        print(f"\nW = {W} steps of input, horizon {HORIZON} steps: {n} gestures, {len(games)} games")
-        print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>5s} {'tail':>5s} {'spear':>5s}"
-              f"   vs {ref} [90% range over games]   (per 1000 gestures; deaths = penalized ones)")
+        print(f"\nW = {W} steps of input: {n} gestures, {len(games)} games")
+        print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>6s} {'tail':>6s} {'spear':>6s}"
+              f"   vs {ref} [90% range over games]   (per 1000 gestures; deaths = their penalty)")
         tot = {}
         for m in rows:
             ws = [w for g in games for w in per_game[g][(W, m)]]
             sc = sum(w.score for w in ws)
             tot[m] = sc
             hp = sum(w.harp for w in ws)
-            why = defaultdict(int)
+            why = defaultdict(float)
             for w in ws:
                 if w.why:
-                    why[w.why] += 1
+                    why[w.why] += w.death
             line = (f"  {m:10s} {1000 * sc / n:7.1f} {1000 * hp / n:6.1f} "
-                    f"{1000 * why['hit the wall'] / n:5.1f} {1000 * why['ran into the tail'] / n:5.1f} "
-                    f"{1000 * why['speared'] / n:5.1f}")
+                    f"{-1000 * why['hit the wall'] / n:6.1f} {-1000 * why['ran into the tail'] / n:6.1f} "
+                    f"{-1000 * why['speared'] / n:6.1f}")
             if m != ref:
                 rnd = random.Random(seed)
                 per = {g: (sum(w.score for w in per_game[g][(W, m)]) - sum(w.score for w in per_game[g][(W, ref)]),

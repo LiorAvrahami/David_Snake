@@ -100,11 +100,12 @@ def spec_of(name, weights, commit, data):
                            f"{WS.V_REST:g} to over {WS.V_MOVE:g} dp/s with {WS.GESTURE_DP:g} dp of travel, "
                            f"or a turn of {WS.SPLIT_DEG:g} degrees or more while moving (speed over "
                            f"{WS.SPEED_MS} ms)",
-                "input_steps": W_INPUT, "horizon_steps": WS.HORIZON,
-                "harp": "+1 for the first harp eaten, linearly less the later it is (1/horizon at the last step)",
-                "death": f"-{WS.DEATH:g}, linearly less the later it is; counted only up to this many "
-                         "steps after the input ends",
-                "death_cut_steps": WS.CUT,
+                "input_steps": W_INPUT,
+                "run": "after the input David goes straight until he eats the harp or dies",
+                "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
+                "death": f"-{WS.DEATH:g} times exp(-(s - 1) / decay), s = steps from the window start "
+                         "to the death, decay by cause",
+                "death_decay_steps": WS.DECAY,
                 "completion_ms": WS.COMPLETE_MS,
                 "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
             },

@@ -5,10 +5,11 @@ the weights come out identical.
 The description is tools/models/<name>.json, or the model line of any game
 the model played (give the recording). The training recordings it names
 are found in data/recordings and checked against their sha256; then the
-training command it names is run and the weights compared.
+training command it names is run, with tools/ as of the commit it names
+(the scoring may have changed since), and the weights compared.
 
 Usage: python3 tools/retrain.py [tools/models/ml-1.json | RECORDING]"""
-import hashlib, json, os, shlex, subprocess, sys
+import hashlib, json, os, shlex, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "data", "recordings")
@@ -36,7 +37,11 @@ def main():
     args = shlex.split(tr["command"])
     assert args[:2] == ["python3", "tools/simlearn.py"], tr["command"]
     files = {d["file"]: d for d in tr["data"]}
-    cmd = [sys.executable, "-I", os.path.join(ROOT, "tools", "simlearn.py")]
+    commit = tr["code"].rsplit(" ", 1)[-1]
+    tmp = tempfile.mkdtemp(prefix="retrain_")
+    tar = subprocess.run(["git", "-C", ROOT, "archive", commit, "tools"], check=True, capture_output=True).stdout
+    subprocess.run(["tar", "-x", "-C", tmp], input=tar, check=True)
+    cmd = [sys.executable, "-I", os.path.join(tmp, "tools", "simlearn.py")]
     for a in args[2:]:
         if a in files:
             p = os.path.join(DATA, a)
@@ -54,8 +59,7 @@ def main():
     out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
     got = json.loads(out.strip().splitlines()[-1])
     same = got["w_side"] == spec["w_side"] and got["w_back"] == spec["w_back"]
-    print("weights identical to the model's" if same else
-          "weights DIFFER from the model's (is tools/simlearn.py still the commit named above?)")
+    print("weights identical to the model's" if same else "weights DIFFER from the model's")
     sys.exit(0 if same else 1)
 
 
