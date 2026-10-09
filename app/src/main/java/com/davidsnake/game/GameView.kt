@@ -81,7 +81,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     // debug mode (toggled by dragging along the top edge, end to end):
     // records every game to a file
-    private var debugMode = false   // off at every app start
+    private var debugMode = true    // on at every app start, for now
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()

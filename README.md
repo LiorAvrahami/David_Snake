@@ -44,10 +44,9 @@ And yes — after you fall, they keep throwing. The original did that too.
 
 ## Input test (debug mode)
 
-Drag along the very top edge of the screen from one side to the other:
-debug mode turns on (same gesture turns it off; it is always off when the
-app starts) and games are recorded, with the normal input (`ML-1`, the
-best so far). The top-right corner shows how many games are stored.
+Debug mode is on when the app starts (for now): games are recorded, with
+the normal input (`ML-1`, the best so far). Dragging along the very top
+edge of the screen from one side to the other turns it off, and on again. The top-right corner shows how many games are stored.
 
 - Every recorded game is saved as it ends, in the app's own storage, and
   kept across app restarts and debug mode on/off. *Export games* (start
