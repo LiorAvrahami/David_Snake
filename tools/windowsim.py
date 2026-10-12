@@ -5,12 +5,17 @@ situation, as the player defined it:
   A window starts at every gesture: the finger starts moving (its speed
   rises from under V_REST to over V_MOVE, and it travels GESTURE_DP), or,
   while moving, turns by SPLIT_DEG or more from where it was going. A
-  finger resting on the screen starts nothing.
-  From David's real state at that moment (enginesim, an exact port of the
-  engine), a recognizer reads the recorded finger input for W steps and
-  the engine executes its turns; then David goes straight, with no more
-  input, until he eats the harp or dies. The game runs on all along:
-  David steps, the tail follows and grows, spears fly.
+  finger resting on the screen starts nothing. A gesture that starts less
+  than JOIN_MS after a window's start belongs to that window, so a side
+  step or U-turn is one window, not two.
+  From David's real state at the window's start (enginesim, an exact port
+  of the engine), a recognizer reads the recorded finger input of the
+  first READ_MS and the engine executes its turns. If it turned David, it
+  may make one more turn before David's next regular step after its
+  latest turn (the second turn of a one-cell side step or U-turn); that
+  turn ends the input. Then David goes straight, with no more input,
+  until he eats the harp or dies. The game runs on all along: David
+  steps, the tail follows and grows, spears fly.
 
   harp   +1 for eating the harp, whenever it happens (only the first: the
          next one appears at random); the run ends there
@@ -19,18 +24,21 @@ situation, as the player defined it:
          and tail 1 step, spear 3.7); a spear that hits David from the
          side (flying across the way he moves) costs nothing
 
-A turn that comes within COMPLETE_MS of the window's last turn, after the
-input ended, still counts: a side step or U-turn is one move, never cut
-in half by the window's end.
+Why only READ_MS: the finger was recorded while the player watched the
+live recognizer's turns, and from about 225 ms after a turn it can be a
+reaction to it; a recognizer reading that would be judged with help meant
+for another. A second turn after David's next regular step is a separate
+decision, made after seeing him move on.
 
 Spears are the recorded ones, but only those an attacker aimed before the
 window started (attackers aim AIM_TICKS before the spear flies, at where
 David is): later ones were aimed at the path David really took.
 
 The "as played" row runs the game's own logged commands through the same
-windows; S2F (the recognizer that was live) should come out close to it.
+windows; S2F (the recognizer that was live in most games) should come out
+close to it on the games it played.
 
-Usage: python3 tools/windowsim.py FILE... [--w 2,3]"""
+Usage: python3 tools/windowsim.py FILE..."""
 import bisect, copy, math, os, random, sys
 from collections import defaultdict
 
@@ -47,7 +55,8 @@ MAX_STEPS = 200         # safety cap on a run (going straight, a wall comes with
 DECAY = {"hit the wall": 1.0, "speared": 3.7, "ran into the tail": 1.0}
 DEATH = 0.5
 AIM_TICKS = 18
-COMPLETE_MS = 250
+JOIN_MS = 250           # a gesture starting this soon after a window's start belongs to it
+READ_MS = 250           # the input read from the window's start
 SLOT_LAG_MS = 5         # a touch sample is handled ~5 ms after its time stamp
 TURNED = {"turn", "queued", "step", "flush", "re-aim", "rotate"}
 MODELS = ["S2F", "S2", "S", "P28", "P", "O"]
@@ -101,6 +110,21 @@ def gesture_starts(stroke):
         if v >= V_MOVE and abs(math.degrees(math.atan2(cross, dot))) >= SPLIT_DEG:
             # a sharp turn: a new gesture from the slowest point of the corner
             start, peak, ref, counted, corner = corner[1], v, None, False, None
+    return out
+
+
+def window_starts(p, samples, slots):
+    """The game's windows, [(k0, t0)]: t0 the time of the gesture's first
+    sample, k0 the game ticks done before it was handled. A gesture that
+    starts less than JOIN_MS after a window's start belongs to that window."""
+    times = [smp[0] for smp in samples]
+    out, w0 = [], None
+    for t in sorted(t for s in p.strokes for t in gesture_starts(s)):
+        if w0 is None or t - w0 >= JOIN_MS:
+            w0 = t
+            k = slots[bisect.bisect_left(times, t)]
+            if not out or k > out[-1][0]:
+                out.append((k, t))
     return out
 
 
@@ -184,7 +208,7 @@ class Window:
         return self.harp - self.death
 
 
-def outcome(sim, k0, W, eaten_tick):
+def outcome(sim, k0, eaten_tick):
     w = Window()
     if eaten_tick is not None:
         w.harp = 1.0
@@ -197,83 +221,106 @@ def outcome(sim, k0, W, eaten_tick):
     return w
 
 
-def run_window(real, k0, W, inputs):
+def run_window(real, k0, inputs, watch=None):
     """Simulate from the real state after tick k0; inputs.slot(k, sim)
     yields the commands to run before tick k+1, one sample's at a time,
-    as (t, [(dir, hold), ...])."""
+    as (t, [(dir, hold), ...]). watch(event, sim, k, t, heading before), if
+    given, sees every command ("cmd") and every tick ("tick")."""
     sim = real.copy()
     sim.throw_limit = k0 + AIM_TICKS
     sim.harp_next = lambda: None
     for k in range(k0, k0 + 4 * MAX_STEPS):
         for t, cmds in inputs.slot(k, sim):
-            turned = False
+            h0, pos, turned = sim.heading, (sim.hx, sim.hy), False
             for d, hold in cmds:
                 if sim.swipe(d, hold) in TURNED:
                     turned = True
                 if sim.lost or sim.eaten:
                     break
             if turned:
-                inputs.last_turn = t
+                inputs.turned(t)
+            elif (sim.hx, sim.hy) != pos:
+                inputs.stepped()            # a flushed step, with no turn after it
+            if watch:
+                watch("cmd", sim, k, t, h0)
             if sim.lost or sim.eaten:
                 break
         if sim.lost or sim.eaten:
             break
+        pos = (sim.hx, sim.hy)
         sim.tick()
+        if (sim.hx, sim.hy) != pos:
+            inputs.stepped()
+        if watch:
+            watch("tick", sim, k, None, None)
         if sim.lost or sim.eaten:
             break
-    return outcome(sim, k0, W, sim.eaten[0] if sim.eaten else None)
+    return outcome(sim, k0, sim.eaten[0] if sim.eaten else None)
 
 
 class Inputs:
-    """Input for one window: W steps of it, then only a turn completing a
-    side step or U-turn (within COMPLETE_MS of the last turn)."""
+    """Input for one window: the first READ_MS of it; then, if David
+    turned, until his next regular step after the latest turn, and only
+    one more turn (which ends the input)."""
 
-    def __init__(self, k0, W):
-        self.end = k0 + 4 * W
-        self.last_turn = None
+    def __init__(self, t0):
+        self.t_end = t0 + READ_MS
+        self.last_turn = None       # time of the sample behind the latest turn
+        self.steps = 0              # David's steps since then
         self.done = False
 
-    def allow(self, k, t):
+    def turned(self, t):
+        self.last_turn, self.steps = t, 0
+
+    def stepped(self):
+        self.steps += 1
+
+    def allow(self, t):
+        """May the recognizer read the sample (or command) of time t?"""
         if self.done:
             return False
-        if k < self.end:
+        if t <= self.t_end:
             return True
-        return self.last_turn is not None and t <= self.last_turn + COMPLETE_MS
+        return self.last_turn is not None and self.steps <= 1
+
+    def finishing(self, t):
+        """A turn from time t is the one more turn, which ends the input."""
+        return t > self.t_end
 
 
 class RecInputs(Inputs):
     """A recognizer reading the recorded finger samples."""
 
-    def __init__(self, k0, W, cls, rec, samples, slots, i0):
-        super().__init__(k0, W)
+    def __init__(self, t0, cls, rec, samples, slots, i0):
+        super().__init__(t0)
         self.cls, self.rec = cls, clone(rec)
         self.samples, self.slots, self.i = samples, slots, i0
 
     def slot(self, k, sim):
         while self.i < len(self.samples) and self.slots[self.i] <= k:
             smp = self.samples[self.i]
-            if not self.allow(k, smp[0]):
+            if not self.allow(smp[0]):
                 self.done = True
                 return
             self.i += 1
             self.rec, cmds = feed(self.cls, self.rec, smp, sim)
             if cmds:
-                if k >= self.end:
-                    self.done = True        # the completing turn ends the input
+                if self.finishing(smp[0]):
+                    self.done = True
                 yield smp[0], [(d, kind == "uturn" and j == 1) for j, (d, kind) in enumerate(cmds)]
 
 
 class LogInputs(Inputs):
     """The commands the game logged (with their exact tick)."""
 
-    def __init__(self, k0, W, cmds, j0):
-        super().__init__(k0, W)
+    def __init__(self, t0, cmds, j0):
+        super().__init__(t0)
         self.cmds, self.j = cmds, j0
 
     def slot(self, k, sim):
         while self.j < len(self.cmds) and self.cmds[self.j][0]["tk"] <= k:
             t = self.cmds[self.j][0]["t"]
-            if not self.allow(k, t):
+            if not self.allow(t):
                 self.done = True
                 return
             group = []
@@ -281,13 +328,13 @@ class LogInputs(Inputs):
                 c, h = self.cmds[self.j]
                 group.append((E.LET.index(c["dir"]), h))
                 self.j += 1
-            if k >= self.end:
+            if self.finishing(t):
                 self.done = True
             yield t, group
 
 
-def evaluate_play(p, Ws, models=MODELS):
-    """{(W, model): [Window, ...]} for one recorded game."""
+def evaluate_play(p, models=MODELS):
+    """{model: [Window, ...]} for one recorded game, one per window."""
     samples = samples_of(p)
     slots = slots_of(p, samples)
     cmds = list(zip(p.cmds, E.held_flags(p.cmds)))
@@ -297,20 +344,14 @@ def evaluate_play(p, Ws, models=MODELS):
     shadow = {m: None for m in models}
     out = defaultdict(list)
     last_tk = p.death["tk"] if p.death else max([s["tk"] for s in p.steps] + [0])
+    wins = dict(window_starts(p, samples, slots))
     i = j = 0                           # next sample, next logged command
-    times = [smp[0] for smp in samples]
-    starts = set()
-    for s in p.strokes:
-        for t in gesture_starts(s):
-            starts.add(slots[bisect.bisect_left(times, t)])
     for k in range(0, last_tk + 1):
-        if k in starts:
-            for W in Ws:
-                out[(W, "as played")].append(
-                    run_window(real, k, W, LogInputs(k, W, cmds, bisect.bisect_left(cmd_tk, k))))
-                for m in models:
-                    out[(W, m)].append(run_window(
-                        real, k, W, RecInputs(k, W, classes[m], shadow[m], samples, slots, i)))
+        if k in wins:
+            t0 = wins[k]
+            out["as played"].append(run_window(real, k, LogInputs(t0, cmds, bisect.bisect_left(cmd_tk, k))))
+            for m in models:
+                out[m].append(run_window(real, k, RecInputs(t0, classes[m], shadow[m], samples, slots, i)))
         # the real game: this slot's samples (shadow recognizers read them
         # against the real game) and logged commands, in time order
         while True:
@@ -336,53 +377,45 @@ def evaluate_play(p, Ws, models=MODELS):
     return out
 
 
-def summarize(per_game, Ws, rows, ref="as played", boots=2000, seed=1):
+def summarize(per_game, rows, ref="as played", boots=2000, seed=1):
     games = list(per_game)
-    for W in Ws:
-        n = sum(len(per_game[g][(W, ref)]) for g in games)
-        print(f"\nW = {W} steps of input: {n} gestures, {len(games)} games")
-        print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>6s} {'tail':>6s} {'spear':>6s}"
-              f"   vs {ref} [90% range over games]   (per 1000 gestures; deaths = their penalty)")
-        tot = {}
-        for m in rows:
-            ws = [w for g in games for w in per_game[g][(W, m)]]
-            sc = sum(w.score for w in ws)
-            tot[m] = sc
-            hp = sum(w.harp for w in ws)
-            why = defaultdict(float)
-            for w in ws:
-                if w.why:
-                    why[w.why] += w.death
-            line = (f"  {m:10s} {1000 * sc / n:7.1f} {1000 * hp / n:6.1f} "
-                    f"{-1000 * why['hit the wall'] / n:6.1f} {-1000 * why['ran into the tail'] / n:6.1f} "
-                    f"{-1000 * why['speared'] / n:6.1f}")
-            if m != ref:
-                rnd = random.Random(seed)
-                per = {g: (sum(w.score for w in per_game[g][(W, m)]) - sum(w.score for w in per_game[g][(W, ref)]),
-                           len(per_game[g][(W, ref)])) for g in games}
-                ds = []
-                for _ in range(boots):
-                    pick = [rnd.choice(games) for _ in games]
-                    a = sum(per[g][0] for g in pick)
-                    b = sum(per[g][1] for g in pick) or 1
-                    ds.append(1000 * a / b)
-                ds.sort()
-                d = 1000 * (sc - sum(w.score for g in games for w in per_game[g][(W, ref)])) / n
-                line += f"   {d:+6.1f} [{ds[int(0.05 * boots)]:+.1f}, {ds[int(0.95 * boots)]:+.1f}]"
-            print(line)
+    n = sum(len(per_game[g][ref]) for g in games)
+    print(f"\n{n} gesture windows, {len(games)} games")
+    print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s}"
+          f"   vs {ref} [90% range over games]   (per 1000 gestures; deaths = their penalty)")
+    for m in rows:
+        ws = [w for g in games for w in per_game[g][m]]
+        sc = sum(w.score for w in ws)
+        hp = sum(w.harp for w in ws)
+        why = defaultdict(float)
+        for w in ws:
+            if w.why:
+                why[w.why] += w.death
+        line = (f"  {m:10s} {1000 * sc / n:7.1f} {1000 * hp / n:6.1f} "
+                f"{-1000 * why['hit the wall'] / n:6.1f} {-1000 * why['speared'] / n:6.1f} "
+                f"{-1000 * why['ran into the tail'] / n:6.1f}")
+        if m != ref:
+            rnd = random.Random(seed)
+            per = {g: (sum(w.score for w in per_game[g][m]) - sum(w.score for w in per_game[g][ref]),
+                       len(per_game[g][ref])) for g in games}
+            ds = []
+            for _ in range(boots):
+                pick = [rnd.choice(games) for _ in games]
+                a = sum(per[g][0] for g in pick)
+                b = sum(per[g][1] for g in pick) or 1
+                ds.append(1000 * a / b)
+            ds.sort()
+            d = 1000 * (sc - sum(w.score for g in games for w in per_game[g][ref])) / n
+            line += f"   {d:+6.1f} [{ds[int(0.05 * boots)]:+.1f}, {ds[int(0.95 * boots)]:+.1f}]"
+        print(line)
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    Ws = [2, 3]
-    if "--w" in sys.argv:
-        Ws = [int(x) for x in sys.argv[sys.argv.index("--w") + 1].split(",")]
-        args = [a for a in args if a != sys.argv[sys.argv.index("--w") + 1]]
     per_game = {}
-    for path in args:
+    for path in sys.argv[1:]:
         _, plays = build(load(path))
         for p in plays:
             if not p.spears or p.aborted:
                 continue                # spears unknown before v1.7
-            per_game[(os.path.basename(path), p.n)] = evaluate_play(p, Ws)
-    summarize(per_game, Ws, ["as played"] + MODELS)
+            per_game[(os.path.basename(path), p.n)] = evaluate_play(p)
+    summarize(per_game, ["as played"] + MODELS)

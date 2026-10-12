@@ -56,23 +56,31 @@ edge of the screen from one side to the other turns it off, and on again. The to
   Analyze with `python3 tools/lab_report.py FILE`; score input methods
   with `python3 tools/windowsim.py FILE...`: at every gesture start
   (the finger starts moving after resting, or turns sharply while
-  moving; a resting finger starts nothing), each method reads the next
-  2 (or 3) steps of input from the real situation, an exact port of the
+  moving; a resting finger starts nothing; a gesture starting less than
+  250 ms after a window's start belongs to that window), each method
+  reads the first 250 ms of finger input from the real situation (if it
+  turned David, one more turn may come before his next regular step: the
+  second half of a one-cell side step or U-turn), an exact port of the
   engine (`tools/enginesim.py`, checked by replaying every recorded
   game) plays its turns, and David goes on straight until he eats the
   harp (+1, whenever it comes) or dies (-0.5, times exp(-(s-1)/d) for a
   death s steps after the gesture start; d = 1 step for a wall or the
   tail, 3.7 for a spear; a spear hitting him from the side costs
-  nothing). Needs v1.7+ recordings (every
+  nothing). Reading only 250 ms keeps out what the player did in
+  reaction to the live model's turns. Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.
-  `python3 tools/simlearn.py FILE...` trains a small weighted-formula turn
-  model on that score (finger movement only; at each tick it tries all
-  four answers, none/left/right/back, in the simulation and learns from
-  the outcomes), cross-validated by game; `--export 3` prints the weights
-  trained on all games, and `tools/export_model.py` records them with a
-  complete description (`tools/models/<name>.json`), and with `--game`
-  puts them in the game (`MlModel.kt`).
+  `python3 tools/simlearn.py FILE... --holdout 0.3 --seed 1 --never-test FILE,...`
+  trains a small weighted-formula turn model on that score (finger
+  movement only; at each tick it tries all four answers, none/left/right/
+  back, in the simulation and learns from the outcomes) on the training
+  games, holding out a seeded 30% of the games for testing (never from the
+  `--never-test` files); `--export` prints just the weights.
+  `python3 tools/compare_models.py FILE... --models tools/models/ml-1.json,...`
+  (same split options) prints the training, test and summary tables, and
+  `tools/export_model.py` records a model with a complete description
+  (`tools/models/<name>.json`), and with `--game` puts it in the game
+  (`MlModel.kt`).
 - The input is `ML-1`, that model trained on 41 games (it beat S2-FAST on
   held-out games). Every recorded game starts with a `model` line holding
   the input in full: recognizer, settings, weights, features, and how it

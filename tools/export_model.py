@@ -8,12 +8,14 @@ code commit and the training files' hashes); with --game also
 app/src/main/java/com/davidsnake/game/MlModel.kt with the same weights and
 description, which the game logs with every recorded game.
 
-Usage: python3 tools/export_model.py NAME WEIGHTS.json COMMIT RESULT FILE=PATH... [--game]
-  WEIGHTS.json  output of `simlearn.py ... --export W`
+Usage: python3 tools/export_model.py NAME WEIGHTS.json COMMIT RESULT FILE=PATH... [SPLIT] [--game]
+  WEIGHTS.json  output of `simlearn.py ... --export`
   COMMIT        the commit of tools/ that trained it
   RESULT        how it tested (recorded as is)
-  FILE=PATH     each training recording, in training order: the name to
-                record and where it is"""
+  FILE=PATH     each recording given to the training, in order: the name to
+                record and where it is
+  SPLIT         the options that held out test games, as given to
+                simlearn.py: --holdout FRAC --seed S --never-test FILE,..."""
 import hashlib, json, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,7 +24,6 @@ import simlearn as L
 import windowsim as WS
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-W_INPUT = 3                 # steps of input the model was trained with
 ITERS = 6
 
 
@@ -35,7 +36,7 @@ def describe_data(name, path):
             "session_start": session.get("wall") if session else None, "games": len(games)}
 
 
-def spec_of(name, weights, commit, data, result):
+def spec_of(name, weights, commit, data, result, split_args=(), test_games=()):
     ws, wb = weights["w_side"], weights["w_back"]
     assert len(ws) == len(wb) == L.NF
     wsha = hashlib.sha256(json.dumps({"w_side": ws, "w_back": wb}, separators=(",", ":")).encode()).hexdigest()
@@ -86,30 +87,35 @@ def spec_of(name, weights, commit, data, result):
         "training": {
             "code": f"tools/simlearn.py at commit {commit}",
             "command": "python3 tools/simlearn.py " + " ".join(d["file"] for d in data)
-                       + f" --iters {ITERS} --export {W_INPUT}",
+                       + f" --iters {ITERS}" + "".join(" " + a for a in split_args) + " --export",
             "deterministic": "re-running the command on the same files gives identical weights",
             "data": data,
+            "test_games": [{"file": f, "game": n} for f, n in test_games],
             "method": "learning to search on the window simulation (tools/windowsim.py): in every "
                       "gesture window of the training games the model plays the window; at each tick "
                       "it decided, each of the four answers is tried, the model deciding the rest; the "
                       "four window scores are that tick's example; weights minimize the expected loss "
                       "against the best answer (softmax, L2) by Adam; examples accumulate over rounds; "
                       "round 0 copies the live game's own turns",
-            "settings": {"input_steps": W_INPUT, "rounds": ITERS, "l2": L.L2, "adam_lr": 0.05,
+            "settings": {"rounds": ITERS, "l2": L.L2, "adam_lr": 0.05,
                          "fit_steps": 600, "copy_fit_steps": 400, "copy_turn_weight": 3.0},
+            "split": "the games listed in test_games were held out (not trained on): " + (
+                     " ".join(split_args) + " in tools/simlearn.py split()" if split_args else "none"),
             "objective": {
                 "windows": "one per gesture start: finger speed rising from under "
                            f"{WS.V_REST:g} to over {WS.V_MOVE:g} dp/s with {WS.GESTURE_DP:g} dp of travel, "
                            f"or a turn of {WS.SPLIT_DEG:g} degrees or more while moving (speed over "
-                           f"{WS.SPEED_MS} ms)",
-                "input_steps": W_INPUT,
+                           f"{WS.SPEED_MS} ms); a gesture starting less than {WS.JOIN_MS} ms after a "
+                           "window's start belongs to that window",
+                "input": f"the finger samples of the first {WS.READ_MS} ms from the window's start; then, "
+                         "if David turned, one more turn before his next regular step after the latest "
+                         "turn, which ends the input",
                 "run": "after the input David goes straight until he eats the harp or dies",
                 "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
                 "death": f"-{WS.DEATH:g} times exp(-(s - 1) / decay), s = steps from the window start "
                          "to the death, decay by cause; a spear hitting David from the side (flying "
                          "across the direction of his last step) costs nothing",
                 "death_decay_steps": WS.DECAY,
-                "completion_ms": WS.COMPLETE_MS,
                 "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
             },
             "result": result,
@@ -145,16 +151,30 @@ object MlModel {{
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--game"]
+    argv = [a for a in sys.argv if a != "--game"]
+    split_args = []
+    for opt in ("--holdout", "--seed", "--never-test"):
+        if opt in argv:
+            i = argv.index(opt)
+            split_args += argv[i:i + 2]
+            del argv[i:i + 2]
+    args = argv[1:]
     if len(args) < 5:
         print(__doc__)
         sys.exit(2)
     name, wpath, commit, result = args[:4]
-    data = []
+    data, keys, arms = [], [], {}
     for a in args[4:]:
         fname, path = a.split("=", 1)
         data.append(describe_data(fname, path))
-    spec = spec_of(name, json.load(open(wpath)), commit, data, result)
+        _, plays = build(load(path))
+        for q in plays:
+            if q.spears and not q.aborted:
+                keys.append((fname, q.n))
+                arms[(fname, q.n)] = q.arm
+    _, o = L.options(["simlearn.py"] + split_args)
+    _, test = L.split(keys, arms, o["holdout"], o["seed"], o["never_test"])
+    spec = spec_of(name, json.load(open(wpath)), commit, data, result, split_args, test)
     out = os.path.join(ROOT, "tools", "models", name.lower() + ".json")
     with open(out, "w") as f:
         json.dump(spec, f, indent=1)

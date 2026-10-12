@@ -127,7 +127,7 @@ def run_rule(real, k0, t0, cmds, j0, rule, T):
         frames.append(frame(sim))
         if sim.lost or sim.eaten:
             break
-    w = WS.outcome(sim, k0, None, sim.eaten[0] if sim.eaten else None)
+    w = WS.outcome(sim, k0, sim.eaten[0] if sim.eaten else None)
     # the rest of the commands (neither read nor checked): shown grayed on the timeline
     return {"frames": frames, "turns": turns, "cmds": cmd_log, "steps": steps, "limit": limit,
             "score": round(w.score, 4), "why": "harp" if w.harp > 0 else w.why, "end": sim.tick_no - k0}

@@ -4,7 +4,7 @@ example gestures from the training recordings as the game screen, once per
 input method (S2-FAST, ML-1, ML-2), next to the finger movement.
 
 Every gesture window of every recording is simulated for the three methods
-(tools/windowsim.py scoring; spears as the scorer sees them); example
+(tools/windowsim.py scoring, run by its own code; spears as the scorer sees them); example
 windows are picked by kind (different turns, timing only, ML-1 vs ML-2,
 all the same), and the page also shows how often the methods differ. Each
 example starts PRE_TICKS before the gesture, with the real game, for
@@ -25,7 +25,6 @@ import windowsim as WS
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REC = os.path.join(ROOT, "training_recordings")
 SPRITES = os.path.join(ROOT, "app", "src", "main", "res", "drawable-nodpi")
-W = 3
 MODELS = ("S2-FAST", "ML-1", "ML-2")
 PRE_TICKS = 24          # the real game shown before the gesture (about 1.1 s)
 
@@ -39,49 +38,34 @@ def policies():
 
 
 def traced(real, k0, inputs):
-    """A gesture window as tools/windowsim.py runs it, recording every tick:
-    David (cell, heading), his tail, the spears, and the turns made."""
-    sim = real.copy()
-    sim.throw_limit = k0 + WS.AIM_TICKS
-    sim.harp_next = lambda: None
+    """A gesture window exactly as tools/windowsim.py runs it, recording
+    every tick: David (cell, heading), his tail, the spears, and the turns."""
+    def frame(sim):
+        return [sim.hx, sim.hy, sim.hd, [c for xy in sim.tail for c in xy], [c for sp in sim.spears for c in sp]]
 
-    def frame():
-        return [sim.hx, sim.hy, sim.hd, [c for xy in sim.tail for c in xy], [c for s in sim.spears for c in s]]
+    frames, turns, ref = [frame(real)], [], {}
 
-    frames = [frame()]
-    turns = []
-    for k in range(k0, k0 + 4 * WS.MAX_STEPS):
-        for t, cmds in inputs.slot(k, sim):
-            h0, turned = sim.heading, False
-            for d, hold in cmds:
-                if sim.swipe(d, hold) in WS.TURNED:
-                    turned = True
-                if sim.lost or sim.eaten:
-                    break
-            if turned:
-                inputs.last_turn = t
+    def watch(ev, sim, k, t, h0):
+        ref["sim"] = sim
+        if ev == "cmd":
             if sim.heading != h0:
                 turns.append([k - k0, t, sim.heading])
-            if sim.lost or sim.eaten:
-                break
-        if sim.lost or sim.eaten:
-            frames.append(frame())
-            break
-        sim.tick()
-        frames.append(frame())
-        if sim.lost or sim.eaten:
-            break
-    w = WS.outcome(sim, k0, W, sim.eaten[0] if sim.eaten else None)
-    why = "harp" if sim.eaten else w.why
-    return {"frames": frames, "turns": turns, "score": round(w.score, 4), "why": why,
-            "end": sim.tick_no - k0}
+        else:
+            frames.append(frame(sim))
+
+    w = WS.run_window(real, k0, inputs, watch)
+    sim = ref.get("sim")
+    if sim is not None and frames[-1] != frame(sim):
+        frames.append(frame(sim))           # the run ended during a command
+    return {"frames": frames, "turns": turns, "score": round(w.score, 4),
+            "why": "harp" if w.harp > 0 else w.why, "end": (sim.tick_no - k0) if sim else 0}
 
 
 def game_windows(job):
     path, n, pols = job
     _, plays = build(load(path))
     p = [q for q in plays if q.n == n][0]
-    g = L.Game(n, p, [W])
+    g = L.Game(n, p)
     if not g.specs:
         return []
     samples, slots = g.samples, g.slots
@@ -100,10 +84,10 @@ def game_windows(job):
     for k in range(0, last_tk + 1):
         if k in starts:
             s = starts[k]
-            res = {"S2-FAST": traced(real, k, WS.RecInputs(k, W, cls, shadow, samples, slots, s.i))}
+            res = {"S2-FAST": traced(real, k, WS.RecInputs(s.t0, cls, shadow, samples, slots, s.i))}
             for m in ("ML-1", "ML-2"):
-                res[m] = traced(real, k, L.PolicyInputs(k, W, pols[m], samples, slots, s.i, s.stroke))
-            end = k + 4 * W + 8
+                res[m] = traced(real, k, L.PolicyInputs(s.t0, pols[m], samples, slots, s.i, s.stroke))
+            end = k + 20
             fin = []
             for x in range(len(samples)):
                 t, fx, fy, first, last, up = samples[x]
@@ -116,7 +100,7 @@ def game_windows(job):
             # its throw and lingers a while after
             att = [[tk - k, sx, sy, d] for tk, lst in real.throws.items()
                    if k - PRE_TICKS - 20 < tk <= k + WS.AIM_TICKS for sx, sy, d in lst]
-            out.append({"file": os.path.basename(path), "game": n, "arm": p.arm, "k": k,
+            out.append({"file": os.path.basename(path), "game": n, "arm": p.arm, "k": k, "t0": s.t0,
                         "harp": list(real.harp) if real.harp else None, "score0": real.score,
                         "pre": hist[-(PRE_TICKS + 1):-1], "attackers": att, "finger": fin, "res": res})
         while True:
@@ -212,7 +196,7 @@ def main():
         with open(os.path.join(SPRITES, name + ".png"), "rb") as f:
             sprites[name] = "data:image/png;base64," + base64.b64encode(f.read()).decode()
     data = {"windows": n, "games": len(jobs), "stats": stats, "allsame": allsame, "scenarios": scen,
-            "tick_ms": 45, "input_ticks": 4 * W, "pre_ticks": PRE_TICKS, "decay": WS.DECAY, "death": WS.DEATH}
+            "tick_ms": 45, "read_ms": WS.READ_MS, "pre_ticks": PRE_TICKS, "decay": WS.DECAY, "death": WS.DEATH}
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer_template.html")) as f:
         html = f.read()
     html = html.replace("/*SPRITES*/{}", json.dumps(sprites)).replace("/*DATA*/{}", json.dumps(data, separators=(",", ":")))

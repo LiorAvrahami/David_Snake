@@ -23,12 +23,19 @@ tick's example: the weights are fitted to minimize the expected loss
 against the best answer (softmax policy, L2). Repeat with the new model;
 examples accumulate. The first model copies the live game's own turns.
 
-Games are split in FOLDS by game; each fold is tested by a model trained
-on the others. Reported per 1000 gestures, against S2-FAST on the same
-games.
+Games are split by game into training and test games: a seeded random
+share (--holdout) of the games is held out, drawn only from files named
+in --never-test's complement (e.g. the files an earlier model was trained
+on stay in training, so the test games are new to it too), the same share
+from each input method played. Reported per 1000 gestures, against
+S2-FAST on the same games. The last line printed is the trained model's
+weights (JSON), trained on the training games only.
 
-Usage: python3 tools/simlearn.py FILE... [--w 2,3] [--iters N] [--export W]"""
+Usage: python3 tools/simlearn.py FILE... [--iters N] [--holdout FRAC] [--seed S]
+                                 [--never-test FILE,FILE...] [--export]
+  --export   train and print the weights only (no per-round test report)"""
 import bisect, hashlib, json, math, os, random, sys
+from collections import defaultdict
 from multiprocessing import Pool
 
 import numpy as np
@@ -43,7 +50,6 @@ WIN_MS = (40, 80, 160, 300)
 NF = 3 * len(WIN_MS) + 1 + 4 + 1          # features + bias
 SIDE = [1, 4, 7, 10, 15]                  # the signed sideways features
 ACTIONS = ("none", "right", "left", "back")
-FOLDS = 3
 L2 = 1e-3
 
 
@@ -137,8 +143,8 @@ class PolicyInputs(WS.Inputs):
     once per tick on the latest sample. force = {tick: action} overrides
     its decision there; record collects (tick, features, action)."""
 
-    def __init__(self, k0, W, pol, samples, slots, i0, stroke, force=None, record=None):
-        super().__init__(k0, W)
+    def __init__(self, t0, pol, samples, slots, i0, stroke, force=None, record=None):
+        super().__init__(t0)
         self.pol = pol
         self.samples, self.slots, self.i = samples, slots, i0
         if stroke:
@@ -153,9 +159,10 @@ class PolicyInputs(WS.Inputs):
         new = up = False
         while self.i < len(self.samples) and self.slots[self.i] <= k:
             t, x, y, first, last, _ = self.samples[self.i][:6]
-            if not self.allow(k, t):
-                self.done = True
-                break
+            if not self.allow(t):
+                if not new:
+                    self.done = True
+                break                       # else asked again next tick, after this tick's decision
             self.i += 1
             if first:
                 self.ts, self.xs, self.ys, self.lt = [t], [x], [y], 0
@@ -182,7 +189,7 @@ class PolicyInputs(WS.Inputs):
         if a:
             j = bisect.bisect_left(self.ts, self.ts[-1] - 160)
             vec = (self.xs[-1] - self.xs[j], self.ys[-1] - self.ys[j])
-            if k >= self.end:
+            if self.finishing(self.ts[-1]):
                 self.done = True
             yield self.ts[-1], commands(a, h, sim, vec)
             if sim.heading != h:
@@ -193,25 +200,22 @@ class PolicyInputs(WS.Inputs):
 
 class Spec:
     """One gesture window of a recorded game: the real state at its start."""
-    __slots__ = ("k", "real", "i", "stroke")
+    __slots__ = ("k", "t0", "real", "i", "stroke")
 
-    def __init__(self, k, real, i, stroke):
-        self.k, self.real, self.i, self.stroke = k, real, i, stroke
+    def __init__(self, k, t0, real, i, stroke):
+        self.k, self.t0, self.real, self.i, self.stroke = k, t0, real, i, stroke
 
 
 class Game:
     """A recorded game prepared for training: samples, their ticks, its
     gesture windows, imitation examples, and S2-FAST's window outcomes."""
 
-    def __init__(self, key, p, Ws):
+    def __init__(self, key, p):
         self.key = key
+        self.arm = p.arm
         self.samples = WS.samples_of(p)
         self.slots = WS.slots_of(p, self.samples)
-        times = [s[0] for s in self.samples]
-        starts = set()
-        for s in p.strokes:
-            for t in WS.gesture_starts(s):
-                starts.add(self.slots[bisect.bisect_left(times, t)])
+        starts = dict(WS.window_starts(p, self.samples, self.slots))
         ih = {}
         for s in p.strokes:
             for (t, _, _), c in zip(s.samples, s.ih):
@@ -225,7 +229,7 @@ class Game:
         for k in range(0, last_tk + 1):
             if k in starts:
                 st = (list(cur[0]), list(cur[1]), list(cur[2]), cur[3]) if cur else None
-                self.specs.append(Spec(k, real.copy(), i, st))
+                self.specs.append(Spec(k, starts[k], real.copy(), i, st))
             h0 = real.heading
             f = None                    # features at this tick's latest sample
             while True:
@@ -261,37 +265,43 @@ class Game:
             real.tick()
             if real.lost:
                 break
-        base = WS.evaluate_play(p, Ws, models=["S2F"])
-        self.base = {W: [w.score for w in base[(W, "S2F")]] for W in Ws}
-        self.played = {W: [w.score for w in base[(W, "as played")]] for W in Ws}
-        assert all(len(self.base[W]) == len(self.specs) for W in Ws), (key, len(self.specs))
+        base = WS.evaluate_play(p, models=["S2F"])
+        self.base_w = base["S2F"]                   # S2-FAST's windows (outcome by cause)
+        self.base = [w.score for w in self.base_w]
+        self.played = [w.score for w in base["as played"]]
+        assert len(self.base) == len(self.specs), (key, len(self.specs))
 
 
-def run(g, spec, W, pol, force=None, record=None):
-    inp = PolicyInputs(spec.k, W, pol, g.samples, g.slots, spec.i, spec.stroke, force, record)
-    return WS.run_window(spec.real, spec.k, W, inp).score
+def run_w(g, spec, pol, force=None, record=None):
+    """The window's outcome with the model reading it."""
+    inp = PolicyInputs(spec.t0, pol, g.samples, g.slots, spec.i, spec.stroke, force, record)
+    return WS.run_window(spec.real, spec.k, inp)
 
 
-def examples(g, W, pol):
+def run(g, spec, pol, force=None, record=None):
+    return run_w(g, spec, pol, force, record).score
+
+
+def examples(g, pol):
     """Learning-to-search examples from one game: (features, scores of the
     four answers) at every tick the model decided."""
     out = []
     for spec in g.specs:
         rec = []
-        base = run(g, spec, W, pol, record=rec)
+        base = run(g, spec, pol, record=rec)
         for k, f, a in rec:
             q = [0.0] * 4
             q[a] = base
             for b in range(4):
                 if b != a:
-                    q[b] = run(g, spec, W, pol, force={k: b})
+                    q[b] = run(g, spec, pol, force={k: b})
             if max(q) - min(q) > 1e-9:
                 out.append((f, q))
     return out
 
 
-def evaluate(g, W, pol):
-    return [run(g, spec, W, pol) for spec in g.specs]
+def evaluate(g, pol):
+    return [run(g, spec, pol) for spec in g.specs]
 
 
 def mats(F):
@@ -361,101 +371,119 @@ def per1000(xs):
 GAMES = {}
 
 
-def _init(paths, Ws):
+def _init(paths):
     for path in paths:
         _, plays = build(load(path))
         for p in plays:
             if p.spears and not p.aborted:
                 key = (os.path.basename(path), p.n)
-                GAMES[key] = Game(key, p, Ws)
+                GAMES[key] = Game(key, p)
 
 
 def _examples(args):
-    key, W, w = args
-    return examples(GAMES[key], W, Policy(w[:NF], w[NF:]))
+    key, w = args
+    return examples(GAMES[key], Policy(w[:NF], w[NF:]))
 
 
 def _evaluate(args):
-    key, W, w = args
-    return key, evaluate(GAMES[key], W, Policy(w[:NF], w[NF:]))
+    key, w = args
+    return key, evaluate(GAMES[key], Policy(w[:NF], w[NF:]))
 
 
 def _info(key):
     g = GAMES[key]
-    return key, g.imitate, g.base, g.played
+    return key, g.imitate, g.base, g.played, g.arm
 
 
 def wvec(pol):
     return list(pol.ws) + list(pol.wb)
 
 
-def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+def split(keys, arms, holdout, seed, never_test):
+    """(training games, test games): a seeded random share `holdout` of all
+    games, drawn from files not in never_test, the same share from each
+    input method played (arm)."""
+    if not holdout:
+        return list(keys), []
+    pool = sorted(k for k in keys if k[0] not in never_test)
+    n_test = round(holdout * len(keys))
+    by_arm = defaultdict(list)
+    for k in pool:
+        by_arm[arms[k]].append(k)
+    rnd = random.Random(seed)
+    test, left = [], n_test
+    groups = sorted(by_arm.items())
+    for i, (arm, ks) in enumerate(groups):
+        rnd.shuffle(ks)
+        rest = sum(len(g) for _, g in groups[i + 1:])
+        take = left if i == len(groups) - 1 else min(left, round(n_test * len(ks) / len(pool)))
+        take = max(take, left - rest)
+        test += ks[:take]
+        left -= take
+    test = set(test)
+    return [k for k in keys if k not in test], [k for k in keys if k in test]
+
+
+def options(argv):
+    args = [a for a in argv[1:] if not a.startswith("--")]
     opt = {}
-    for name in ("--w", "--iters", "--export"):
-        if name in sys.argv:
-            val = sys.argv[sys.argv.index(name) + 1]
+    for name in ("--iters", "--holdout", "--seed", "--never-test"):
+        if name in argv:
+            val = argv[argv.index(name) + 1]
             opt[name] = val
             args = [a for a in args if a != val]
-    Ws = [int(x) for x in opt.get("--w", "2,3").split(",")]
-    iters = int(opt.get("--iters", "4"))
+    return args, {"iters": int(opt.get("--iters", "4")), "holdout": float(opt.get("--holdout", "0")),
+                  "seed": int(opt.get("--seed", "1")),
+                  "never_test": set(x for x in opt.get("--never-test", "").split(",") if x),
+                  "export": "--export" in argv}
+
+
+def main():
+    args, o = options(sys.argv)
     keys = []
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args, Ws)) as pool:
-        info = {k: (im, b, pl) for k, im, b, pl in pool.map(_info, keys)}
-        if "--export" in opt:
-            W = int(opt["--export"])
-            pol, _ = train(pool, keys, W, iters, info, None)
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args,)) as pool:
+        info = {k: (im, b, pl, arm) for k, im, b, pl, arm in pool.map(_info, keys)}
+        trn, test = split(keys, {k: info[k][3] for k in keys}, o["holdout"], o["seed"], o["never_test"])
+        if o["export"]:
+            pol, _ = train(pool, trn, o["iters"], info, None)
             print(json.dumps(pol.to_json()))
             return
-        for W in Ws:
-            print(f"\n== W = {W} steps of input: {len(keys)} games, {FOLDS} folds by game", flush=True)
-            res = []
-            for fold in range(FOLDS):
-                test = [k for i, k in enumerate(keys) if i % FOLDS == fold]
-                trn = [k for k in keys if k not in test]
-                print(f"  fold {fold + 1}: train {len(trn)} games, test {len(test)}", flush=True)
-                res.append(train(pool, trn, W, iters, info, test)[1])
-            print(f"  all folds (per 1000 gestures, vs S2-FAST on the same games; test pools every game once):")
-            for it in range(iters + 1):
-                tr = sum(r[it][0] for r in res) / FOLDS
-                te_model = sum(r[it][2] for r in res)
-                te_base = sum(r[it][3] for r in res)
-                n = sum(r[it][4] for r in res)
-                print(f"    {'copy of live' if it == 0 else f'model {it}':13s} train gain {tr:+6.1f}   "
-                      f"test gain {1000 * (te_model - te_base) / n:+6.1f}", flush=True)
+        print(f"{len(keys)} games: {len(trn)} for training, {len(test)} for testing", flush=True)
+        pol, _ = train(pool, trn, o["iters"], info, test)
+        print(json.dumps(pol.to_json()))
 
 
-def train(pool, trn, W, iters, info, test):
-    """Returns the final model and, per round, (train gain, test sums...)."""
+def train(pool, trn, iters, info, test):
+    """Returns the final model and, per round, (train gain, test gain)."""
     pol = fit_imitation([e for k in trn for e in info[k][0]])
     data, rounds = [], []
     for it in range(iters + 1):
         if test is not None:
-            rounds.append(report(pool, trn, test, W, pol, info, "copy of live" if it == 0 else f"model {it}"))
+            rounds.append(report(pool, trn, test, pol, info, "copy of live" if it == 0 else f"model {it}"))
         if it == iters:
             break
-        res = pool.map(_examples, [(k, W, wvec(pol)) for k in trn])
+        res = pool.map(_examples, [(k, wvec(pol)) for k in trn])
         data += [e for r in res for e in r]
         pol = fit_regret(data, wvec(pol))
     return pol, rounds
 
 
-def report(pool, trn, test, W, pol, info, name):
-    sc = dict(pool.map(_evaluate, [(k, W, wvec(pol)) for k in trn + test]))
+def report(pool, trn, test, pol, info, name):
+    sc = dict(pool.map(_evaluate, [(k, wvec(pol)) for k in trn + test]))
     def total(ks, src):
         if src == "model":
             return [x for k in ks for x in sc[k]]
-        return [x for k in ks for x in info[k][1][W]]
+        return [x for k in ks for x in info[k][1]]
     tr, btr = total(trn, "model"), total(trn, "s2f")
     te, bte = total(test, "model"), total(test, "s2f")
     gtr = per1000(tr) - per1000(btr)
-    gte = per1000(te) - per1000(bte)
+    gte = per1000(te) - per1000(bte) if te else float("nan")
     print(f"    {name:13s} train {per1000(tr):6.1f} ({gtr:+6.1f} vs S2-FAST)   "
           f"test {per1000(te):6.1f} ({gte:+6.1f})", flush=True)
-    return gtr, gte, sum(te), sum(bte), len(te)
+    return gtr, gte
 
 
 if __name__ == "__main__":

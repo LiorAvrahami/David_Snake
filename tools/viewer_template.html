@@ -94,7 +94,7 @@
     <div id="info"></div>
     <div class="help">
       <ul>
-        <li>Each example opens about 1.1 s before your gesture, with the real game as you played it (the same on all three boards; gray line = where David came from). From the moment the gesture began, each board shows what that method does with your actual finger movement: for 3 steps (12 ticks, 0.54 s) it reads your finger; then David goes straight until he eats the harp or dies, as the scoring assumes.</li>
+        <li>Each example opens about 1.1 s before your gesture, with the real game as you played it (the same on all three boards; gray line = where David came from). From the moment the gesture began, each board shows what that method does with your actual finger movement: it reads your finger for 250 ms, and, if it turned David, until his next regular step for one more turn (the second half of a one-cell side step or U-turn); then David goes straight until he eats the harp or dies, as the scoring assumes.</li>
         <li>Only spears from attackers already on screen when the gesture began are simulated (attackers aim at where David is, so later ones would differ).</li>
         <li>Score: harp +1; a death costs −0.5, less the later it comes (decay length 1 step for wall and tail, 3.7 for spears); a spear from the side costs nothing.</li>
         <li>Paths: the line shows the whole run (dashed = still to come); rings mark the turns. On the finger panel, the rings mark the finger sample at which each method turned (biggest = S2-FAST, middle = ML-1, smallest = ML-2); gray = finger movement before or after the gesture's input.</li>
@@ -257,11 +257,11 @@ function drawFinger() {
   ctx.fillStyle = "#8a8984"; ctx.font = "20px system-ui, sans-serif";
   ctx.fillText(`grid: 10 dp   (finger moved ${Math.round(Math.max(maxx - minx, maxy - miny))} dp across)`, 14, cv.height - 14);
   // the trace, in segments: before the gesture's input, during it, after; a stroke break ends a segment
-  const inputEnd = DATA.input_ticks;
+  const inRead = a => a[0] - sc.t0 >= 0 && a[0] - sc.t0 <= DATA.read_ms;
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   for (let k = 1; k < f.length; k++) {
     if (f[k][4]) continue;                       // a new stroke: no line from the last one
-    const during = f[k][3] >= 0 && f[k][3] < inputEnd;
+    const during = inRead(f[k]);
     const shown = f[k][3] <= tick;
     ctx.strokeStyle = during ? (shown ? "#0b0b0b" : "#b9b8b2") : (shown ? "#a3a29c" : "#dddcd6");
     ctx.lineWidth = during ? 5 : 4;
@@ -292,7 +292,7 @@ function drawFinger() {
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(X(cur[1]), Y(cur[2]), 4, 0, 2 * Math.PI); ctx.fill();
   }
   document.getElementById("fingerinfo").textContent =
-    "dark = the gesture's 0.54 s of input; dot = finger now; rings = where each method turned";
+    "dark = the first 250 ms of the gesture; dot = finger now; rings = where each method turned";
 }
 
 // ------------------------------------------------------------- page
@@ -315,9 +315,9 @@ function render() {
     ? `${(-tick * DATA.tick_ms / 1000).toFixed(2)} s before the gesture`
     : `tick +${tick} of ${max}  ·  ${(tick * DATA.tick_ms / 1000).toFixed(2)} s after the gesture began`;
   const fl = document.getElementById("inputflag");
-  const on = tick >= 0 && tick < DATA.input_ticks;
+  const on = tick >= 0 && tick * DATA.tick_ms < DATA.read_ms;
   fl.className = on ? "on" : "off";
-  fl.textContent = tick < 0 ? "the real game, before the gesture" : on ? "reading your finger" : "input over: David goes straight";
+  fl.textContent = tick < 0 ? "the real game, before the gesture" : on ? "reading your finger (first 250 ms)" : "after 250 ms: at most one more turn, then David goes straight";
   for (const m of MODELS) {
     const [, end] = describe(m);
     document.getElementById("out-" + m).textContent = end;
