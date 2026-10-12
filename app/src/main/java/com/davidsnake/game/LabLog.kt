@@ -33,13 +33,14 @@ object Arms {
     val SMART2_FAST = Arm("S2-FAST", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
         SmartRecognizer(v2 = true, cooldownMs = 120L)
     }
-    /** The model trained on the game simulation ([MlModel]). */
-    val ML1 = Arm(MlModel.NAME, GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) { LearnedRecognizer() }
+    /** The model trained on the game simulation ([MlModel]; now ML-2). */
+    val ML = Arm(MlModel.NAME, GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) { LearnedRecognizer() }
 
-    /** Normal play and debug recording: the best input to date. ML-1 beat
-     *  S2-FAST (the previous best) on held-out games of the window
-     *  simulation (tools/simlearn.py, tools/windowsim.py). */
-    val DEFAULT = ML1
+    /** Normal play and debug recording. ML-2, to record games with it for
+     *  diagnosis: on held-out games of the window simulation
+     *  (tools/simlearn.py, tools/windowsim.py) it did not beat ML-1, the
+     *  input before it (ML-1's weights: tools/models/ml-1.json). */
+    val DEFAULT = ML
 
     /** Debug mode records with these arms in turn, [BLOCK] games each; a
      *  single arm means no A/B test, just data collection. */

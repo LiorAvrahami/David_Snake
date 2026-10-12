@@ -81,17 +81,19 @@ edge of the screen from one side to the other turns it off, and on again. The to
   `tools/export_model.py` records a model with a complete description
   (`tools/models/<name>.json`), and with `--game` puts it in the game
   (`MlModel.kt`).
-- The input is `ML-1`, that model trained on 41 games (it beat S2-FAST on
-  held-out games). Every recorded game starts with a `model` line holding
-  the input in full: recognizer, settings, weights, features, and how it
-  was trained (code commit, training files with sha256, settings), so it
-  can be rebuilt from the file alone; every finger sample carries its game
-  tick. `python3 tools/mlparity.py FILE` rebuilds the model from each
-  game's model line, replays the game, and checks every decision.
+- The input is `ML-2` (from v1.16), to record games with it for
+  diagnosis; before it, `ML-1`, trained on 41 games (it beat S2-FAST on
+  held-out games; `tools/models/ml-1.json`). Every recorded game starts
+  with a `model` line holding the input in full: recognizer, settings,
+  weights, features, and how it was trained (code commit, training files
+  with sha256, settings), so it can be rebuilt from the file alone; every
+  finger sample carries its game tick. `python3 tools/mlparity.py FILE`
+  rebuilds the model from each game's model line, replays the game, and
+  checks every decision.
 - `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the 250 ms
-  windows, on 123 of the 176 games (53 held out, all new to ML-1 too); not
-  in the game, since on the held-out games it did not beat ML-1 (per 1000
-  gestures: ML-1 354.4, ML-2 346.0, S2-FAST 350.2).
+  windows, on 123 of the 176 games (53 held out, all new to ML-1 too). On
+  the held-out games it did not beat ML-1 (per 1000 gestures: ML-1 354.4,
+  ML-2 346.0, S2-FAST 350.2); it is in the game for diagnosis.
 - `viewer/decisions.html` (open it in a browser) replays example gestures
   from the recordings as the game screen, once per input method (S2-FAST,
   ML-1, ML-2), next to the finger movement, with how often the methods
