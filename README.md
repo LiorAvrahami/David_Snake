@@ -88,9 +88,10 @@ edge of the screen from one side to the other turns it off, and on again. The to
   can be rebuilt from the file alone; every finger sample carries its game
   tick. `python3 tools/mlparity.py FILE` rebuilds the model from each
   game's model line, replays the game, and checks every decision.
-- `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the current
-  scoring, on 121 games; not in the game, since on held-out games it did
-  not beat ML-1.
+- `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the 250 ms
+  windows, on 123 of the 176 games (53 held out, all new to ML-1 too); not
+  in the game, since on the held-out games it did not beat ML-1 (per 1000
+  gestures: ML-1 354.4, ML-2 346.0, S2-FAST 350.2).
 - `viewer/decisions.html` (open it in a browser) replays example gestures
   from the recordings as the game screen, once per input method (S2-FAST,
   ML-1, ML-2), next to the finger movement, with how often the methods

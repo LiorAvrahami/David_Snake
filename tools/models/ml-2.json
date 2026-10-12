@@ -42,49 +42,49 @@
  },
  "last_turn": "after a decision's commands run, if David's heading changed, the latest sample becomes the last-turn sample; it starts at the stroke's first sample",
  "w_side": [
-  -0.22069441607956275,
-  0.9881111584602563,
-  0.2438362759762279,
-  -0.5982839569922085,
-  0.9122356591032836,
-  0.12283255110982824,
-  -0.8012202702693194,
-  0.8391885467501506,
-  0.04591387366193978,
-  -0.9073166127621495,
-  0.8689780961175899,
-  0.02362157101977,
-  -0.056586181111990284,
-  -0.34287184876609184,
-  -0.5188241838580381,
-  0.6274295995491573,
-  0.14555309359039015,
-  -1.6932862400245587
+  -0.06740438581701642,
+  0.8782790988530809,
+  0.14305013316137333,
+  -0.4334557000298058,
+  0.9680488266729941,
+  0.1399927891836113,
+  -0.7700992158965924,
+  0.8539105700881657,
+  -0.00923387359979128,
+  -0.6327251628093451,
+  0.7289941477453886,
+  -0.11190211211958437,
+  -0.20945407909587432,
+  -0.41911026212209757,
+  -0.5064019395339356,
+  0.6496666384940667,
+  0.10425316187903126,
+  -1.7977111972670627
  ],
  "w_back": [
-  -0.0814437637456796,
+  -0.08378391635072964,
   0.0,
-  -0.21638719066337372,
-  -0.17700477963628547,
+  -0.25050361455545017,
+  -0.1949574551085163,
   0.0,
-  -0.2521738576670491,
-  -0.3099043214198532,
+  -0.2970677898771434,
+  -0.3550231276074824,
   0.0,
-  -0.28925012538468114,
-  -0.6300153518174438,
+  -0.33629740286022836,
+  -0.5047860834871863,
   0.0,
-  -0.3696476481808772,
-  -0.4201782593395325,
-  -0.37054710601690394,
-  -0.4366280566257404,
+  -0.3750265765002479,
+  -0.4673342137454038,
+  -0.35029714810861523,
+  -0.43376245792016693,
   0.0,
-  -0.21181100992769628,
-  -1.6885775951050368
+  -0.21773880244489333,
+  -1.5919752867719146
  ],
- "weights_sha256": "166339a9f9db9554575d16b40345acedc64cfaab6e39eaec42aca6b89017f886",
+ "weights_sha256": "6e7d2efde47e8c908e3821d595e5b19c0973b4af0f44ee70db347d0f5606eb49",
  "training": {
-  "code": "tools/simlearn.py at commit c949cd2",
-  "command": "python3 tools/simlearn.py DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt --iters 6 --export 3",
+  "code": "tools/simlearn.py at commit c8471e9",
+  "command": "python3 tools/simlearn.py DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt --iters 6 --holdout 0.3 --seed 1 --never-test DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt,DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt,zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt --export",
   "deterministic": "re-running the command on the same files gives identical weights",
   "data": [
    {
@@ -135,11 +135,231 @@
     "app": "1.15.73",
     "session_start": "2026-10-09 09:59:16",
     "games": 29
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "sha256": "634fcb3c12293d589aac32767aeb21aeff09f5b9eca78f15beb7e6253a154c39",
+    "app": "1.15.87",
+    "session_start": "2026-10-12 16:07:45",
+    "games": 55
+   }
+  ],
+  "test_games": [
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 6
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 7
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 8
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 9
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 10
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 11
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 15
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 18
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 19
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 20
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 21
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 22
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 23
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 32
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 33
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 34
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 40
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 42
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 44
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 46
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 47
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 53
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 60
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 61
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 67
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 69
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 73
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 77
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 79
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 81
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 82
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 85
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 86
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 89
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 91
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 94
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 95
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 97
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 100
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 102
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 106
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 112
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 113
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 119
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 120
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 122
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 124
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 129
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 130
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 131
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 132
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 133
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 134
    }
   ],
   "method": "learning to search on the window simulation (tools/windowsim.py): in every gesture window of the training games the model plays the window; at each tick it decided, each of the four answers is tried, the model deciding the rest; the four window scores are that tick's example; weights minimize the expected loss against the best answer (softmax, L2) by Adam; examples accumulate over rounds; round 0 copies the live game's own turns",
   "settings": {
-   "input_steps": 3,
    "rounds": 6,
    "l2": 0.001,
    "adam_lr": 0.05,
@@ -147,9 +367,10 @@
    "copy_fit_steps": 400,
    "copy_turn_weight": 3.0
   },
+  "split": "the games listed in test_games were held out (not trained on): --holdout 0.3 --seed 1 --never-test DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt,DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt,zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt in tools/simlearn.py split()",
   "objective": {
-   "windows": "one per gesture start: finger speed rising from under 60 to over 150 dp/s with 10 dp of travel, or a turn of 60 degrees or more while moving (speed over 40 ms)",
-   "input_steps": 3,
+   "windows": "one per gesture start: finger speed rising from under 60 to over 150 dp/s with 10 dp of travel, or a turn of 60 degrees or more while moving (speed over 40 ms); a gesture starting less than 250 ms after a window's start belongs to that window",
+   "input": "the finger samples of the first 250 ms from the window's start; then, if David turned, one more turn before his next regular step after the latest turn, which ends the input",
    "run": "after the input David goes straight until he eats the harp or dies",
    "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
    "death": "-0.5 times exp(-(s - 1) / decay), s = steps from the window start to the death, decay by cause; a spear hitting David from the side (flying across the direction of his last step) costs nothing",
@@ -158,9 +379,8 @@
     "speared": 3.7,
     "ran into the tail": 1.0
    },
-   "completion_ms": 250,
    "spears": "recorded throws aimed before the window started (throw tick <= start + 18)"
   },
-  "result": "3-fold cross-validation by game (game i of the files in order is in fold i % 3), per 1000 gestures on validation games: ML-2 442.5, ML-1 443.4, S2-FAST 436.1; ML-2 minus S2-FAST +6.4 (90% range -0.0 to +12.8); this model is then trained on all the games"
+  "result": "Scoring of commit c8471e9 (250 ms windows, one more turn before David's next regular step). 70/30 split by game (--holdout 0.3 --seed 1): the 53 test games are new to both ML-1 and ML-2 (all were played with ML-1). Per 1000 gestures, test games: S2-FAST 350.2, ML-1 354.4, ML-2 346.0 (ML-2 minus ML-1 -8.4, 90% range over games -15.6 to -2.4); training games: S2-FAST 359.0, ML-1 362.4, ML-2 363.1. Not in the game: it did not beat ML-1."
  }
 }
