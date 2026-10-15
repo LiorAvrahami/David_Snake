@@ -327,15 +327,16 @@ class Schedule(Inputs):
         yield from self.by_slot.get(k, ())
 
 
-def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, watch=None, prev=None):
+def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, watch=None, prev=()):
     """Runs the window, then replays the commands it gave moved together by
     each of `shifts` ticks; with `anchor` (a slot), moved so that the first
     command lands at anchor + shift instead, the same placements for every
-    recognizer. A placement one tick before the window's start runs from
-    `prev` = (the real state one tick earlier, the real game's commands in
-    that tick) when given, else it is left out. Returns (the plain run's
-    Window, {shift: Window} of the placements; the plain run is among them
-    when its timing is one of them)."""
+    recognizer. A placement before the window's start runs from an earlier
+    real state: `prev` = [(slot, state, the live game's commands in that
+    slot), ...] for the slots before k0, nearest first; a placement earlier
+    than the earliest given is left out. Returns (the plain run's Window,
+    {shift: Window} of the placements; the plain run is among them when its
+    timing is one of them)."""
     rec = Recorded(inputs)
     plain = run_window(real, k0, rec, watch)
     if not rec.log:
@@ -349,9 +350,11 @@ def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, wa
             out[d] = plain
         elif at >= k0:
             out[d] = run_window(real, k0, Schedule(t0, rec.log, move))
-        elif at == k0 - 1 and prev is not None:
-            state, cmds = prev
-            out[d] = run_window(state, k0 - 1, Schedule(t0, rec.log, move, [(k0 - 1, t0, cmds)] if cmds else ()), ref=k0)
+        elif k0 - at <= len(prev):
+            j = k0 - at                 # start j slots early, the live game's commands of those slots first
+            state = prev[j - 1][1]
+            before = [(slot, t0, cmds) for slot, _, cmds in reversed(prev[:j]) if cmds]
+            out[d] = run_window(state, k0 - j, Schedule(t0, rec.log, move, before), ref=k0)
     return plain, out or {0: plain}
 
 

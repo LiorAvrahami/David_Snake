@@ -43,6 +43,8 @@ def main():
     subprocess.run(["tar", "-x", "-C", tmp], input=tar, check=True)
     cmd = [sys.executable, "-I", os.path.join(tmp, "tools", os.path.basename(args[1]))]
     for a in args[2:]:
+        if a.startswith("tools/models/"):
+            a = os.path.join(ROOT, a)           # --init MODEL: the model it started from
         if a in files:
             p = os.path.join(DATA, a)
             if not os.path.exists(p):

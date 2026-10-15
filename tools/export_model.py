@@ -118,10 +118,14 @@ def split_text(split_args):
 
 
 def training_simlearn(commit, data, split_args, test_games, trainer_args, result):
+    args = dict(zip(trainer_args[::2], trainer_args[1::2]))
+    iters = int(args.get("--iters", ITERS))
+    tol, alpha, init = int(args.get("--tolerance", 0)), float(args.get("--alpha", L.ALPHA)), args.get("--init")
+    extra = (f" --tolerance {tol} --alpha {alpha:g}" if tol else "") + (f" --init {init}" if init else "")
     return {
         "code": f"tools/simlearn.py at commit {commit}",
         "command": "python3 tools/simlearn.py " + " ".join(d["file"] for d in data)
-                   + f" --iters {ITERS}" + "".join(" " + a for a in split_args) + " --export",
+                   + f" --iters {iters}" + extra + "".join(" " + a for a in split_args) + " --export",
         "deterministic": "re-running the command on the same files gives identical weights",
         "data": data,
         "test_games": [{"file": f, "game": n} for f, n in test_games],
@@ -130,9 +134,12 @@ def training_simlearn(commit, data, split_args, test_games, trainer_args, result
                   "it decided, each of the four answers is tried, the model deciding the rest; the "
                   "four window scores are that tick's example; weights minimize the expected loss "
                   "against the best answer (softmax, L2) by Adam; examples accumulate over rounds; "
-                  "round 0 copies the live game's own turns",
-        "settings": {"rounds": ITERS, "l2": L.L2, "adam_lr": 0.05,
-                     "fit_steps": 600, "copy_fit_steps": 400, "copy_turn_weight": 3.0},
+                  + (f"round 0 is the model {init}" if init else "round 0 copies the live game's own turns")
+                  + (f". The score is the Final score: the window's turns moved together -{tol}..{tol} "
+                     f"ticks (from earlier real states when before the window), the best counting {alpha:g}, "
+                     f"the plain run {1 - alpha:g}" if tol else ""),
+        "settings": {"rounds": iters, "tolerance_ticks": tol, "alpha": alpha if tol else None, "init": init,
+                     "l2": L.L2, "adam_lr": 0.05, "fit_steps": 600, "copy_fit_steps": 400, "copy_turn_weight": 3.0},
         "split": split_text(split_args),
         "objective": objective(),
         "result": result,
@@ -213,7 +220,7 @@ if __name__ == "__main__":
             i = argv.index(opt)
             split_args += argv[i:i + 2]
             del argv[i:i + 2]
-    for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold"):
+    for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold", "--iters", "--tolerance", "--alpha", "--init"):
         if opt in argv:
             i = argv.index(opt)
             trainer_args += argv[i:i + 2]

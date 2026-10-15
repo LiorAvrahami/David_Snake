@@ -32,8 +32,13 @@ S2-FAST on the same games. The last line printed is the trained model's
 weights (JSON), trained on the training games only.
 
 Usage: python3 tools/simlearn.py FILE... [--iters N] [--holdout FRAC] [--seed S]
-                                 [--never-test FILE,FILE...] [--export]
-  --export   train and print the weights only (no per-round test report)"""
+                                 [--never-test FILE,FILE...] [--tolerance T] [--alpha A]
+                                 [--init MODEL.json] [--export]
+  --tolerance T  learn from the Final score: the window's turns moved -T..T
+                 ticks together, the best counting --alpha A (default 0.9),
+                 the plain run 1 - A (tools/windowsim.py run_window_tolerant)
+  --init         start from a trained model instead of copying the live game
+  --export       train and print the weights only (no per-round test report)"""
 import bisect, hashlib, json, math, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
@@ -198,14 +203,18 @@ class PolicyInputs(WS.Inputs):
             self.ts = None
 
 
+PRE_TICKS = 4           # real states kept before each window, for turns placed earlier
+
+
 class Spec:
     """One gesture window of a recorded game: the real state at its start,
     the slot of the live game's first command in it (anchor), if any, and
-    prev = (the real state one tick before the start, the live game's
-    commands in that tick), for a turn placed one tick before the window."""
+    prev = [(slot, the real state at that slot, the live game's commands in
+    it), ...] for the PRE_TICKS slots before the start, nearest first, for
+    a turn placed before the window."""
     __slots__ = ("k", "t0", "real", "i", "stroke", "anchor", "prev")
 
-    def __init__(self, k, t0, real, i, stroke, prev=None):
+    def __init__(self, k, t0, real, i, stroke, prev=()):
         self.k, self.t0, self.real, self.i, self.stroke = k, t0, real, i, stroke
         self.anchor = None
         self.prev = prev
@@ -231,14 +240,13 @@ class Game:
         self.specs, self.imitate = [], []
         cur = None                      # current stroke: [ts, xs, ys, last turn]
         i = j = 0
-        before = None                   # the real state at the start of the previous tick's slot
+        recent = []                     # (slot, the real state at its start, its live commands), newest last
         for k in range(0, last_tk + 1):
             if k in starts:
                 st = (list(cur[0]), list(cur[1]), list(cur[2]), cur[3]) if cur else None
-                prev_cmds = [(E.LET.index(c["dir"]), h) for c, h in cmds if c["tk"] == k - 1]
-                self.specs.append(Spec(k, starts[k], real.copy(), i, st,
-                                       (before, prev_cmds) if before is not None else None))
-            before = real.copy()
+                self.specs.append(Spec(k, starts[k], real.copy(), i, st, tuple(reversed(recent))))
+            recent.append((k, real.copy(), [(E.LET.index(c["dir"]), h) for c, h in cmds if c["tk"] == k]))
+            del recent[:-PRE_TICKS]
             h0 = real.heading
             f = None                    # features at this tick's latest sample
             while True:
@@ -286,7 +294,7 @@ class Game:
         assert len(self.base) == len(self.specs), (key, len(self.specs))
 
 
-TOLERANCE = 0           # ticks of timing tolerance in the training score (0: plain)
+TOLERANCE = 0           # ticks of timing tolerance in the training score (0: plain): placements -T..T
 ALPHA = 0.9             # the tolerant score: ALPHA * the best placement + (1 - ALPHA) * the plain run
 ANCHORED = False        # placements around the live game's turn instead of the model's own
 
@@ -398,9 +406,9 @@ def per1000(xs):
 GAMES = {}
 
 
-def _init(paths, tolerance=0):
-    global TOLERANCE
-    TOLERANCE = tolerance
+def _init(paths, tolerance=0, alpha=ALPHA):
+    global TOLERANCE, ALPHA
+    TOLERANCE, ALPHA = tolerance, alpha
     for path in paths:
         _, plays = build(load(path))
         for p in plays:
@@ -456,7 +464,7 @@ def split(keys, arms, holdout, seed, never_test):
 def options(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     opt = {}
-    for name in ("--iters", "--holdout", "--seed", "--never-test", "--tolerance", "--init"):
+    for name in ("--iters", "--holdout", "--seed", "--never-test", "--tolerance", "--alpha", "--init"):
         if name in argv:
             val = argv[argv.index(name) + 1]
             opt[name] = val
@@ -464,20 +472,21 @@ def options(argv):
     return args, {"iters": int(opt.get("--iters", "4")), "holdout": float(opt.get("--holdout", "0")),
                   "seed": int(opt.get("--seed", "1")),
                   "never_test": set(x for x in opt.get("--never-test", "").split(",") if x),
-                  "tolerance": int(opt.get("--tolerance", "0")), "init": opt.get("--init"),
+                  "tolerance": int(opt.get("--tolerance", "0")), "alpha": float(opt.get("--alpha", str(ALPHA))),
+                  "init": opt.get("--init"),
                   "export": "--export" in argv}
 
 
 def main():
-    global TOLERANCE
+    global TOLERANCE, ALPHA
     args, o = options(sys.argv)
-    TOLERANCE = o["tolerance"]
+    TOLERANCE, ALPHA = o["tolerance"], o["alpha"]
     init = Policy.from_spec(json.load(open(o["init"]))) if o["init"] else None
     keys = []
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args, TOLERANCE)) as pool:
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args, TOLERANCE, ALPHA)) as pool:
         info = {k: (im, b, pl, arm) for k, im, b, pl, arm in pool.map(_info, keys)}
         trn, test = split(keys, {k: info[k][3] for k in keys}, o["holdout"], o["seed"], o["never_test"])
         if o["export"]:
