@@ -195,13 +195,14 @@ def feed(cls, rec, smp, g):
 
 
 class Window:
-    """One window's outcome."""
-    __slots__ = ("harp", "death", "why")
+    """One window's outcome (acc: a timing-tolerant score, when computed)."""
+    __slots__ = ("harp", "death", "why", "acc")
 
     def __init__(self):
         self.harp = 0.0
         self.death = 0.0
         self.why = None
+        self.acc = None
 
     @property
     def score(self):
@@ -286,6 +287,69 @@ class Inputs:
     def finishing(self, t):
         """A turn from time t is the one more turn, which ends the input."""
         return t > self.t_end
+
+
+class Recorded:
+    """Wraps an Inputs: runs it and keeps the commands it gave, by slot."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.log = []                   # [(slot, t, [(dir, hold), ...])]
+
+    def slot(self, k, sim):
+        for t, cmds in self.inner.slot(k, sim):
+            self.log.append((k, t, cmds))
+            yield t, cmds
+
+    def turned(self, t):
+        self.inner.turned(t)
+
+    def stepped(self):
+        self.inner.stepped()
+
+
+class Schedule(Inputs):
+    """Replays recorded commands, every slot moved by `shift` ticks (no
+    deciding, no reading rules)."""
+
+    def __init__(self, t0, log, shift):
+        super().__init__(t0)
+        self.by_slot = defaultdict(list)
+        for k, t, cmds in log:
+            self.by_slot[k + shift].append((t, cmds))
+
+    def slot(self, k, sim):
+        yield from self.by_slot.get(k, ())
+
+
+def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, watch=None):
+    """Runs the window, then replays the commands it gave moved together by
+    each of `shifts` ticks; with `anchor` (a slot), moved so that the first
+    command lands at anchor + shift instead, the same placements for every
+    recognizer (timing then counts for nothing). A placement that would put
+    a command before the window's start is left out. Returns (the plain
+    run's Window, {shift: Window} of the placements; the plain run is among
+    them when its timing is one of them)."""
+    rec = Recorded(inputs)
+    plain = run_window(real, k0, rec, watch)
+    if not rec.log:
+        return plain, {0: plain}
+    first = rec.log[0][0]
+    out = {}
+    for d in shifts:
+        move = d if anchor is None else anchor + d - first
+        if first + move < k0:
+            continue
+        out[d] = plain if move == 0 else run_window(real, k0, Schedule(t0, rec.log, move))
+    return plain, out or {0: plain}
+
+
+def tolerant_score(plain, placements, alpha=1.0):
+    """The timing-tolerant score: alpha * (the best placement's score) + (1 -
+    alpha) * (the plain run's score); and the best placement's Window (the
+    plain run's on a tie)."""
+    best = max(placements, key=lambda d: (placements[d].score, placements[d] is plain))
+    return alpha * placements[best].score + (1 - alpha) * plain.score, placements[best]
 
 
 class RecInputs(Inputs):

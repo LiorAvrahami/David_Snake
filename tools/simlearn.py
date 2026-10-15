@@ -199,11 +199,13 @@ class PolicyInputs(WS.Inputs):
 
 
 class Spec:
-    """One gesture window of a recorded game: the real state at its start."""
-    __slots__ = ("k", "t0", "real", "i", "stroke")
+    """One gesture window of a recorded game: the real state at its start,
+    and the slot of the live game's first command in it (anchor), if any."""
+    __slots__ = ("k", "t0", "real", "i", "stroke", "anchor")
 
     def __init__(self, k, t0, real, i, stroke):
         self.k, self.t0, self.real, self.i, self.stroke = k, t0, real, i, stroke
+        self.anchor = None
 
 
 class Game:
@@ -265,11 +267,19 @@ class Game:
             real.tick()
             if real.lost:
                 break
+        cmd_tk = [c["tk"] for c, _ in cmds]
+        for spec in self.specs:                     # the live game's first command in each window
+            rec = WS.Recorded(WS.LogInputs(spec.t0, cmds, bisect.bisect_left(cmd_tk, spec.k)))
+            WS.run_window(spec.real, spec.k, rec)
+            spec.anchor = rec.log[0][0] if rec.log else None
         base = WS.evaluate_play(p, models=["S2F"])
         self.base_w = base["S2F"]                   # S2-FAST's windows (outcome by cause)
         self.base = [w.score for w in self.base_w]
         self.played = [w.score for w in base["as played"]]
         assert len(self.base) == len(self.specs), (key, len(self.specs))
+
+
+TOLERANCE = 0           # ticks of timing tolerance in the training score (0: plain)
 
 
 def run_w(g, spec, pol, force=None, record=None):
@@ -278,8 +288,15 @@ def run_w(g, spec, pol, force=None, record=None):
     return WS.run_window(spec.real, spec.k, inp)
 
 
-def run(g, spec, pol, force=None, record=None):
-    return run_w(g, spec, pol, force, record).score
+def run(g, spec, pol, force=None, record=None, tol=None):
+    """The window's score; with tolerance, the best of the turns moved by
+    -tol..tol ticks together (windowsim.run_window_tolerant)."""
+    tol = TOLERANCE if tol is None else tol
+    if not tol:
+        return run_w(g, spec, pol, force, record).score
+    inp = PolicyInputs(spec.t0, pol, g.samples, g.slots, spec.i, spec.stroke, force, record)
+    plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inp, tuple(range(-tol, tol + 1)), spec.anchor)
+    return WS.tolerant_score(plain, outs)[0]
 
 
 def examples(g, pol):
@@ -371,7 +388,9 @@ def per1000(xs):
 GAMES = {}
 
 
-def _init(paths):
+def _init(paths, tolerance=0):
+    global TOLERANCE
+    TOLERANCE = tolerance
     for path in paths:
         _, plays = build(load(path))
         for p in plays:
@@ -427,7 +446,7 @@ def split(keys, arms, holdout, seed, never_test):
 def options(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     opt = {}
-    for name in ("--iters", "--holdout", "--seed", "--never-test"):
+    for name in ("--iters", "--holdout", "--seed", "--never-test", "--tolerance", "--init"):
         if name in argv:
             val = argv[argv.index(name) + 1]
             opt[name] = val
@@ -435,30 +454,35 @@ def options(argv):
     return args, {"iters": int(opt.get("--iters", "4")), "holdout": float(opt.get("--holdout", "0")),
                   "seed": int(opt.get("--seed", "1")),
                   "never_test": set(x for x in opt.get("--never-test", "").split(",") if x),
+                  "tolerance": int(opt.get("--tolerance", "0")), "init": opt.get("--init"),
                   "export": "--export" in argv}
 
 
 def main():
+    global TOLERANCE
     args, o = options(sys.argv)
+    TOLERANCE = o["tolerance"]
+    init = Policy.from_spec(json.load(open(o["init"]))) if o["init"] else None
     keys = []
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args,)) as pool:
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args, TOLERANCE)) as pool:
         info = {k: (im, b, pl, arm) for k, im, b, pl, arm in pool.map(_info, keys)}
         trn, test = split(keys, {k: info[k][3] for k in keys}, o["holdout"], o["seed"], o["never_test"])
         if o["export"]:
-            pol, _ = train(pool, trn, o["iters"], info, None)
+            pol, _ = train(pool, trn, o["iters"], info, None, init)
             print(json.dumps(pol.to_json()))
             return
         print(f"{len(keys)} games: {len(trn)} for training, {len(test)} for testing", flush=True)
-        pol, _ = train(pool, trn, o["iters"], info, test)
+        pol, _ = train(pool, trn, o["iters"], info, test, init)
         print(json.dumps(pol.to_json()))
 
 
-def train(pool, trn, iters, info, test):
-    """Returns the final model and, per round, (train gain, test gain)."""
-    pol = fit_imitation([e for k in trn for e in info[k][0]])
+def train(pool, trn, iters, info, test, init=None):
+    """Returns the final model and, per round, (train gain, test gain). The
+    first model copies the live game's turns, or is `init`."""
+    pol = init or fit_imitation([e for k in trn for e in info[k][0]])
     data, rounds = [], []
     for it in range(iters + 1):
         if test is not None:

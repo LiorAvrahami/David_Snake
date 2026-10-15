@@ -238,14 +238,20 @@ def live_examples(g, w_reject=W_REJECT, w_hold=W_HOLD):
     return out
 
 
+TOL = 1                 # ticks of timing tolerance in the accuracy score
+
+
 def traced(g, spec, inputs):
-    """Run a window; returns (outcome, turns [(tick from the start, heading after)])."""
+    """Run a window; returns (outcome, turns [(tick from the start, heading after,
+    time)], accuracy score: the best of the turns placed -TOL..TOL ticks from the
+    live game's first command, timing counting for nothing)."""
     turns = []
 
     def watch(ev, sim, k, t, h0):
         if ev == "cmd" and sim.heading != h0:
             turns.append((k - spec.k, sim.heading, t))
-    return WS.run_window(spec.real, spec.k, inputs, watch), turns
+    plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inputs, tuple(range(-TOL, TOL + 1)), spec.anchor, watch)
+    return plain, turns, WS.tolerant_score(plain, outs)[0]
 
 
 def rollout(g, spec, pol, targets, rejected=(), w_reject=W_REJECT, w_hold=W_HOLD):
@@ -254,7 +260,8 @@ def rollout(g, spec, pol, targets, rejected=(), w_reject=W_REJECT, w_hold=W_HOLD
     later target's movement))."""
     rec = []
     inp = L.PolicyInputs(spec.t0, pol, g.samples, g.slots, spec.i, spec.stroke, record=rec)
-    o, turns = traced(g, spec, inp)
+    o, turns, acc = traced(g, spec, inp)
+    o.acc = acc
     orc = Oracle(list(targets), list(rejected))
     turned_at = {k for k, _, _ in turns}
     ex, spurious, other = [], 0, 0
@@ -282,7 +289,7 @@ def metrics(targets, turns):
 
 def row(o, targets, turns, extra):
     lat, wrong, missed = metrics(targets, turns)
-    return (o.harp, o.death, o.why, lat, wrong, missed, extra[0], extra[1])
+    return (o.harp, o.death, o.why, lat, wrong, missed, extra[0], extra[1], o.acc)
 
 
 def fit(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=400):
@@ -345,7 +352,8 @@ def _evaluate(args):
             out[name].append(row(o, targets, turns, extra))
         for name, inputs in (("S2-FAST", WS.RecInputs(spec.t0, R.ALL["S2F"], g.shadow[spec.k], g.samples, g.slots, spec.i)),
                              ("live", WS.LogInputs(spec.t0, g.cmds, bisect.bisect_left(g.cmd_tk, spec.k)))):
-            o, turns = traced(g, spec, inputs)
+            o, turns, acc = traced(g, spec, inputs)
+            o.acc = acc
             orc, extra = Oracle(list(targets)), [0, 0]
             heads = [spec.real.heading] + [hd for _, hd, _ in turns]
             for (k, hd, t), h0 in zip(turns, heads):
@@ -405,11 +413,12 @@ def summarize(rows, names, false, minutes, arms=None):
         return
     keys = [k for k in rows if rows[k]]         # games with windows
     n = sum(len(rows[k][names[0]]) for k in keys)
-    print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} | {'latency':>7s} {'late':>6s} {'wrong':>6s} "
+    print(f"  {'':10s} {'score':>7s} {'acc.':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} | {'latency':>7s} {'late':>6s} {'wrong':>6s} "
           f"{'missed':>6s} {'spur.':>6s} {'early':>6s} {'false/min':>9s}")
     for m in names:
         ws = [w for k in keys for w in rows[k][m]]
         sc = sum(h - d for h, d, *_ in ws)
+        acc = sum(w[8] for w in ws)
         hp = sum(h for h, *_ in ws)
         why = defaultdict(float)
         for h, d, y, *_ in ws:
@@ -419,18 +428,20 @@ def summarize(rows, names, false, minutes, arms=None):
         late = sum(1 for x in lats if x >= 2)
         wrong = sum(1 for w in ws if w[4]); missed = sum(1 for w in ws if w[5]); spur = sum(w[6] for w in ws); early = sum(w[7] for w in ws)
         fm = sum(false[k].get(m, 0) for k in keys) / max(1e-9, sum(minutes[k] for k in keys)) if m in false.get(keys[0], {}) else float("nan")
-        print(f"  {m:10s} {1000*sc/n:7.1f} {1000*hp/n:6.1f} {-1000*why['hit the wall']/n:6.1f} {-1000*why['speared']/n:6.1f} "
+        print(f"  {m:10s} {1000*sc/n:7.1f} {1000*acc/n:7.1f} {1000*hp/n:6.1f} {-1000*why['hit the wall']/n:6.1f} {-1000*why['speared']/n:6.1f} "
               f"{-1000*why['ran into the tail']/n:6.1f} | {sum(lats)/max(1,len(lats)):7.3f} {1000*late/max(1,len(lats)):6.1f} {1000*wrong/n:6.1f} "
               f"{1000*missed/n:6.1f} {1000*spur/n:6.1f} {1000*early/n:6.1f} {fm:9.2f}")
-    print(f"  ({n} windows; score columns per 1000 windows; latency = mean ticks from the window start to the "
+    print(f"  ({n} windows; score columns per 1000 windows, acc. = the score with the turns placed -{TOL}..{TOL} ticks "
+          f"from the live game's first command, the best counting (timing counts for nothing); latency = mean ticks from the window start to the "
           f"intended turn, late = per 1000 of them at 2 ticks or more; per 1000 windows: wrong first turn, missed turn, "
           f"spur. = turns after every asked turn was made or where none was asked, early = a later asked turn made "
           f"before its finger movement; false/min = open-loop turn starts where the oracle says none)")
 
 
-def boot(rows, keys, a, b, n=2000, seed=1):
+def boot(rows, keys, a, b, n=2000, seed=1, acc=False):
     keys = [k for k in keys if rows[k]]
-    per = {k: (sum(h - d for h, d, *_ in rows[k][a]) - sum(h - d for h, d, *_ in rows[k][b]), len(rows[k][a])) for k in keys}
+    val = (lambda w: w[8]) if acc else (lambda w: w[0] - w[1])
+    per = {k: (sum(val(w) for w in rows[k][a]) - sum(val(w) for w in rows[k][b]), len(rows[k][a])) for k in keys}
     rnd = random.Random(seed)
     ds = []
     for _ in range(n):
@@ -501,10 +512,11 @@ def main():
                 summarize(rows, names, false, minutes, arms)
         if rows_test:
             keys_t = list(rows_test)
-            print("\nTest score, new minus each (per 1000 windows, 90% range over games):")
+            print("\nTest, new minus each (per 1000 windows, 90% range over games): score | accuracy score")
             for m in names[:-2]:
                 tot, lo, hi = boot(rows_test, keys_t, "new", m)
-                print(f"  vs {m:10s} {tot:+6.1f} [{lo:+.1f}, {hi:+.1f}]")
+                ta, la, ha = boot(rows_test, keys_t, "new", m, acc=True)
+                print(f"  vs {m:10s} {tot:+6.1f} [{lo:+.1f}, {hi:+.1f}] | {ta:+6.1f} [{la:+.1f}, {ha:+.1f}]")
 
 
 if __name__ == "__main__":
