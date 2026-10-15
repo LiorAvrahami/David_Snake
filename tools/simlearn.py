@@ -185,7 +185,7 @@ class PolicyInputs(WS.Inputs):
         if a is None:
             a = self.pol.decide(f)
         if self.record is not None:
-            self.record.append((k, f, a))
+            self.record.append((k, f, a, h, self.ts[-1]))
         if a:
             j = bisect.bisect_left(self.ts, self.ts[-1] - 160)
             vec = (self.xs[-1] - self.xs[j], self.ys[-1] - self.ys[j])
@@ -289,7 +289,7 @@ def examples(g, pol):
     for spec in g.specs:
         rec = []
         base = run(g, spec, pol, record=rec)
-        for k, f, a in rec:
+        for k, f, a, *_ in rec:
             q = [0.0] * 4
             q[a] = base
             for b in range(4):

@@ -35,13 +35,13 @@ def main():
     spec = spec_from(path)
     tr = spec["training"]
     args = shlex.split(tr["command"])
-    assert args[:2] == ["python3", "tools/simlearn.py"], tr["command"]
+    assert args[0] == "python3" and args[1] in ("tools/simlearn.py", "tools/intentlearn.py"), tr["command"]
     files = {d["file"]: d for d in tr["data"]}
     commit = tr["code"].rsplit(" ", 1)[-1]
     tmp = tempfile.mkdtemp(prefix="retrain_")
     tar = subprocess.run(["git", "-C", ROOT, "archive", commit, "tools"], check=True, capture_output=True).stdout
     subprocess.run(["tar", "-x", "-C", tmp], input=tar, check=True)
-    cmd = [sys.executable, "-I", os.path.join(tmp, "tools", "simlearn.py")]
+    cmd = [sys.executable, "-I", os.path.join(tmp, "tools", os.path.basename(args[1]))]
     for a in args[2:]:
         if a in files:
             p = os.path.join(DATA, a)

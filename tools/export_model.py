@@ -8,18 +8,22 @@ code commit and the training files' hashes); with --game also
 app/src/main/java/com/davidsnake/game/MlModel.kt with the same weights and
 description, which the game logs with every recorded game.
 
-Usage: python3 tools/export_model.py NAME WEIGHTS.json COMMIT RESULT FILE=PATH... [SPLIT] [--game]
-  WEIGHTS.json  output of `simlearn.py ... --export`
+Usage: python3 tools/export_model.py NAME WEIGHTS.json COMMIT RESULT FILE=PATH... [SPLIT] [TRAINER] [--game]
+  WEIGHTS.json  output of the trainer's `--export`
   COMMIT        the commit of tools/ that trained it
   RESULT        how it tested (recorded as is)
   FILE=PATH     each recording given to the training, in order: the name to
                 record and where it is
-  SPLIT         the options that held out test games, as given to
-                simlearn.py: --holdout FRAC --seed S --never-test FILE,..."""
+  SPLIT         the options that held out test games, as given to the
+                trainer: --holdout FRAC --seed S --never-test FILE,...
+  TRAINER       --trainer simlearn (default: learning to search on the window
+                score) or intent (tools/intentlearn.py: the intended turn as
+                early as the finger shows it), with its --rounds N --w-turn W"""
 import hashlib, json, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lab_report import load, build
+import intentlearn as I
 import simlearn as L
 import windowsim as WS
 
@@ -36,7 +40,7 @@ def describe_data(name, path):
             "session_start": session.get("wall") if session else None, "games": len(games)}
 
 
-def spec_of(name, weights, commit, data, result, split_args=(), test_games=()):
+def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), trainer="simlearn", trainer_args=()):
     ws, wb = weights["w_side"], weights["w_back"]
     assert len(ws) == len(wb) == L.NF
     wsha = hashlib.sha256(json.dumps({"w_side": ws, "w_back": wb}, separators=(",", ":")).encode()).hexdigest()
@@ -84,43 +88,94 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=()):
         "w_side": ws,
         "w_back": wb,
         "weights_sha256": wsha,
-        "training": {
-            "code": f"tools/simlearn.py at commit {commit}",
-            "command": "python3 tools/simlearn.py " + " ".join(d["file"] for d in data)
-                       + f" --iters {ITERS}" + "".join(" " + a for a in split_args) + " --export",
-            "deterministic": "re-running the command on the same files gives identical weights",
-            "data": data,
-            "test_games": [{"file": f, "game": n} for f, n in test_games],
-            "method": "learning to search on the window simulation (tools/windowsim.py): in every "
-                      "gesture window of the training games the model plays the window; at each tick "
-                      "it decided, each of the four answers is tried, the model deciding the rest; the "
-                      "four window scores are that tick's example; weights minimize the expected loss "
-                      "against the best answer (softmax, L2) by Adam; examples accumulate over rounds; "
-                      "round 0 copies the live game's own turns",
-            "settings": {"rounds": ITERS, "l2": L.L2, "adam_lr": 0.05,
-                         "fit_steps": 600, "copy_fit_steps": 400, "copy_turn_weight": 3.0},
-            "split": "the games listed in test_games were held out (not trained on): " + (
-                     " ".join(split_args) + " in tools/simlearn.py split()" if split_args else "none"),
-            "objective": {
-                "windows": "one per gesture start: finger speed rising from under "
-                           f"{WS.V_REST:g} to over {WS.V_MOVE:g} dp/s with {WS.GESTURE_DP:g} dp of travel, "
-                           f"or a turn of {WS.SPLIT_DEG:g} degrees or more while moving (speed over "
-                           f"{WS.SPEED_MS} ms); a gesture starting less than {WS.JOIN_MS} ms after a "
-                           "window's start belongs to that window",
-                "input": f"the finger samples of the first {WS.READ_MS} ms from the window's start; then, "
-                         "if David turned, one more turn before his next regular step after the latest "
-                         "turn, which ends the input",
-                "run": "after the input David goes straight until he eats the harp or dies",
-                "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
-                "death": f"-{WS.DEATH:g} times exp(-(s - 1) / decay), s = steps from the window start "
-                         "to the death, decay by cause; a spear hitting David from the side (flying "
-                         "across the direction of his last step) costs nothing",
-                "death_decay_steps": WS.DECAY,
-                "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
-            },
-            "result": result,
-        },
+        "training": TRAINING[trainer](commit, data, split_args, test_games, trainer_args, result),
     }
+
+
+def objective():
+    return {
+        "windows": "one per gesture start: finger speed rising from under "
+                   f"{WS.V_REST:g} to over {WS.V_MOVE:g} dp/s with {WS.GESTURE_DP:g} dp of travel, "
+                   f"or a turn of {WS.SPLIT_DEG:g} degrees or more while moving (speed over "
+                   f"{WS.SPEED_MS} ms); a gesture starting less than {WS.JOIN_MS} ms after a "
+                   "window's start belongs to that window",
+        "input": f"the finger samples of the first {WS.READ_MS} ms from the window's start; then, "
+                 "if David turned, one more turn before his next regular step after the latest "
+                 "turn, which ends the input",
+        "run": "after the input David goes straight until he eats the harp or dies",
+        "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
+        "death": f"-{WS.DEATH:g} times exp(-(s - 1) / decay), s = steps from the window start "
+                 "to the death, decay by cause; a spear hitting David from the side (flying "
+                 "across the direction of his last step) costs nothing",
+        "death_decay_steps": WS.DECAY,
+        "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
+    }
+
+
+def split_text(split_args):
+    return "the games listed in test_games were held out (not trained on): " + (
+        " ".join(split_args) + " in tools/simlearn.py split()" if split_args else "none")
+
+
+def training_simlearn(commit, data, split_args, test_games, trainer_args, result):
+    return {
+        "code": f"tools/simlearn.py at commit {commit}",
+        "command": "python3 tools/simlearn.py " + " ".join(d["file"] for d in data)
+                   + f" --iters {ITERS}" + "".join(" " + a for a in split_args) + " --export",
+        "deterministic": "re-running the command on the same files gives identical weights",
+        "data": data,
+        "test_games": [{"file": f, "game": n} for f, n in test_games],
+        "method": "learning to search on the window simulation (tools/windowsim.py): in every "
+                  "gesture window of the training games the model plays the window; at each tick "
+                  "it decided, each of the four answers is tried, the model deciding the rest; the "
+                  "four window scores are that tick's example; weights minimize the expected loss "
+                  "against the best answer (softmax, L2) by Adam; examples accumulate over rounds; "
+                  "round 0 copies the live game's own turns",
+        "settings": {"rounds": ITERS, "l2": L.L2, "adam_lr": 0.05,
+                     "fit_steps": 600, "copy_fit_steps": 400, "copy_turn_weight": 3.0},
+        "split": split_text(split_args),
+        "objective": objective(),
+        "result": result,
+    }
+
+
+def training_intent(commit, data, split_args, test_games, trainer_args, result):
+    args = dict(zip(trainer_args[::2], trainer_args[1::2]))
+    rounds, w_turn = int(args.get("--rounds", I.ROUNDS)), float(args.get("--w-turn", I.W_TURN))
+    w_reject, w_hold = float(args.get("--w-reject", I.W_REJECT)), float(args.get("--w-hold", I.W_HOLD))
+    return {
+        "code": f"tools/intentlearn.py at commit {commit}",
+        "command": "python3 tools/intentlearn.py " + " ".join(d["file"] for d in data)
+                   + f" --rounds {rounds} --w-turn {w_turn:g} --w-reject {w_reject:g} --w-hold {w_hold:g}"
+                   + "".join(" " + a for a in split_args) + " --export",
+        "deterministic": "re-running the command on the same files gives identical weights",
+        "data": data,
+        "test_games": [{"file": f, "game": n} for f, n in test_games],
+        "method": "the intended turn as early as the finger shows it (DAgger): in every gesture "
+                  "window of the training games the live game's turns give the intended screen "
+                  "directions; the right answer at a tick is the first intended direction not yet "
+                  "reached, relative to David's heading, from the moment the finger movement asking "
+                  f"for it is clear ({WS.GESTURE_DP:g} dp of travel at {WS.V_MOVE:g} dp/s; a second turn "
+                  "answering the same movement: clear at the live turn, asked from when the first "
+                  "was clear), unknown between the movement's start and that moment (no example), "
+                  f"none otherwise; a target not reached within {I.TIMEOUT_MS} ms of its movement's "
+                  "start is dropped. Examples (features, answer) at every tick of the live games, "
+                  "then at every tick the model decides while playing the windows (one round of "
+                  "rollouts per round); the softmax policy is refitted on all examples each round "
+                  "(cross-entropy, L2, Adam) with turn answers weighted w_turn, none answers during "
+                  "a clear finger movement the live game did not answer (for 300 ms) w_reject, and "
+                  f"none answers within {I.HOLD_MS} ms after a turn w_hold",
+        "settings": {"rounds": rounds, "w_turn": w_turn, "w_reject": w_reject, "w_hold": w_hold,
+                     "timeout_ms": I.TIMEOUT_MS, "hold_ms": I.HOLD_MS, "l2": L.L2, "adam_lr": 0.05, "fit_steps": 400},
+        "split": split_text(split_args),
+        "objective": objective(),
+        "note": "the window score only judges the model; it is calibrated to the live recognizer's "
+                "latency (a turn one tick earlier or later than it loses about 3% of harps either way)",
+        "result": result,
+    }
+
+
+TRAINING = {"simlearn": training_simlearn, "intent": training_intent}
 
 
 def kotlin(spec):
@@ -152,12 +207,21 @@ object MlModel {{
 
 if __name__ == "__main__":
     argv = [a for a in sys.argv if a != "--game"]
-    split_args = []
+    split_args, trainer_args, trainer = [], [], "simlearn"
     for opt in ("--holdout", "--seed", "--never-test"):
         if opt in argv:
             i = argv.index(opt)
             split_args += argv[i:i + 2]
             del argv[i:i + 2]
+    for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold"):
+        if opt in argv:
+            i = argv.index(opt)
+            trainer_args += argv[i:i + 2]
+            del argv[i:i + 2]
+    if "--trainer" in argv:
+        i = argv.index("--trainer")
+        trainer = argv[i + 1]
+        del argv[i:i + 2]
     args = argv[1:]
     if len(args) < 5:
         print(__doc__)
@@ -174,7 +238,7 @@ if __name__ == "__main__":
                 arms[(fname, q.n)] = q.arm
     _, o = L.options(["simlearn.py"] + split_args)
     _, test = L.split(keys, arms, o["holdout"], o["seed"], o["never_test"])
-    spec = spec_of(name, json.load(open(wpath)), commit, data, result, split_args, test)
+    spec = spec_of(name, json.load(open(wpath)), commit, data, result, split_args, test, trainer, trainer_args)
     out = os.path.join(ROOT, "tools", "models", name.lower() + ".json")
     with open(out, "w") as f:
         json.dump(spec, f, indent=1)
