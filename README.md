@@ -91,21 +91,42 @@ edge of the screen from one side to the other turns it off, and on again. The to
   (same split options) prints the training, test and summary score tables,
   and `tools/export_model.py` records a model with a complete description
   (`tools/models/<name>.json`; `--trainer intent` for intentlearn), and
-  with `--game` puts it in the game (`MlModel.kt`).
+  with `--game` puts it in the game (`MlModel.kt`). `--tolerance 1
+  --ref ML-1` in `compare_models.py` prints the accuracy score tables and
+  differences against ML-1.
 - The input is `ML-3` (from v1.17), trained with `tools/intentlearn.py`
   on 123 of the 176 recorded games (53 held out, all new to ML-1 too): on
   the held-out games it turns about a quarter sooner than ML-1 (0.63 vs
   0.83 ticks after the gesture start; turns 2 ticks or later 82 vs 130 per
   1000) and misses fewer swipes, with the same window score (355.3 vs
-  354.4 per 1000 gestures; S2-FAST 350.2). Before it: `ML-2` (v1.16,
-  trained on the window score, slower and missing more swipes: 346.0) and
-  `ML-1` (41 games; `tools/models/ml-1.json`). Every recorded game starts
+  354.4 per 1000 gestures) and the same timing-tolerant accuracy score
+  (413.2 vs 412.2; over all 176 games +2.7 against ML-1, 90% range -0.2
+  to +5.7). `ML-4` (`tools/models/ml-4.json`) is the same training weighted
+  for fewer turns the live game did not make (24 vs 44 per 1000): as
+  accurate (413.0), between ML-3 and ML-1 in latency (0.71 ticks), a
+  one-line switch if ML-3 turns too eagerly. Before them: `ML-2` (v1.16,
+  trained on the window score: slower, missing more swipes, and less
+  accurate, 408.5) and `ML-1` (41 games). Every recorded game starts
   with a `model` line holding the input in full: recognizer, settings,
   weights, features, and how it was trained (code commit, training files
   with sha256, settings, held-out games), so it can be rebuilt from the
   file alone; every finger sample carries its game tick.
   `python3 tools/mlparity.py FILE` rebuilds the model from each game's
   model line, replays the game, and checks every decision.
+- Timing-tolerant accuracy score: `tools/compare_models.py --tolerance 1`
+  (and the `acc.` column of `tools/intentlearn.py`) scores each window by
+  the best of the model's turns placed one tick before to one tick after
+  the live game's turn, the same placements for every model, so timing
+  counts for nothing and the score shows the accuracy of the turns
+  (direction, unwanted and missed turns). Its paired noise over games is
+  about a third of the plain score's. The plain score mixes timing in:
+  the player timed every swipe for the recognizer that was playing, so a
+  turn one tick earlier or later than it loses about 3% of harps either
+  way (measured on ML-1: -30 and -27 per 1000), and `tools/simlearn.py`,
+  which learns from the plain score (learning to search), only copies the
+  live recognizer plus noise (ML-2); regret training on the tolerant score
+  (`--tolerance 1 --init MODEL`) did not improve accuracy either, the
+  harp signal being too noisy per decision.
 - `tools/models/`: every trained model's description; `python3
   tools/retrain.py tools/models/<name>.json` retrains it from the
   description alone and checks the weights come out identical.
