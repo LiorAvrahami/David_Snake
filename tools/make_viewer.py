@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Builds viewer/decisions.html: a page to open in a browser that replays
 example gestures from the training recordings as the game screen, once per
-input method (S2-FAST, ML-1, ML-2), next to the finger movement.
+input method (S2-FAST, ML-1, ML-3), next to the finger movement.
 
 Every gesture window of every recording is simulated for the three methods
 (tools/windowsim.py scoring, run by its own code; spears as the scorer sees them); example
-windows are picked by kind (different turns, timing only, ML-1 vs ML-2,
+windows are picked by kind (different turns, timing only, ML-1 vs ML-3,
 all the same), and the page also shows how often the methods differ. Each
 example starts PRE_TICKS before the gesture, with the real game, for
 context.
@@ -25,13 +25,13 @@ import windowsim as WS
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REC = os.path.join(ROOT, "training_recordings")
 SPRITES = os.path.join(ROOT, "app", "src", "main", "res", "drawable-nodpi")
-MODELS = ("S2-FAST", "ML-1", "ML-2")
+MODELS = ("S2-FAST", "ML-1", "ML-3")
 PRE_TICKS = 24          # the real game shown before the gesture (about 1.1 s)
 
 
 def policies():
     out = {}
-    for name in ("ML-1", "ML-2"):
+    for name in ("ML-1", "ML-3"):
         spec = json.load(open(os.path.join(ROOT, "tools", "models", name.lower() + ".json")))
         out[name] = L.Policy.from_spec(spec)
     return out
@@ -85,7 +85,7 @@ def game_windows(job):
         if k in starts:
             s = starts[k]
             res = {"S2-FAST": traced(real, k, WS.RecInputs(s.t0, cls, shadow, samples, slots, s.i))}
-            for m in ("ML-1", "ML-2"):
+            for m in ("ML-1", "ML-3"):
                 res[m] = traced(real, k, L.PolicyInputs(s.t0, pols[m], samples, slots, s.i, s.stroke))
             end = k + 20
             fin = []
@@ -160,13 +160,13 @@ def main():
         wins = [w for r in pool.map(game_windows, jobs) for w in r]
     n = len(wins)
     stats = []
-    for a, b in (("S2-FAST", "ML-1"), ("S2-FAST", "ML-2"), ("ML-1", "ML-2")):
+    for a, b in (("S2-FAST", "ML-1"), ("S2-FAST", "ML-3"), ("ML-1", "ML-3")):
         c = Counter(kind(w["res"][a], w["res"][b]) for w in wins)
         sc = sum(1 for w in wins if abs(w["res"][a]["score"] - w["res"][b]["score"]) > 0.01)
         stats.append({"pair": f"{a} vs {b}", "same": c["same"] / n, "timing": c["timing"] / n,
                       "turns": c["turns"] / n, "outcome": sc / n})
     allsame = sum(1 for w in wins if kind(w["res"]["S2-FAST"], w["res"]["ML-1"]) == "same"
-                  and kind(w["res"]["ML-1"], w["res"]["ML-2"]) == "same") / n
+                  and kind(w["res"]["ML-1"], w["res"]["ML-3"]) == "same") / n
     S, M1, M2 = MODELS
     better = lambda w, a, b: w["res"][a]["score"] > w["res"][b]["score"] + 0.05
     cats = [
@@ -174,7 +174,7 @@ def main():
         ("Different turns: S2-FAST does better", lambda w: kind(w["res"][S], w["res"][M1]) == "turns" and better(w, S, M1)),
         ("Same turns, different timing (outcome differs)",
          lambda w: kind(w["res"][S], w["res"][M1]) == "timing" and abs(w["res"][S]["score"] - w["res"][M1]["score"]) > 0.05),
-        ("ML-1 and ML-2 differ", lambda w: kind(w["res"][M1], w["res"][M2]) != "same"
+        ("ML-1 and ML-3 differ", lambda w: kind(w["res"][M1], w["res"][M2]) != "same"
          and abs(w["res"][M1]["score"] - w["res"][M2]["score"]) > 0.05),
         ("All three decide the same", lambda w: kind(w["res"][S], w["res"][M1]) == "same"
          and kind(w["res"][M1], w["res"][M2]) == "same" and w["res"][S]["turns"]),

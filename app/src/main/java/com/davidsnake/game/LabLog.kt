@@ -33,13 +33,15 @@ object Arms {
     val SMART2_FAST = Arm("S2-FAST", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
         SmartRecognizer(v2 = true, cooldownMs = 120L)
     }
-    /** The model trained on the game simulation ([MlModel]; now ML-2). */
+    /** The trained turn model ([MlModel]; now ML-3). */
     val ML = Arm(MlModel.NAME, GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) { LearnedRecognizer() }
 
-    /** Normal play and debug recording. ML-2, to record games with it for
-     *  diagnosis: on held-out games of the window simulation
-     *  (tools/simlearn.py, tools/windowsim.py) it did not beat ML-1, the
-     *  input before it (ML-1's weights: tools/models/ml-1.json). */
+    /** Normal play and debug recording. ML-3 is trained to make the turn the
+     *  player meant as early as the finger shows it (tools/intentlearn.py):
+     *  on held-out games it turns about a quarter sooner than ML-1 and
+     *  misses fewer swipes, with the same window score; ML-2, trained on
+     *  the window score, was slower and missed more (the score is calibrated
+     *  to the live recognizer's latency). Earlier models: tools/models/. */
     val DEFAULT = ML
 
     /** Debug mode records with these arms in turn, [BLOCK] games each; a

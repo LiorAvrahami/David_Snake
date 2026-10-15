@@ -70,33 +70,48 @@ edge of the screen from one side to the other turns it off, and on again. The to
   reaction to the live model's turns. Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.
-  `python3 tools/simlearn.py FILE... --holdout 0.3 --seed 1 --never-test FILE,...`
-  trains a small weighted-formula turn model on that score (finger
-  movement only; at each tick it tries all four answers, none/left/right/
-  back, in the simulation and learns from the outcomes) on the training
-  games, holding out a seeded 30% of the games for testing (never from the
-  `--never-test` files); `--export` prints just the weights.
+  `python3 tools/intentlearn.py FILE... --holdout 0.3 --seed 1 --never-test FILE,...`
+  trains a small weighted-formula turn model (finger movement only) to
+  make the turn the player meant as early as the finger shows it: the
+  live game's turns give each gesture's intended direction, the answer
+  at a tick is the first intended turn not yet made, from the moment the
+  gesture detector counts the movement (DAgger on the live games and the
+  model's own play of the windows; `--w-turn`, `--w-reject`, `--w-hold`
+  weigh turns, movements the live game ignored, and the time right after
+  a turn). It holds out a seeded 30% of the games (never from the
+  `--never-test` files) or cross-validates (`--folds 4`), and reports the
+  window score next to latency, wrong, missed, spurious and early turns,
+  also broken down by the recognizer the games were played with; `--export`
+  prints just the weights. The window score only judges: it is calibrated
+  to the live recognizer's latency (a turn one tick earlier or later than
+  it loses about 3% of harps either way), so `tools/simlearn.py`, which
+  learns from the score (learning to search), only copies the live
+  recognizer plus noise; it is kept for reference.
   `python3 tools/compare_models.py FILE... --models tools/models/ml-1.json,...`
-  (same split options) prints the training, test and summary tables, and
-  `tools/export_model.py` records a model with a complete description
-  (`tools/models/<name>.json`), and with `--game` puts it in the game
-  (`MlModel.kt`).
-- The input is `ML-2` (from v1.16), to record games with it for
-  diagnosis; before it, `ML-1`, trained on 41 games (it beat S2-FAST on
-  held-out games; `tools/models/ml-1.json`). Every recorded game starts
+  (same split options) prints the training, test and summary score tables,
+  and `tools/export_model.py` records a model with a complete description
+  (`tools/models/<name>.json`; `--trainer intent` for intentlearn), and
+  with `--game` puts it in the game (`MlModel.kt`).
+- The input is `ML-3` (from v1.17), trained with `tools/intentlearn.py`
+  on 123 of the 176 recorded games (53 held out, all new to ML-1 too): on
+  the held-out games it turns about a quarter sooner than ML-1 (0.63 vs
+  0.83 ticks after the gesture start; turns 2 ticks or later 82 vs 130 per
+  1000) and misses fewer swipes, with the same window score (355.3 vs
+  354.4 per 1000 gestures; S2-FAST 350.2). Before it: `ML-2` (v1.16,
+  trained on the window score, slower and missing more swipes: 346.0) and
+  `ML-1` (41 games; `tools/models/ml-1.json`). Every recorded game starts
   with a `model` line holding the input in full: recognizer, settings,
   weights, features, and how it was trained (code commit, training files
-  with sha256, settings), so it can be rebuilt from the file alone; every
-  finger sample carries its game tick. `python3 tools/mlparity.py FILE`
-  rebuilds the model from each game's model line, replays the game, and
-  checks every decision.
-- `tools/models/ml-2.json`: ML-2, trained like ML-1 but with the 250 ms
-  windows, on 123 of the 176 games (53 held out, all new to ML-1 too). On
-  the held-out games it did not beat ML-1 (per 1000 gestures: ML-1 354.4,
-  ML-2 346.0, S2-FAST 350.2); it is in the game for diagnosis.
+  with sha256, settings, held-out games), so it can be rebuilt from the
+  file alone; every finger sample carries its game tick.
+  `python3 tools/mlparity.py FILE` rebuilds the model from each game's
+  model line, replays the game, and checks every decision.
+- `tools/models/`: every trained model's description; `python3
+  tools/retrain.py tools/models/<name>.json` retrains it from the
+  description alone and checks the weights come out identical.
 - `viewer/decisions.html` (open it in a browser) replays example gestures
   from the recordings as the game screen, once per input method (S2-FAST,
-  ML-1, ML-2), next to the finger movement, with how often the methods
+  ML-1, ML-3), next to the finger movement, with how often the methods
   decide differently; `python3 tools/make_viewer.py` rebuilds it.
 - `viewer/finishing_rules.html` (open it in a browser) compares two ways
   of finishing a move after 250 ms of reading (one more turn until 300 ms,
@@ -106,9 +121,8 @@ edge of the screen from one side to the other turns it off, and on again. The to
   as the app exported them, with a list of what is in it (its README).
   Add new exports with `python3 tools/add_recordings.py FILE...`, which
   skips duplicate files and games and checks every game replays exactly.
-  The models' descriptions name the files they were trained on, with hashes. `python3 tools/retrain.py` retrains it from
-  its description (`tools/models/ml-1.json`, or any recorded game's model
-  line) and checks the weights come out identical.
+  The models' descriptions name the files they were trained on, with
+  hashes.
 
 
 Earlier tests: test 1 (v1.1.50) found the original input best for long

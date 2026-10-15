@@ -40,7 +40,7 @@
   figure { margin: 0; background: var(--panel); border-radius: 6px; padding: 8px; border-top: 4px solid var(--line); }
   figure.S2-FAST { border-top-color: var(--s2); }
   figure.ML-1 { border-top-color: var(--m1); }
-  figure.ML-2 { border-top-color: var(--m2); }
+  figure.ML-3 { border-top-color: var(--m2); }
   figcaption { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; margin-bottom: 6px; }
   figcaption b { font-size: 14px; }
   figcaption .out { color: var(--ink2); text-align: right; }
@@ -63,7 +63,7 @@
 </head>
 <body>
 <header>
-  <h1>Input decisions: S2-FAST, ML-1 and ML-2 in the same situations</h1>
+  <h1>Input decisions: S2-FAST, ML-1 and ML-3 in the same situations</h1>
   <p class="sub" id="summary"></p>
   <table class="stats" id="stats"></table>
 </header>
@@ -75,7 +75,7 @@
     <div class="grid">
       <figure class="S2-FAST"><figcaption><span><span class="sw" style="background:var(--s2)"></span><b>S2-FAST</b></span><span class="out" id="out-S2-FAST"></span></figcaption><canvas width="1110" height="726" id="c-S2-FAST"></canvas></figure>
       <figure class="ML-1"><figcaption><span><span class="sw" style="background:var(--m1)"></span><b>ML-1</b></span><span class="out" id="out-ML-1"></span></figcaption><canvas width="1110" height="726" id="c-ML-1"></canvas></figure>
-      <figure class="ML-2"><figcaption><span><span class="sw" style="background:var(--m2)"></span><b>ML-2</b></span><span class="out" id="out-ML-2"></span></figcaption><canvas width="1110" height="726" id="c-ML-2"></canvas></figure>
+      <figure class="ML-3"><figcaption><span><span class="sw" style="background:var(--m2)"></span><b>ML-3</b></span><span class="out" id="out-ML-3"></span></figcaption><canvas width="1110" height="726" id="c-ML-3"></canvas></figure>
       <figure><figcaption><b>Your finger</b><span class="out" id="fingerinfo"></span></figcaption><canvas width="1110" height="726" id="c-finger"></canvas></figure>
     </div>
     <div id="controls">
@@ -97,7 +97,7 @@
         <li>Each example opens about 1.1 s before your gesture, with the real game as you played it (the same on all three boards; gray line = where David came from). From the moment the gesture began, each board shows what that method does with your actual finger movement: it reads your finger for 250 ms, and, if it turned David, until his next regular step for one more turn (the second half of a one-cell side step or U-turn); then David goes straight until he eats the harp or dies, as the scoring assumes.</li>
         <li>Only spears from attackers already on screen when the gesture began are simulated (attackers aim at where David is, so later ones would differ).</li>
         <li>Score: harp +1; a death costs −0.5, less the later it comes (decay length 1 step for wall and tail, 3.7 for spears); a spear from the side costs nothing.</li>
-        <li>Paths: the line shows the whole run (dashed = still to come); rings mark the turns. On the finger panel, the rings mark the finger sample at which each method turned (biggest = S2-FAST, middle = ML-1, smallest = ML-2); gray = finger movement before or after the gesture's input.</li>
+        <li>Paths: the line shows the whole run (dashed = still to come); rings mark the turns. On the finger panel, the rings mark the finger sample at which each method turned (biggest = S2-FAST, middle = ML-1, smallest = ML-3); gray = finger movement before or after the gesture's input.</li>
         <li>Keys: <kbd>space</kbd> play/pause, <kbd>←</kbd> <kbd>→</kbd> one tick, <kbd>g</kbd> gesture start, <kbd>↑</kbd> <kbd>↓</kbd> previous / next example.</li>
       </ul>
     </div>
@@ -109,9 +109,9 @@ const DATA = /*DATA*/{};
 </script>
 <script>
 "use strict";
-const MODELS = ["S2-FAST", "ML-1", "ML-2"];
-const COLOR = {"S2-FAST": "#2a78d6", "ML-1": "#eb6834", "ML-2": "#1baf7a"};
-const RING = {"S2-FAST": 15, "ML-1": 10.5, "ML-2": 6};
+const MODELS = ["S2-FAST", "ML-1", "ML-3"];
+const COLOR = {"S2-FAST": "#2a78d6", "ML-1": "#eb6834", "ML-3": "#1baf7a"};
+const RING = {"S2-FAST": 15, "ML-1": 10.5, "ML-3": 6};
 const LET = "URDL", DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
 const CELL = 48, OFF = 51, COLS = 21, ROWS = 13;
 const WHY = {"harp": "ate the harp", "hit the wall": "hit the wall", "speared": "speared",
