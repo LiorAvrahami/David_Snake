@@ -9,16 +9,18 @@ the wall, being speared, running into the tail), and a summary: training
 total, test total, and test minus S2-FAST with its 90% range (bootstrap
 over test games).
 
---tolerance N scores each window by the best of the model's turns moved
-together so that its first turn lands N ticks before to N ticks after the
-live game's first command in the window (windowsim.run_window_tolerant),
-the same placements for every model, so timing counts for nothing and the
-score shows the accuracy of the turns; with --alpha A (default 1) the
-score is A times that plus (1 - A) times the plain score.
+--tolerance N scores each window by the Final score: the model's turns
+moved together so that its first turn lands N ticks before to N ticks
+after where it made it (--anchored: after the live game's first command
+in the window, the same placements for every model), the best counting
+(windowsim.run_window_tolerant), times --alpha A (default 0.9), plus the
+plain run times 1 - A: timing counts for little, the score shows the
+accuracy of the turns. A turn placed one tick before the window runs from
+the real state one tick earlier.
 
 Usage: python3 tools/compare_models.py FILE... --models tools/models/ml-1.json,tools/models/ml-2.json
                                        [--holdout FRAC] [--seed S] [--never-test FILE,...]
-                                       [--tolerance N] [--alpha A] [--ref MODEL]"""
+                                       [--tolerance N] [--alpha A] [--anchored] [--ref MODEL]"""
 import bisect, json, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
@@ -34,10 +36,9 @@ CAUSES = ("hit the wall", "speared", "ran into the tail")
 
 
 def _outcomes(args):
-    """Per window and model: (harp, death, why) with the plain or the tolerant score
-    (harp - death is the score; with tolerance the best shift's outcome, and death
-    adjusted so that harp - death is the alpha-weighted score)."""
-    key, models, tol, alpha = args
+    """Per window and model: (harp, death, why, score): the plain run's, or with
+    tolerance the best placement's outcome and the Final score."""
+    key, models, tol, alpha, anchored = args
     g = I.GAMES[key]
     shifts = tuple(range(-tol, tol + 1))
     runs = {name: [] for name in ["S2-FAST", "live"] + [m for m, _ in models]}
@@ -49,29 +50,32 @@ def _outcomes(args):
             inputs[name] = L.PolicyInputs(spec.t0, pol, g.samples, g.slots, spec.i, spec.stroke)
         for name, inp in inputs.items():
             if tol:
-                plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inp, shifts, spec.anchor)
+                plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inp, shifts,
+                                                     spec.anchor if anchored else None, prev=spec.prev)
                 sc, w = WS.tolerant_score(plain, outs, alpha)
-                runs.setdefault(name, []).append((w.harp, w.harp - sc, w.why))
+                runs.setdefault(name, []).append((w.harp, w.death, w.why, sc))
             else:
                 w = WS.run_window(spec.real, spec.k, inp)
-                runs.setdefault(name, []).append((w.harp, w.death, w.why))
+                runs.setdefault(name, []).append((w.harp, w.death, w.why, w.score))
     return key, runs
 
 
 def row(res, keys, m):
+    """Per 1000 windows: the score, the harps, and the death penalties by cause
+    (of the outcomes that count: with tolerance the best placements')."""
     n = sum(len(res[k][m]) for k in keys)
-    harp = sum(h for k in keys for h, _, _ in res[k][m])
+    total = sum(sc for k in keys for _, _, _, sc in res[k][m])
+    harp = sum(h for k in keys for h, _, _, _ in res[k][m])
     pen = defaultdict(float)
     for k in keys:
-        for _, d, why in res[k][m]:
+        for _, d, why, _ in res[k][m]:
             if why in CAUSES:
                 pen[why] += d
-    total = harp - sum(pen.values())
     return [1000 * total / n, 1000 * harp / n] + [-1000 * pen[c] / n for c in CAUSES]
 
 
 def boot(res, keys, m, ref="S2-FAST", n=2000, seed=1):
-    per = {k: (sum(h - d for h, d, _ in res[k][m]) - sum(h - d for h, d, _ in res[k][ref]), len(res[k][ref]))
+    per = {k: (sum(sc for *_, sc in res[k][m]) - sum(sc for *_, sc in res[k][ref]), len(res[k][ref]))
            for k in keys}
     rnd = random.Random(seed)
     ds = []
@@ -84,7 +88,8 @@ def boot(res, keys, m, ref="S2-FAST", n=2000, seed=1):
 
 def main():
     argv = list(sys.argv)
-    models, tol, alpha, ref = [], 0, 1.0, "S2-FAST"
+    models, tol, alpha, ref, anchored = [], 0, 0.9, "S2-FAST", "--anchored" in argv
+    argv = [a for a in argv if a != "--anchored"]
     if "--models" in argv:
         i = argv.index("--models")
         for path in argv[i + 1].split(","):
@@ -109,10 +114,11 @@ def main():
     with Pool(os.cpu_count(), initializer=I._init, initargs=(args,)) as pool:
         arms = {k: arm for k, arm, _ in pool.map(I._info, keys)}
         trn, test = L.split(keys, arms, o["holdout"], o["seed"], o["never_test"])
-        res = dict(pool.map(_outcomes, [(k, models, tol, alpha) for k in keys]))
+        res = dict(pool.map(_outcomes, [(k, models, tol, alpha, anchored) for k in keys]))
     if tol:
-        print(f"Timing-tolerant score: each window's turns moved together to land -{tol}..{tol} ticks "
-              f"from the live game's first command, the best counts" + (f" (alpha {alpha:g}: that times {alpha:g} plus the plain score times {1 - alpha:g})" if alpha != 1 else ""))
+        where = "from the live game's first command" if anchored else "from where the model made it"
+        print(f"Final score: each window's turns moved together to land -{tol}..{tol} ticks {where}, "
+              f"{alpha:g} times the best plus {1 - alpha:g} times the plain run")
     names = ["S2-FAST", "live"] + [m for m, _ in models]
     nw = lambda ks: sum(len(res[k]["S2-FAST"]) for k in ks)
     for title, ks in (("Training games", trn), ("Test games", test)):

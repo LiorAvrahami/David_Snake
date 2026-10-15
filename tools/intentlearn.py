@@ -238,20 +238,22 @@ def live_examples(g, w_reject=W_REJECT, w_hold=W_HOLD):
     return out
 
 
-TOL = 1                 # ticks of timing tolerance in the accuracy score
+TOL = 1                 # ticks of timing tolerance in the final score
+ALPHA = 0.9             # the final score: ALPHA * the best placement + (1 - ALPHA) * the plain run
 
 
 def traced(g, spec, inputs):
     """Run a window; returns (outcome, turns [(tick from the start, heading after,
-    time)], accuracy score: the best of the turns placed -TOL..TOL ticks from the
-    live game's first command, timing counting for nothing)."""
+    time)], final score: the best of the turns moved -TOL..TOL ticks from where
+    the model made them times ALPHA, plus the plain run times 1 - ALPHA)."""
     turns = []
 
     def watch(ev, sim, k, t, h0):
         if ev == "cmd" and sim.heading != h0:
             turns.append((k - spec.k, sim.heading, t))
-    plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inputs, tuple(range(-TOL, TOL + 1)), spec.anchor, watch)
-    return plain, turns, WS.tolerant_score(plain, outs)[0]
+    plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inputs, tuple(range(-TOL, TOL + 1)),
+                                         None, watch, spec.prev)
+    return plain, turns, WS.tolerant_score(plain, outs, ALPHA)[0]
 
 
 def rollout(g, spec, pol, targets, rejected=(), w_reject=W_REJECT, w_hold=W_HOLD):
@@ -413,7 +415,7 @@ def summarize(rows, names, false, minutes, arms=None):
         return
     keys = [k for k in rows if rows[k]]         # games with windows
     n = sum(len(rows[k][names[0]]) for k in keys)
-    print(f"  {'':10s} {'score':>7s} {'acc.':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} | {'latency':>7s} {'late':>6s} {'wrong':>6s} "
+    print(f"  {'':10s} {'score':>7s} {'final':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} | {'latency':>7s} {'late':>6s} {'wrong':>6s} "
           f"{'missed':>6s} {'spur.':>6s} {'early':>6s} {'false/min':>9s}")
     for m in names:
         ws = [w for k in keys for w in rows[k][m]]
@@ -431,8 +433,8 @@ def summarize(rows, names, false, minutes, arms=None):
         print(f"  {m:10s} {1000*sc/n:7.1f} {1000*acc/n:7.1f} {1000*hp/n:6.1f} {-1000*why['hit the wall']/n:6.1f} {-1000*why['speared']/n:6.1f} "
               f"{-1000*why['ran into the tail']/n:6.1f} | {sum(lats)/max(1,len(lats)):7.3f} {1000*late/max(1,len(lats)):6.1f} {1000*wrong/n:6.1f} "
               f"{1000*missed/n:6.1f} {1000*spur/n:6.1f} {1000*early/n:6.1f} {fm:9.2f}")
-    print(f"  ({n} windows; score columns per 1000 windows, acc. = the score with the turns placed -{TOL}..{TOL} ticks "
-          f"from the live game's first command, the best counting (timing counts for nothing); latency = mean ticks from the window start to the "
+    print(f"  ({n} windows; score columns per 1000 windows, final = {ALPHA:g} times the best score of the turns moved -{TOL}..{TOL} ticks "
+          f"plus {1 - ALPHA:g} times the plain score (timing counts for little); latency = mean ticks from the window start to the "
           f"intended turn, late = per 1000 of them at 2 ticks or more; per 1000 windows: wrong first turn, missed turn, "
           f"spur. = turns after every asked turn was made or where none was asked, early = a later asked turn made "
           f"before its finger movement; false/min = open-loop turn starts where the oracle says none)")
@@ -512,7 +514,7 @@ def main():
                 summarize(rows, names, false, minutes, arms)
         if rows_test:
             keys_t = list(rows_test)
-            print("\nTest, new minus each (per 1000 windows, 90% range over games): score | accuracy score")
+            print("\nTest, new minus each (per 1000 windows, 90% range over games): score | final score")
             for m in names[:-2]:
                 tot, lo, hi = boot(rows_test, keys_t, "new", m)
                 ta, la, ha = boot(rows_test, keys_t, "new", m, acc=True)

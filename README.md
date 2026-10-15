@@ -99,37 +99,40 @@ edge of the screen from one side to the other turns it off, and on again. The to
   the held-out games it turns about a quarter sooner than ML-1 (0.63 vs
   0.83 ticks after the gesture start; turns 2 ticks or later 82 vs 130 per
   1000) and misses fewer swipes, with the same window score (355.3 vs
-  354.4 per 1000 gestures) and the same timing-tolerant accuracy score
-  (413.2 vs 412.2; over all 176 games +2.7 against ML-1, 90% range -0.2
-  to +5.7). `ML-4` (`tools/models/ml-4.json`) is the same training weighted
-  for fewer turns the live game did not make (24 vs 44 per 1000): as
-  accurate (413.0), between ML-3 and ML-1 in latency (0.71 ticks), a
+  354.4 per 1000 gestures) and the same accuracy by the final score below
+  (411.4 vs 414.7 on the held-out games, 90% range -10.4 to +4.0; anchored
+  to the live turn, +2.4 over all 176 games, -0.5 to +5.5). `ML-4`
+  (`tools/models/ml-4.json`) is the same training weighted for fewer turns
+  the live game did not make (24 vs 44 per 1000): final score 415.2 on the
+  held-out games, between ML-3 and ML-1 in latency (0.71 ticks), a
   one-line switch if ML-3 turns too eagerly. Before them: `ML-2` (v1.16,
   trained on the window score: slower, missing more swipes, and less
-  accurate, 408.5) and `ML-1` (41 games). Every recorded game starts
+  accurate: final score 410.0, -4.6 against ML-1, -8.2 to -1.4) and
+  `ML-1` (41 games). Every recorded game starts
   with a `model` line holding the input in full: recognizer, settings,
   weights, features, and how it was trained (code commit, training files
   with sha256, settings, held-out games), so it can be rebuilt from the
   file alone; every finger sample carries its game tick.
   `python3 tools/mlparity.py FILE` rebuilds the model from each game's
   model line, replays the game, and checks every decision.
-- Timing-tolerant accuracy score: `tools/compare_models.py --tolerance 1`
-  (and the `acc.` column of `tools/intentlearn.py`) scores each window by
-  the best of the model's turns placed one tick before to one tick after
-  the live game's turn, the same placements for every model, so timing
-  counts for nothing and the score shows the accuracy of the turns
-  (direction, unwanted and missed turns). Its paired noise over games is
-  about a third of the plain score's. The plain score mixes timing in:
-  the player timed every swipe for the recognizer that was playing, so a
-  turn one tick earlier or later than it loses about 3% of harps either
-  way (measured on ML-1: -30 and -27 per 1000), and `tools/simlearn.py`,
-  which learns from the plain score (learning to search), only copies the
-  live recognizer plus noise (ML-2); regret training on the tolerant score
-  (`--tolerance 1 --init MODEL`) did not improve accuracy either, the
-  harp signal being too noisy per decision.
-- `tools/models/`: every trained model's description; `python3
-  tools/retrain.py tools/models/<name>.json` retrains it from the
-  description alone and checks the weights come out identical.
+- Final score (timing-tolerant): `tools/compare_models.py --tolerance 1`
+  (and the `final` column of `tools/intentlearn.py`) scores each window by
+  0.9 times the best score of the model's turns moved together one tick
+  before, not at all, or one tick after where it made them, plus 0.1
+  times the plain run (`--alpha` sets the mix; a turn placed one tick
+  before the window runs from the real state one tick earlier), so timing
+  counts for little and the score shows the accuracy of the turns
+  (direction, unwanted and missed turns). `--anchored` places every
+  model's turns one tick before to one tick after the live game's turn
+  instead, the same placements for all, which removes timing entirely.
+  The paired noise over games is about a third of the plain score's. The
+  plain score mixes timing in: the player timed every swipe for the
+  recognizer that was playing, so a turn one tick earlier or later than
+  it loses about 3% of harps either way (measured on ML-1: -30 and -27
+  per 1000), and `tools/simlearn.py`, which learns from the plain score
+  (learning to search), only copies the live recognizer plus noise
+  (ML-2); regret training on the final score (`--tolerance 1 --init
+  MODEL`) keeps a model's accuracy but loses its speed.
 - `viewer/decisions.html` (open it in a browser) replays example gestures
   from the recordings as the game screen, once per input method (S2-FAST,
   ML-1, ML-3), next to the finger movement, with how often the methods

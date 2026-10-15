@@ -222,13 +222,16 @@ def outcome(sim, k0, eaten_tick):
     return w
 
 
-def run_window(real, k0, inputs, watch=None):
+def run_window(real, k0, inputs, watch=None, ref=None):
     """Simulate from the real state after tick k0; inputs.slot(k, sim)
     yields the commands to run before tick k+1, one sample's at a time,
     as (t, [(dir, hold), ...]). watch(event, sim, k, t, heading before), if
-    given, sees every command ("cmd") and every tick ("tick")."""
+    given, sees every command ("cmd") and every tick ("tick"). ref is the
+    window's start when the run begins earlier (the spears taken and the
+    death decay are counted from it)."""
+    ref = k0 if ref is None else ref
     sim = real.copy()
-    sim.throw_limit = k0 + AIM_TICKS
+    sim.throw_limit = ref + AIM_TICKS
     sim.harp_next = lambda: None
     for k in range(k0, k0 + 4 * MAX_STEPS):
         for t, cmds in inputs.slot(k, sim):
@@ -256,7 +259,7 @@ def run_window(real, k0, inputs, watch=None):
             watch("tick", sim, k, None, None)
         if sim.lost or sim.eaten:
             break
-    return outcome(sim, k0, sim.eaten[0] if sim.eaten else None)
+    return outcome(sim, ref, sim.eaten[0] if sim.eaten else None)
 
 
 class Inputs:
@@ -310,11 +313,13 @@ class Recorded:
 
 class Schedule(Inputs):
     """Replays recorded commands, every slot moved by `shift` ticks (no
-    deciding, no reading rules)."""
+    deciding, no reading rules); `first` = [(slot, t, cmds)] run before them."""
 
-    def __init__(self, t0, log, shift):
+    def __init__(self, t0, log, shift, first=()):
         super().__init__(t0)
         self.by_slot = defaultdict(list)
+        for k, t, cmds in first:
+            self.by_slot[k].append((t, cmds))
         for k, t, cmds in log:
             self.by_slot[k + shift].append((t, cmds))
 
@@ -322,14 +327,15 @@ class Schedule(Inputs):
         yield from self.by_slot.get(k, ())
 
 
-def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, watch=None):
+def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, watch=None, prev=None):
     """Runs the window, then replays the commands it gave moved together by
     each of `shifts` ticks; with `anchor` (a slot), moved so that the first
     command lands at anchor + shift instead, the same placements for every
-    recognizer (timing then counts for nothing). A placement that would put
-    a command before the window's start is left out. Returns (the plain
-    run's Window, {shift: Window} of the placements; the plain run is among
-    them when its timing is one of them)."""
+    recognizer. A placement one tick before the window's start runs from
+    `prev` = (the real state one tick earlier, the real game's commands in
+    that tick) when given, else it is left out. Returns (the plain run's
+    Window, {shift: Window} of the placements; the plain run is among them
+    when its timing is one of them)."""
     rec = Recorded(inputs)
     plain = run_window(real, k0, rec, watch)
     if not rec.log:
@@ -338,9 +344,14 @@ def run_window_tolerant(real, k0, t0, inputs, shifts=(-1, 0, 1), anchor=None, wa
     out = {}
     for d in shifts:
         move = d if anchor is None else anchor + d - first
-        if first + move < k0:
-            continue
-        out[d] = plain if move == 0 else run_window(real, k0, Schedule(t0, rec.log, move))
+        at = first + move
+        if move == 0:
+            out[d] = plain
+        elif at >= k0:
+            out[d] = run_window(real, k0, Schedule(t0, rec.log, move))
+        elif at == k0 - 1 and prev is not None:
+            state, cmds = prev
+            out[d] = run_window(state, k0 - 1, Schedule(t0, rec.log, move, [(k0 - 1, t0, cmds)] if cmds else ()), ref=k0)
     return plain, out or {0: plain}
 
 

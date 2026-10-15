@@ -200,12 +200,15 @@ class PolicyInputs(WS.Inputs):
 
 class Spec:
     """One gesture window of a recorded game: the real state at its start,
-    and the slot of the live game's first command in it (anchor), if any."""
-    __slots__ = ("k", "t0", "real", "i", "stroke", "anchor")
+    the slot of the live game's first command in it (anchor), if any, and
+    prev = (the real state one tick before the start, the live game's
+    commands in that tick), for a turn placed one tick before the window."""
+    __slots__ = ("k", "t0", "real", "i", "stroke", "anchor", "prev")
 
-    def __init__(self, k, t0, real, i, stroke):
+    def __init__(self, k, t0, real, i, stroke, prev=None):
         self.k, self.t0, self.real, self.i, self.stroke = k, t0, real, i, stroke
         self.anchor = None
+        self.prev = prev
 
 
 class Game:
@@ -228,10 +231,14 @@ class Game:
         self.specs, self.imitate = [], []
         cur = None                      # current stroke: [ts, xs, ys, last turn]
         i = j = 0
+        before = None                   # the real state at the start of the previous tick's slot
         for k in range(0, last_tk + 1):
             if k in starts:
                 st = (list(cur[0]), list(cur[1]), list(cur[2]), cur[3]) if cur else None
-                self.specs.append(Spec(k, starts[k], real.copy(), i, st))
+                prev_cmds = [(E.LET.index(c["dir"]), h) for c, h in cmds if c["tk"] == k - 1]
+                self.specs.append(Spec(k, starts[k], real.copy(), i, st,
+                                       (before, prev_cmds) if before is not None else None))
+            before = real.copy()
             h0 = real.heading
             f = None                    # features at this tick's latest sample
             while True:
@@ -280,6 +287,8 @@ class Game:
 
 
 TOLERANCE = 0           # ticks of timing tolerance in the training score (0: plain)
+ALPHA = 0.9             # the tolerant score: ALPHA * the best placement + (1 - ALPHA) * the plain run
+ANCHORED = False        # placements around the live game's turn instead of the model's own
 
 
 def run_w(g, spec, pol, force=None, record=None):
@@ -295,8 +304,9 @@ def run(g, spec, pol, force=None, record=None, tol=None):
     if not tol:
         return run_w(g, spec, pol, force, record).score
     inp = PolicyInputs(spec.t0, pol, g.samples, g.slots, spec.i, spec.stroke, force, record)
-    plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inp, tuple(range(-tol, tol + 1)), spec.anchor)
-    return WS.tolerant_score(plain, outs)[0]
+    plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inp, tuple(range(-tol, tol + 1)),
+                                         spec.anchor if ANCHORED else None, prev=spec.prev)
+    return WS.tolerant_score(plain, outs, ALPHA)[0]
 
 
 def examples(g, pol):
