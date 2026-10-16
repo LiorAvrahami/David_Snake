@@ -43,9 +43,11 @@ def describe_data(name, path):
 def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), trainer="simlearn", trainer_args=()):
     mlp = "w1" in weights
     no_back = bool(weights.get("no_back", False))
+    speed = bool(weights.get("speed", True))
+    layout = L.LAYOUT_SPEED if speed else L.LAYOUT_NOSPEED
     if mlp:
-        wd = {k: weights[k] for k in ("w1", "b1", "v", "vb")}
-        assert all(len(r) == L.NF for r in wd["w1"])
+        wd = {k: weights[k] for k in (("w1", "b1", "v") if no_back else ("w1", "b1", "v", "vb"))}
+        assert all(len(r) == layout.nf for r in wd["w1"])
     else:
         ws, wb = weights["w_side"], weights["w_back"]
         assert len(ws) == len(wb) == L.NF
@@ -57,7 +59,7 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
         feats += [f"fwd{w}: finger travel along David's heading over the last {w} ms, per 20 dp",
                   f"side{w}: finger travel to David's right over the last {w} ms, per 20 dp",
                   f"|side{w}|: its size"]
-    feats += ["speed: finger travel over the last 40 ms, per 500 dp/s",
+    feats += (["speed: finger travel over the last 40 ms, per 500 dp/s"] if speed else []) + [
               "since: ms since the last-turn sample, at most 400, per 400",
               "fwdSince: finger travel along the heading since the last-turn sample, per 40 dp",
               "sideSince: finger travel to David's right since the last-turn sample, per 40 dp",
@@ -79,21 +81,24 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
                    "stroke's samples wait one more tick",
         "window_travel": "from the first sample at or after (t - window) to the latest sample t",
         "features": feats,
-        "side_features": list(L.SIDE),
+        "side_features": list(layout.side),
         "scores": ("none = 0; h(x) = relu(w1 x + b1); right = v . h(f); left = v . h(mirror(f)), mirror "
-                   "negating the side features; back = vb . h(sym(f)), sym zeroing them"
+                   "negating the side features"
+                   + ("" if no_back else "; back = vb . h(sym(f)), sym zeroing them")
                    if mlp else
                    "none = 0; right = w_side . f; left = w_side . mirror(f), mirror negating the "
-                   "side features; back = w_back . sym(f), sym zeroing them")
-                  + ("; back never" if no_back else "") + "; the highest wins, ties "
-                  "going to the first of none, right, left, back",
+                   "side features" + ("" if no_back else "; back = w_back . sym(f), sym zeroing them"))
+                  + ("; no back answer (a U-turn is two side turns)" if no_back else "")
+                  + "; the highest wins, ties going to the first of none, right, left"
+                  + ("" if no_back else ", back"),
         "commands": {
             "right": "turn to David's right (kind ml)",
             "left": "turn to David's left (kind ml)",
-            "back": "with a tail, a U-turn: first to the side the finger's travel over the last "
-                    "160 ms leans to by 3 dp or more, else the side with more free cells ahead "
-                    "(never a blocked side if the other is open), then back, which the engine holds "
-                    "until the first turn's step; without a tail, a reversal",
+            **({} if no_back else {
+                "back": "with a tail, a U-turn: first to the side the finger's travel over the last "
+                        "160 ms leans to by 3 dp or more, else the side with more free cells ahead "
+                        "(never a blocked side if the other is open), then back, which the engine holds "
+                        "until the first turn's step; without a tail, a reversal"}),
         },
         "last_turn": "after a decision's commands run, if David's heading changed, the latest sample "
                      "becomes the last-turn sample; it starts at the stroke's first sample",
@@ -103,6 +108,7 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
     spec.update(wd)
     if mlp:
         spec["hidden"] = len(wd["b1"])
+        spec["speed"] = speed
     if no_back:
         spec["no_back"] = True
     return spec

@@ -54,12 +54,26 @@ import windowsim as WS
 WIN_MS = (40, 80, 160, 300)
 NF = 3 * len(WIN_MS) + 1 + 4 + 1          # features + bias
 SIDE = [1, 4, 7, 10, 15]                  # the signed sideways features
+
+
+class Layout:
+    """Which inputs a model reads: the 18 of ML-1, or 17 without the speed."""
+    __slots__ = ("nf", "side", "speed")
+
+    def __init__(self, speed=True):
+        self.speed = speed
+        self.nf = NF if speed else NF - 1
+        self.side = SIDE if speed else [1, 4, 7, 10, 14]
+
+
+LAYOUT_SPEED, LAYOUT_NOSPEED = Layout(True), Layout(False)
 ACTIONS = ("none", "right", "left", "back")
 L2 = 1e-3
 
 
-def features(ts, xs, ys, k, lt, h):
-    """Finger features at sample k, heading h, last turn at sample lt."""
+def features(ts, xs, ys, k, lt, h, speed=True):
+    """Finger features at sample k, heading h, last turn at sample lt (without
+    the speed input when speed is False)."""
     fx, fy = R.VEC[h]
     rx, ry = -fy, fx                      # David's right on screen
     t, x, y = ts[k], xs[k], ys[k]
@@ -72,8 +86,9 @@ def features(ts, xs, ys, k, lt, h):
         dx, dy = x - xs[j], y - ys[j]
         s = (dx * rx + dy * ry) / 20.0
         f += [(dx * fx + dy * fy) / 20.0, s, abs(s)]
-    dt = t - ts[j40]
-    f.append(math.hypot(x - xs[j40], y - ys[j40]) * 2.0 / dt if dt > 0 else 0.0)   # per 500 dp/s
+    if speed:
+        dt = t - ts[j40]
+        f.append(math.hypot(x - xs[j40], y - ys[j40]) * 2.0 / dt if dt > 0 else 0.0)   # per 500 dp/s
     dx, dy = x - xs[lt], y - ys[lt]
     s = (dx * rx + dy * ry) / 40.0
     f += [min(t - ts[lt], 400) / 400.0, (dx * fx + dy * fy) / 40.0, s, abs(s), 1.0]
@@ -97,6 +112,8 @@ def sym(f):
 class Policy:
     """The linear turn model: none = 0, right = ws . f, left = ws . mirror(f),
     back = wb . sym(f) (never, with no_back); the highest wins."""
+
+    layout = LAYOUT_SPEED
 
     def __init__(self, ws=None, wb=None, no_back=False):
         self.ws = list(ws) if ws is not None else [0.0] * NF
@@ -143,18 +160,25 @@ def relu(x):
 
 class MlpPolicy:
     """The non-linear turn model: one hidden layer of H units, h(f) = relu(W1 f
-    + b1); none = 0, right = v . h(f), left = v . h(mirror(f)), back = vb .
-    h(sym(f)) (never, with no_back); the highest wins. The same hidden layer
-    serves both sides, so left and right stay mirror images."""
+    + b1); none = 0, right = v . h(f), left = v . h(mirror(f)), and, unless
+    no_back, back = vb . h(sym(f)); the highest wins. The same hidden layer
+    serves both sides, so left and right stay mirror images. speed False:
+    the 17 inputs without the finger speed."""
 
-    def __init__(self, w1, b1, v, vb, no_back=False):
+    def __init__(self, w1, b1, v, vb=None, no_back=True, speed=False):
         self.w1 = [list(r) for r in w1]
-        self.b1, self.v, self.vb = list(b1), list(v), list(vb)
+        self.b1, self.v = list(b1), list(v)
+        self.vb = None if no_back else list(vb)
         self.no_back = no_back
+        self.layout = LAYOUT_SPEED if speed else LAYOUT_NOSPEED
 
     @property
     def hidden(self):
         return len(self.b1)
+
+    @property
+    def n_weights(self):
+        return sum(len(r) for r in self.w1) + len(self.b1) + len(self.v) + (0 if self.no_back else len(self.vb))
 
     def _hidden(self, f):
         return [relu(sum(a * b for a, b in zip(row, f)) + c) for row, c in zip(self.w1, self.b1)]
@@ -162,12 +186,12 @@ class MlpPolicy:
     def scores(self, f):
         r = sum(a * b for a, b in zip(self.v, self._hidden(f)))
         m = f[:]
-        for i in SIDE:
+        for i in self.layout.side:
             m[i] = -m[i]
         l = sum(a * b for a, b in zip(self.v, self._hidden(m)))
         if self.no_back:
             return (0.0, r, l, float("-inf"))
-        for i in SIDE:
+        for i in self.layout.side:
             m[i] = 0.0
         b = sum(a * c for a, c in zip(self.vb, self._hidden(m)))
         return (0.0, r, l, b)
@@ -177,29 +201,33 @@ class MlpPolicy:
         return max(range(4), key=lambda a: s[a])
 
     def weights(self):
-        return {"w1": self.w1, "b1": self.b1, "v": self.v, "vb": self.vb}
+        w = {"w1": self.w1, "b1": self.b1, "v": self.v}
+        if not self.no_back:
+            w["vb"] = self.vb
+        return w
 
     def to_json(self):
-        d = {"type": "mlp", "features": NF, "hidden": self.hidden}
+        d = {"type": "mlp", "features": self.layout.nf, "hidden": self.hidden, "no_back": self.no_back,
+             "speed": self.layout.speed}
         d.update(self.weights())
-        if self.no_back:
-            d["no_back"] = True
         return d
 
     @staticmethod
     def from_spec(spec):
-        w = {k: spec[k] for k in ("w1", "b1", "v", "vb")}
+        no_back, speed = bool(spec.get("no_back", False)), bool(spec.get("speed", True))
+        layout = LAYOUT_SPEED if speed else LAYOUT_NOSPEED
+        w = {k: spec[k] for k in (("w1", "b1", "v") if no_back else ("w1", "b1", "v", "vb"))}
         sha = hashlib.sha256(json.dumps(w, separators=(",", ":")).encode()).hexdigest()
         assert sha == spec["weights_sha256"], "weights do not match their hash"
-        assert all(len(r) == NF for r in w["w1"]) and spec["side_features"] == SIDE, "different features"
-        assert len(spec["features"]) == NF and all(f"over the last {x} ms" in " ".join(spec["features"]) for x in WIN_MS)
-        return MlpPolicy(w["w1"], w["b1"], w["v"], w["vb"], bool(spec.get("no_back", False)))
+        assert all(len(r) == layout.nf for r in w["w1"]) and spec["side_features"] == layout.side, "different features"
+        assert len(spec["features"]) == layout.nf and all(f"over the last {x} ms" in " ".join(spec["features"]) for x in WIN_MS)
+        return MlpPolicy(w["w1"], w["b1"], w["v"], w.get("vb"), no_back, speed)
 
 
 def policy_from_json(d):
     """A policy from its to_json() dict (what the pool workers receive)."""
     if "w1" in d:
-        return MlpPolicy(d["w1"], d["b1"], d["v"], d["vb"], bool(d.get("no_back", False)))
+        return MlpPolicy(d["w1"], d["b1"], d["v"], d.get("vb"), bool(d.get("no_back", False)), bool(d.get("speed", True)))
     return Policy(d["w_side"], d["w_back"], bool(d.get("no_back", False)))
 
 
@@ -264,7 +292,7 @@ class PolicyInputs(WS.Inputs):
             return
         n = len(self.ts) - 1
         h = sim.heading
-        f = features(self.ts, self.xs, self.ys, n, self.lt, h)
+        f = features(self.ts, self.xs, self.ys, n, self.lt, h, self.pol.layout.speed)
         a = self.force.get(k)
         if a is None:
             a = self.pol.decide(f)
@@ -418,12 +446,12 @@ def evaluate(g, pol):
     return [run(g, spec, pol) for spec in g.specs]
 
 
-def mats(F):
+def mats(F, side=SIDE):
     F = np.asarray(F, dtype=float)
     Fm = F.copy()
-    Fm[:, SIDE] *= -1
+    Fm[:, side] *= -1
     Fs = F.copy()
-    Fs[:, SIDE] = 0
+    Fs[:, side] = 0
     return F, Fm, Fs
 
 

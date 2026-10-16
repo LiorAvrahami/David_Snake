@@ -39,8 +39,9 @@ Usage: python3 tools/intentlearn.py FILE... [--folds N | --holdout FRAC --seed S
                                     [--rounds N] [--w-turn W] [--w-reject W] [--w-hold W]
                                     [--model linear|mlp] [--hidden H] [--no-back]
                                     [--eval MODEL.json,...] [--save ROWS.pkl] [--export]
-  --model mlp   the one-hidden-layer model (simlearn.MlpPolicy, H units)
-  --no-back     no 'back' answer: U-turns are two side turns"""
+  --model mlp   the one-hidden-layer model (simlearn.MlpPolicy, H units): no back
+                answer, no speed input (the MNL models)
+  --no-back     the linear model without the 'back' answer"""
 import bisect, json, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
@@ -55,9 +56,10 @@ import simlearn as L
 import windowsim as WS
 
 TIMEOUT_MS = 500
-MODEL = "linear"        # or "mlp": one hidden layer of HIDDEN units (simlearn.MlpPolicy)
-HIDDEN = 16
+MODEL = "linear"        # or "mlp": one hidden layer of HIDDEN units (simlearn.MlpPolicy), no back
+HIDDEN = 16             # answer and no speed input (the MNL models)
 NO_BACK = False         # no 'back' answer: a U-turn is two side turns
+LAYOUT = L.LAYOUT_SPEED # the inputs of the model being trained
 W_TURN = 3.0            # weight of turn answers against none
 W_REJECT = 1.0          # weight of none answers during a movement the live game did not answer
 W_HOLD = 1.0            # weight of none answers within HOLD_MS after a turn
@@ -174,7 +176,8 @@ class IGame(L.Game):
                 seen[i] = n + 1
             self.targets.append(targets)
             self.rejected.append([(sp[1], sp[1] + 300) for i, sp in enumerate(subs) if i not in answered])
-        # the live game tick by tick: (features, heading, latest sample time); S2-FAST's shadow state at window starts
+        # the live game tick by tick: (sample times, xs, ys, latest index, last-turn index, heading, latest time);
+        # S2-FAST's shadow state at window starts
         self.live, self.shadow = [], {}
         starts = {spec.k for spec in self.specs}
         real = E.start_sim(p)
@@ -203,7 +206,7 @@ class IGame(L.Game):
                         cur[1].append(x)
                         cur[2].append(y)
                     if cur:
-                        f = (L.features(cur[0], cur[1], cur[2], len(cur[0]) - 1, cur[3], h0), h0, t)
+                        f = (cur[0], cur[1], cur[2], len(cur[0]) - 1, cur[3], h0, t)
                         if last:
                             cur = None
                 else:
@@ -221,6 +224,12 @@ class IGame(L.Game):
                 break
         self.minutes = last_tk * 45 / 60000.0
 
+    def live_features(self, layout):
+        """The live game tick by tick as (features of the layout, heading, latest
+        sample time)."""
+        for ts, xs, ys, k, lt, h0, t in self.live:
+            yield L.features(ts, xs, ys, k, lt, h0, layout.speed), h0, t
+
 
 def weight(lab, t, f, orc, w_reject, w_hold):
     """The example's weight: turns W_TURN (applied in fit); none answers during a
@@ -228,7 +237,7 @@ def weight(lab, t, f, orc, w_reject, w_hold):
     if lab != 0:
         return 1.0
     w = w_reject if orc.is_rejected(t) else 1.0
-    if f[L.NF - 5] * 400.0 < HOLD_MS:            # the 'since the last turn' feature, ms / 400
+    if f[-5] * 400.0 < HOLD_MS:                  # the 'since the last turn' feature, ms / 400
         w = max(w, w_hold)
     return w
 
@@ -237,7 +246,7 @@ def live_examples(g, w_reject=W_REJECT, w_hold=W_HOLD):
     """Oracle answers along the live game (all its targets in time order)."""
     orc = Oracle(sorted(tg for ts in g.targets for tg in ts), sorted(r for rs in g.rejected for r in rs))
     out = []
-    for f, h, t in g.live:
+    for f, h, t in g.live_features(LAYOUT):
         lab = orc.answer(t, h)
         if lab != UNKNOWN and not (NO_BACK and lab == 3):
             out.append((f, lab, weight(lab, t, f, orc, w_reject, w_hold)))
@@ -305,6 +314,7 @@ def fit(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=400):
     answer, weight), warm-started from w0 (a policy)."""
     if MODEL == "mlp":
         return fit_mlp(ex, w_turn, w0, l2, iters)
+    assert LAYOUT.speed, "the linear model reads all 18 inputs"
     F, Fm, Fs = L.mats([f for f, _, _ in ex])
     Y = np.eye(4)[[a for _, a, _ in ex]]
     wt = (np.where(Y[:, 0] > 0, 1.0, w_turn) * np.asarray([w for _, _, w in ex]))[:, None]
@@ -322,18 +332,20 @@ def fit_mlp(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=600, seed=1):
     """Softmax fit of the one-hidden-layer model (simlearn.MlpPolicy) by Adam
     with back-propagation: none = 0, right = v . relu(W1 f + b1), left the same
     on mirror(f), back = vb . relu(W1 sym(f) + b1)."""
-    F, Fm, Fs = L.mats([f for f, _, _ in ex])
+    nf = LAYOUT.nf
+    F, Fm, Fs = L.mats([f for f, _, _ in ex], LAYOUT.side)
     Y = np.eye(4)[[a for _, a, _ in ex]]
     wt = (np.where(Y[:, 0] > 0, 1.0, w_turn) * np.asarray([w for _, _, w in ex]))[:, None]
     H = HIDDEN if w0 is None else w0.hidden
     if w0 is None:
         rng = np.random.default_rng(seed)
-        W1 = rng.normal(0, 1.0 / np.sqrt(L.NF), (H, L.NF))
+        W1 = rng.normal(0, 1.0 / np.sqrt(nf), (H, nf))
         b1 = np.zeros(H)
         v = rng.normal(0, 0.1, H)
         vb = rng.normal(0, 0.1, H)
     else:
-        W1, b1, v, vb = (np.asarray(w0.w1, float), np.asarray(w0.b1, float), np.asarray(w0.v, float), np.asarray(w0.vb, float))
+        W1, b1, v = np.asarray(w0.w1, float), np.asarray(w0.b1, float), np.asarray(w0.v, float)
+        vb = np.asarray(w0.vb, float) if w0.vb is not None else np.zeros(H)
     params = [W1, b1, v, vb]
     ms = [np.zeros_like(x) for x in params]
     vs = [np.zeros_like(x) for x in params]
@@ -357,16 +369,17 @@ def fit_mlp(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=600, seed=1):
         for i, (x, g) in enumerate(zip(params, grads)):
             params[i], ms[i], vs[i] = L.adam(x, g, ms[i], vs[i], it, lr=0.01)
         W1, b1, v, vb = params
-    return L.MlpPolicy(W1.tolist(), b1.tolist(), v.tolist(), vb.tolist(), NO_BACK)
+    return L.MlpPolicy(W1.tolist(), b1.tolist(), v.tolist(), None if NO_BACK else vb.tolist(), NO_BACK, LAYOUT.speed)
 
 
 # --- parallel helpers (games live in each worker)
 GAMES = {}
 
 
-def _init(paths, no_back=False):
-    global NO_BACK
+def _init(paths, no_back=False, speed=True):
+    global NO_BACK, LAYOUT
     NO_BACK = no_back
+    LAYOUT = L.LAYOUT_SPEED if speed else L.LAYOUT_NOSPEED
     for path in paths:
         _, plays = build(load(path))
         for p in plays:
@@ -420,7 +433,7 @@ def _evaluate(args):
     targets_all = sorted(tg for ts in g.targets for tg in ts)
     for name, pol in pols.items():
         orc, prev, n = Oracle(list(targets_all)), 0, 0
-        for f, h, t in g.live:
+        for f, h, t in g.live_features(pol.layout):
             a = pol.decide(f)
             lab = orc.answer(t, h)
             if a and a != prev and lab == 0:
@@ -509,10 +522,10 @@ def boot(rows, keys, a, b, n=2000, seed=1, acc=False):
 
 def main():
     argv = list(sys.argv)
-    global MODEL, HIDDEN, NO_BACK
+    global MODEL, HIDDEN, NO_BACK, LAYOUT
     opt = {"--folds": None, "--rounds": str(ROUNDS), "--w-turn": str(W_TURN), "--w-reject": str(W_REJECT),
            "--w-hold": str(W_HOLD), "--eval": "", "--save": "", "--model": MODEL, "--hidden": str(HIDDEN)}
-    NO_BACK = "--no-back" in argv
+    NO_BACK = "--no-back" in argv or "--model" in argv and argv[argv.index("--model") + 1] == "mlp"
     argv = [a for a in argv if a != "--no-back"]
     for name in list(opt):
         if name in argv:
@@ -523,6 +536,7 @@ def main():
     argv = [a for a in argv if a != "--export"]
     MODEL, HIDDEN = opt["--model"], int(opt["--hidden"])
     assert MODEL in ("linear", "mlp"), MODEL
+    LAYOUT = L.LAYOUT_NOSPEED if MODEL == "mlp" else L.LAYOUT_SPEED
     args, o = L.options(argv)
     rounds, w_turn = int(opt["--rounds"]), float(opt["--w-turn"])
     w_reject, w_hold = float(opt["--w-reject"]), float(opt["--w-hold"])
@@ -534,7 +548,7 @@ def main():
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args, NO_BACK)) as pool:
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args, NO_BACK, LAYOUT.speed)) as pool:
         info = dict((k, (arm, mins)) for k, arm, mins in pool.map(_info, keys))
         arms = {k: info[k][0] for k in keys}
         minutes = {k: info[k][1] for k in keys}

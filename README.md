@@ -78,7 +78,9 @@ edge of the screen from one side to the other turns it off, and on again. The to
   gesture detector counts the movement (DAgger on the live games and the
   model's own play of the windows; `--w-turn`, `--w-reject`, `--w-hold`
   weigh turns, movements the live game ignored, and the time right after
-  a turn). It holds out a seeded 30% of the games (never from the
+  a turn; `--model mlp --hidden H` trains the non-linear MNL model instead:
+  one hidden layer of H units, no `back` answer, so a U-turn is two side
+  turns, and no finger-speed input, 17 inputs and 19 H weights). It holds out a seeded 30% of the games (never from the
   `--never-test` files) or cross-validates (`--folds 4`), and reports the
   window score next to latency, wrong, missed, spurious and early turns,
   also broken down by the recognizer the games were played with; `--export`
