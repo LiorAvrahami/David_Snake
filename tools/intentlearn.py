@@ -309,11 +309,14 @@ def row(o, targets, turns, extra):
     return (o.harp, o.death, o.why, lat, wrong, missed, extra[0], extra[1], o.acc)
 
 
+MLP_ITERS = 600         # Adam steps per fit of the one-hidden-layer model (the linear model: 400)
+
+
 def fit(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=400):
     """Fits the model (MODEL: linear or mlp) to weighted examples (features,
     answer, weight), warm-started from w0 (a policy)."""
     if MODEL == "mlp":
-        return fit_mlp(ex, w_turn, w0, l2, iters)
+        return fit_mlp(ex, w_turn, w0, l2, MLP_ITERS)
     assert LAYOUT.speed, "the linear model reads all 18 inputs"
     F, Fm, Fs = L.mats([f for f, _, _ in ex])
     Y = np.eye(4)[[a for _, a, _ in ex]]

@@ -200,8 +200,8 @@ def training_intent(commit, data, split_args, test_games, trainer_args, result):
                   f"none answers within {I.HOLD_MS} ms after a turn w_hold",
         "settings": {"rounds": rounds, "w_turn": w_turn, "w_reject": w_reject, "w_hold": w_hold,
                      "timeout_ms": I.TIMEOUT_MS, "hold_ms": I.HOLD_MS, "l2": L.L2, "model": model,
-                     "hidden": hidden if model == "mlp" else None, "no_back": "--no-back" in flags,
-                     "adam_lr": 0.01 if model == "mlp" else 0.05, "fit_steps": 600 if model == "mlp" else 400},
+                     "hidden": hidden if model == "mlp" else None, "no_back": model == "mlp" or "--no-back" in flags, "speed_input": model != "mlp",
+                     "adam_lr": 0.01 if model == "mlp" else 0.05, "fit_steps": I.MLP_ITERS if model == "mlp" else 400},
         "split": split_text(split_args),
         "objective": objective(),
         "note": "the window score only judges the model; it is calibrated to the live recognizer's "
