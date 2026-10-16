@@ -45,9 +45,8 @@ def _outcomes(args):
     for spec in g.specs:
         inputs = {"S2-FAST": WS.RecInputs(spec.t0, R.ALL["S2F"], g.shadow[spec.k], g.samples, g.slots, spec.i),
                   "live": WS.LogInputs(spec.t0, g.cmds, bisect.bisect_left(g.cmd_tk, spec.k))}
-        for name, w in models:
-            pol = L.Policy(w[:L.NF], w[L.NF:])
-            inputs[name] = L.PolicyInputs(spec.t0, pol, g.samples, g.slots, spec.i, spec.stroke)
+        for name, d in models:
+            inputs[name] = L.PolicyInputs(spec.t0, L.policy_from_json(d), g.samples, g.slots, spec.i, spec.stroke)
         for name, inp in inputs.items():
             if tol:
                 plain, outs = WS.run_window_tolerant(spec.real, spec.k, spec.t0, inp, shifts,
@@ -94,7 +93,7 @@ def main():
         i = argv.index("--models")
         for path in argv[i + 1].split(","):
             spec = json.load(open(path))
-            models.append((spec["name"], L.wvec(L.Policy.from_spec(spec))))
+            models.append((spec["name"], L.policy_from_spec(spec).to_json()))
         del argv[i:i + 2]
     for opt in ("--tolerance", "--alpha", "--ref"):
         if opt in argv:

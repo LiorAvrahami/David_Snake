@@ -33,7 +33,7 @@ def policies():
     out = {}
     for name in ("ML-1", "ML-3"):
         spec = json.load(open(os.path.join(ROOT, "tools", "models", name.lower() + ".json")))
-        out[name] = L.Policy.from_spec(spec)
+        out[name] = L.policy_from_spec(spec)
     return out
 
 

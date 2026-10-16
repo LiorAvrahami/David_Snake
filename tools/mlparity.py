@@ -33,7 +33,7 @@ class Stroke:
 def check_play(p):
     """(decisions that fired, identical, [mismatch descriptions])"""
     spec = p.model["spec"]["recognizer"]
-    pol = L.Policy.from_spec(spec)
+    pol = L.policy_from_spec(spec)
     if any(s.tks is None for s in p.strokes):
         raise ValueError("no sample ticks in this recording (needs v1.15+)")
     samples = WS.samples_of(p)

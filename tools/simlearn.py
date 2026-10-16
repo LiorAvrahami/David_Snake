@@ -95,9 +95,13 @@ def sym(f):
 
 
 class Policy:
-    def __init__(self, ws=None, wb=None):
+    """The linear turn model: none = 0, right = ws . f, left = ws . mirror(f),
+    back = wb . sym(f) (never, with no_back); the highest wins."""
+
+    def __init__(self, ws=None, wb=None, no_back=False):
         self.ws = list(ws) if ws is not None else [0.0] * NF
         self.wb = list(wb) if wb is not None else [0.0] * NF
+        self.no_back = no_back
 
     def scores(self, f):
         ws, wb = self.ws, self.wb
@@ -108,7 +112,7 @@ class Policy:
         l = sum(a * b for a, b in zip(ws, m))
         for i in SIDE:
             m[i] = 0.0
-        b = sum(a * c for a, c in zip(wb, m))
+        b = float("-inf") if self.no_back else sum(a * c for a, c in zip(wb, m))
         return (0.0, r, l, b)
 
     def decide(self, f):
@@ -116,7 +120,10 @@ class Policy:
         return max(range(4), key=lambda a: s[a])
 
     def to_json(self):
-        return {"features": NF, "w_side": self.ws, "w_back": self.wb}
+        d = {"features": NF, "w_side": self.ws, "w_back": self.wb}
+        if self.no_back:
+            d["no_back"] = True
+        return d
 
     @staticmethod
     def from_spec(spec):
@@ -127,7 +134,79 @@ class Policy:
         assert sha == spec["weights_sha256"], "weights do not match their hash"
         assert len(ws) == len(wb) == NF and spec["side_features"] == SIDE, "different features"
         assert len(spec["features"]) == NF and all(f"over the last {w} ms" in " ".join(spec["features"]) for w in WIN_MS)
-        return Policy(ws, wb)
+        return Policy(ws, wb, bool(spec.get("no_back", False)))
+
+
+def relu(x):
+    return x if x > 0 else 0.0
+
+
+class MlpPolicy:
+    """The non-linear turn model: one hidden layer of H units, h(f) = relu(W1 f
+    + b1); none = 0, right = v . h(f), left = v . h(mirror(f)), back = vb .
+    h(sym(f)) (never, with no_back); the highest wins. The same hidden layer
+    serves both sides, so left and right stay mirror images."""
+
+    def __init__(self, w1, b1, v, vb, no_back=False):
+        self.w1 = [list(r) for r in w1]
+        self.b1, self.v, self.vb = list(b1), list(v), list(vb)
+        self.no_back = no_back
+
+    @property
+    def hidden(self):
+        return len(self.b1)
+
+    def _hidden(self, f):
+        return [relu(sum(a * b for a, b in zip(row, f)) + c) for row, c in zip(self.w1, self.b1)]
+
+    def scores(self, f):
+        r = sum(a * b for a, b in zip(self.v, self._hidden(f)))
+        m = f[:]
+        for i in SIDE:
+            m[i] = -m[i]
+        l = sum(a * b for a, b in zip(self.v, self._hidden(m)))
+        if self.no_back:
+            return (0.0, r, l, float("-inf"))
+        for i in SIDE:
+            m[i] = 0.0
+        b = sum(a * c for a, c in zip(self.vb, self._hidden(m)))
+        return (0.0, r, l, b)
+
+    def decide(self, f):
+        s = self.scores(f)
+        return max(range(4), key=lambda a: s[a])
+
+    def weights(self):
+        return {"w1": self.w1, "b1": self.b1, "v": self.v, "vb": self.vb}
+
+    def to_json(self):
+        d = {"type": "mlp", "features": NF, "hidden": self.hidden}
+        d.update(self.weights())
+        if self.no_back:
+            d["no_back"] = True
+        return d
+
+    @staticmethod
+    def from_spec(spec):
+        w = {k: spec[k] for k in ("w1", "b1", "v", "vb")}
+        sha = hashlib.sha256(json.dumps(w, separators=(",", ":")).encode()).hexdigest()
+        assert sha == spec["weights_sha256"], "weights do not match their hash"
+        assert all(len(r) == NF for r in w["w1"]) and spec["side_features"] == SIDE, "different features"
+        assert len(spec["features"]) == NF and all(f"over the last {x} ms" in " ".join(spec["features"]) for x in WIN_MS)
+        return MlpPolicy(w["w1"], w["b1"], w["v"], w["vb"], bool(spec.get("no_back", False)))
+
+
+def policy_from_json(d):
+    """A policy from its to_json() dict (what the pool workers receive)."""
+    if "w1" in d:
+        return MlpPolicy(d["w1"], d["b1"], d["v"], d["vb"], bool(d.get("no_back", False)))
+    return Policy(d["w_side"], d["w_back"], bool(d.get("no_back", False)))
+
+
+def policy_from_spec(spec):
+    """A policy from a model description (tools/models/*.json or a game's
+    model line), its weights checked against their hash."""
+    return MlpPolicy.from_spec(spec) if "w1" in spec else Policy.from_spec(spec)
 
 
 def commands(a, h, sim, vec):
@@ -418,13 +497,13 @@ def _init(paths, tolerance=0, alpha=ALPHA):
 
 
 def _examples(args):
-    key, w = args
-    return examples(GAMES[key], Policy(w[:NF], w[NF:]))
+    key, d = args
+    return examples(GAMES[key], policy_from_json(d))
 
 
 def _evaluate(args):
-    key, w = args
-    return key, evaluate(GAMES[key], Policy(w[:NF], w[NF:]))
+    key, d = args
+    return key, evaluate(GAMES[key], policy_from_json(d))
 
 
 def _info(key):
@@ -481,7 +560,7 @@ def main():
     global TOLERANCE, ALPHA
     args, o = options(sys.argv)
     TOLERANCE, ALPHA = o["tolerance"], o["alpha"]
-    init = Policy.from_spec(json.load(open(o["init"]))) if o["init"] else None
+    init = policy_from_spec(json.load(open(o["init"]))) if o["init"] else None
     keys = []
     for path in args:
         _, plays = build(load(path))
@@ -508,14 +587,15 @@ def train(pool, trn, iters, info, test, init=None):
             rounds.append(report(pool, trn, test, pol, info, "copy of live" if it == 0 else f"model {it}"))
         if it == iters:
             break
-        res = pool.map(_examples, [(k, wvec(pol)) for k in trn])
+        assert isinstance(pol, Policy), "learning to search fits the linear model only"
+        res = pool.map(_examples, [(k, pol.to_json()) for k in trn])
         data += [e for r in res for e in r]
         pol = fit_regret(data, wvec(pol))
     return pol, rounds
 
 
 def report(pool, trn, test, pol, info, name):
-    sc = dict(pool.map(_evaluate, [(k, wvec(pol)) for k in trn + test]))
+    sc = dict(pool.map(_evaluate, [(k, pol.to_json()) for k in trn + test]))
     def total(ks, src):
         if src == "model":
             return [x for k in ks for x in sc[k]]

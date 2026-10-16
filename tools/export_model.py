@@ -41,9 +41,16 @@ def describe_data(name, path):
 
 
 def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), trainer="simlearn", trainer_args=()):
-    ws, wb = weights["w_side"], weights["w_back"]
-    assert len(ws) == len(wb) == L.NF
-    wsha = hashlib.sha256(json.dumps({"w_side": ws, "w_back": wb}, separators=(",", ":")).encode()).hexdigest()
+    mlp = "w1" in weights
+    no_back = bool(weights.get("no_back", False))
+    if mlp:
+        wd = {k: weights[k] for k in ("w1", "b1", "v", "vb")}
+        assert all(len(r) == L.NF for r in wd["w1"])
+    else:
+        ws, wb = weights["w_side"], weights["w_back"]
+        assert len(ws) == len(wb) == L.NF
+        wd = {"w_side": ws, "w_back": wb}
+    wsha = hashlib.sha256(json.dumps(wd, separators=(",", ":")).encode()).hexdigest()
     windows = list(L.WIN_MS)
     feats = []
     for w in windows:
@@ -56,9 +63,10 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
               "sideSince: finger travel to David's right since the last-turn sample, per 40 dp",
               "|sideSince|: its size",
               "bias: 1"]
-    return {
+    spec = {
         "name": name,
-        "type": "linear turn policy over finger movement only, trained on the game simulation",
+        "type": ("non-linear turn policy (one hidden layer) " if mlp else "linear turn policy ")
+                + "over finger movement only" + (", without the back answer" if no_back else ""),
         "recognizer": "LearnedRecognizer (app/src/main/java/com/davidsnake/game/Recognizers.kt); "
                       "Python twin: tools/simlearn.py Policy + features",
         "turn_mode": "STEP_SAFE",
@@ -72,8 +80,12 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
         "window_travel": "from the first sample at or after (t - window) to the latest sample t",
         "features": feats,
         "side_features": list(L.SIDE),
-        "scores": "none = 0; right = w_side . f; left = w_side . mirror(f), mirror negating the "
-                  "side features; back = w_back . sym(f), sym zeroing them; the highest wins, ties "
+        "scores": ("none = 0; h(x) = relu(w1 x + b1); right = v . h(f); left = v . h(mirror(f)), mirror "
+                   "negating the side features; back = vb . h(sym(f)), sym zeroing them"
+                   if mlp else
+                   "none = 0; right = w_side . f; left = w_side . mirror(f), mirror negating the "
+                   "side features; back = w_back . sym(f), sym zeroing them")
+                  + ("; back never" if no_back else "") + "; the highest wins, ties "
                   "going to the first of none, right, left, back",
         "commands": {
             "right": "turn to David's right (kind ml)",
@@ -85,11 +97,15 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
         },
         "last_turn": "after a decision's commands run, if David's heading changed, the latest sample "
                      "becomes the last-turn sample; it starts at the stroke's first sample",
-        "w_side": ws,
-        "w_back": wb,
         "weights_sha256": wsha,
         "training": TRAINING[trainer](commit, data, split_args, test_games, trainer_args, result),
     }
+    spec.update(wd)
+    if mlp:
+        spec["hidden"] = len(wd["b1"])
+    if no_back:
+        spec["no_back"] = True
+    return spec
 
 
 def objective():
@@ -147,13 +163,17 @@ def training_simlearn(commit, data, split_args, test_games, trainer_args, result
 
 
 def training_intent(commit, data, split_args, test_games, trainer_args, result):
-    args = dict(zip(trainer_args[::2], trainer_args[1::2]))
+    flags = [a for a in trainer_args if a == "--no-back"]
+    pairs = [a for a in trainer_args if a != "--no-back"]
+    args = dict(zip(pairs[::2], pairs[1::2]))
     rounds, w_turn = int(args.get("--rounds", I.ROUNDS)), float(args.get("--w-turn", I.W_TURN))
     w_reject, w_hold = float(args.get("--w-reject", I.W_REJECT)), float(args.get("--w-hold", I.W_HOLD))
+    model, hidden = args.get("--model", "linear"), int(args.get("--hidden", I.HIDDEN))
     return {
         "code": f"tools/intentlearn.py at commit {commit}",
         "command": "python3 tools/intentlearn.py " + " ".join(d["file"] for d in data)
                    + f" --rounds {rounds} --w-turn {w_turn:g} --w-reject {w_reject:g} --w-hold {w_hold:g}"
+                   + (f" --model mlp --hidden {hidden}" if model == "mlp" else "") + ("".join(" " + a for a in flags))
                    + "".join(" " + a for a in split_args) + " --export",
         "deterministic": "re-running the command on the same files gives identical weights",
         "data": data,
@@ -173,7 +193,9 @@ def training_intent(commit, data, split_args, test_games, trainer_args, result):
                   "a clear finger movement the live game did not answer (for 300 ms) w_reject, and "
                   f"none answers within {I.HOLD_MS} ms after a turn w_hold",
         "settings": {"rounds": rounds, "w_turn": w_turn, "w_reject": w_reject, "w_hold": w_hold,
-                     "timeout_ms": I.TIMEOUT_MS, "hold_ms": I.HOLD_MS, "l2": L.L2, "adam_lr": 0.05, "fit_steps": 400},
+                     "timeout_ms": I.TIMEOUT_MS, "hold_ms": I.HOLD_MS, "l2": L.L2, "model": model,
+                     "hidden": hidden if model == "mlp" else None, "no_back": "--no-back" in flags,
+                     "adam_lr": 0.01 if model == "mlp" else 0.05, "fit_steps": 600 if model == "mlp" else 400},
         "split": split_text(split_args),
         "objective": objective(),
         "note": "the window score only judges the model; it is calibrated to the live recognizer's "
@@ -186,6 +208,7 @@ TRAINING = {"simlearn": training_simlearn, "intent": training_intent}
 
 
 def kotlin(spec):
+    assert "w1" not in spec, "the game has no code for the one-hidden-layer model yet"
     js = json.dumps(spec, separators=(",", ":"), ensure_ascii=True)
     assert "$" not in js and '"""' not in js
     def arr(v):
@@ -220,11 +243,15 @@ if __name__ == "__main__":
             i = argv.index(opt)
             split_args += argv[i:i + 2]
             del argv[i:i + 2]
-    for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold", "--iters", "--tolerance", "--alpha", "--init"):
+    for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold", "--iters", "--tolerance", "--alpha", "--init",
+                "--model", "--hidden"):
         if opt in argv:
             i = argv.index(opt)
             trainer_args += argv[i:i + 2]
             del argv[i:i + 2]
+    if "--no-back" in argv:
+        trainer_args.append("--no-back")
+        argv.remove("--no-back")
     if "--trainer" in argv:
         i = argv.index("--trainer")
         trainer = argv[i + 1]

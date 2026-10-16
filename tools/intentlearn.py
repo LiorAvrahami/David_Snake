@@ -37,7 +37,10 @@ on the live game). The same for S2-FAST and the live game.
 
 Usage: python3 tools/intentlearn.py FILE... [--folds N | --holdout FRAC --seed S --never-test F,..]
                                     [--rounds N] [--w-turn W] [--w-reject W] [--w-hold W]
-                                    [--eval MODEL.json,...] [--save ROWS.pkl] [--export]"""
+                                    [--model linear|mlp] [--hidden H] [--no-back]
+                                    [--eval MODEL.json,...] [--save ROWS.pkl] [--export]
+  --model mlp   the one-hidden-layer model (simlearn.MlpPolicy, H units)
+  --no-back     no 'back' answer: U-turns are two side turns"""
 import bisect, json, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
@@ -52,6 +55,9 @@ import simlearn as L
 import windowsim as WS
 
 TIMEOUT_MS = 500
+MODEL = "linear"        # or "mlp": one hidden layer of HIDDEN units (simlearn.MlpPolicy)
+HIDDEN = 16
+NO_BACK = False         # no 'back' answer: a U-turn is two side turns
 W_TURN = 3.0            # weight of turn answers against none
 W_REJECT = 1.0          # weight of none answers during a movement the live game did not answer
 W_HOLD = 1.0            # weight of none answers within HOLD_MS after a turn
@@ -233,7 +239,7 @@ def live_examples(g, w_reject=W_REJECT, w_hold=W_HOLD):
     out = []
     for f, h, t in g.live:
         lab = orc.answer(t, h)
-        if lab != UNKNOWN:
+        if lab != UNKNOWN and not (NO_BACK and lab == 3):
             out.append((f, lab, weight(lab, t, f, orc, w_reject, w_hold)))
     return out
 
@@ -269,7 +275,7 @@ def rollout(g, spec, pol, targets, rejected=(), w_reject=W_REJECT, w_hold=W_HOLD
     ex, spurious, other = [], 0, 0
     for k, f, a, h, t in rec:
         lab = orc.answer(t, h)
-        if lab != UNKNOWN:
+        if lab != UNKNOWN and not (NO_BACK and lab == 3):
             ex.append((f, lab, weight(lab, t, f, orc, w_reject, w_hold)))
         if lab == 0 and k - spec.k in turned_at:
             if orc.p >= len(targets):
@@ -295,24 +301,72 @@ def row(o, targets, turns, extra):
 
 
 def fit(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=400):
+    """Fits the model (MODEL: linear or mlp) to weighted examples (features,
+    answer, weight), warm-started from w0 (a policy)."""
+    if MODEL == "mlp":
+        return fit_mlp(ex, w_turn, w0, l2, iters)
     F, Fm, Fs = L.mats([f for f, _, _ in ex])
     Y = np.eye(4)[[a for _, a, _ in ex]]
     wt = (np.where(Y[:, 0] > 0, 1.0, w_turn) * np.asarray([w for _, _, w in ex]))[:, None]
-    w = np.zeros(2 * L.NF) if w0 is None else np.asarray(w0, dtype=float)
+    w = np.zeros(2 * L.NF) if w0 is None else np.asarray(L.wvec(w0), dtype=float)
     m = v = np.zeros_like(w)
     for it in range(1, iters + 1):
         P = L.softmax(L.all_scores(w, F, Fm, Fs))
         G = (P - Y) * wt / len(F)
         g = np.concatenate([F.T @ G[:, 1] + Fm.T @ G[:, 2], Fs.T @ G[:, 3]]) + l2 * w
         w, m, v = L.adam(w, g, m, v, it)
-    return L.Policy(w[:L.NF], w[L.NF:])
+    return L.Policy(w[:L.NF], w[L.NF:], NO_BACK)
+
+
+def fit_mlp(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=600, seed=1):
+    """Softmax fit of the one-hidden-layer model (simlearn.MlpPolicy) by Adam
+    with back-propagation: none = 0, right = v . relu(W1 f + b1), left the same
+    on mirror(f), back = vb . relu(W1 sym(f) + b1)."""
+    F, Fm, Fs = L.mats([f for f, _, _ in ex])
+    Y = np.eye(4)[[a for _, a, _ in ex]]
+    wt = (np.where(Y[:, 0] > 0, 1.0, w_turn) * np.asarray([w for _, _, w in ex]))[:, None]
+    H = HIDDEN if w0 is None else w0.hidden
+    if w0 is None:
+        rng = np.random.default_rng(seed)
+        W1 = rng.normal(0, 1.0 / np.sqrt(L.NF), (H, L.NF))
+        b1 = np.zeros(H)
+        v = rng.normal(0, 0.1, H)
+        vb = rng.normal(0, 0.1, H)
+    else:
+        W1, b1, v, vb = (np.asarray(w0.w1, float), np.asarray(w0.b1, float), np.asarray(w0.v, float), np.asarray(w0.vb, float))
+    params = [W1, b1, v, vb]
+    ms = [np.zeros_like(x) for x in params]
+    vs = [np.zeros_like(x) for x in params]
+    n = len(F)
+    for it in range(1, iters + 1):
+        Hr = np.maximum(F @ W1.T + b1, 0.0)
+        Hl = np.maximum(Fm @ W1.T + b1, 0.0)
+        Hb = np.maximum(Fs @ W1.T + b1, 0.0)
+        S = np.stack([np.zeros(n), Hr @ v, Hl @ v, Hb @ vb if not NO_BACK else np.full(n, -30.0)], 1)
+        P = L.softmax(S)
+        G = (P - Y) * wt / n
+        dr, dl, db = G[:, 1], G[:, 2], (G[:, 3] if not NO_BACK else np.zeros(n))
+        gv = Hr.T @ dr + Hl.T @ dl
+        gvb = Hb.T @ db
+        dHr = (dr[:, None] * v[None, :]) * (Hr > 0)
+        dHl = (dl[:, None] * v[None, :]) * (Hl > 0)
+        dHb = (db[:, None] * vb[None, :]) * (Hb > 0)
+        gW1 = dHr.T @ F + dHl.T @ Fm + dHb.T @ Fs
+        gb1 = dHr.sum(0) + dHl.sum(0) + dHb.sum(0)
+        grads = [gW1 + l2 * W1, gb1 + l2 * b1, gv + l2 * v, gvb + l2 * vb]
+        for i, (x, g) in enumerate(zip(params, grads)):
+            params[i], ms[i], vs[i] = L.adam(x, g, ms[i], vs[i], it, lr=0.01)
+        W1, b1, v, vb = params
+    return L.MlpPolicy(W1.tolist(), b1.tolist(), v.tolist(), vb.tolist(), NO_BACK)
 
 
 # --- parallel helpers (games live in each worker)
 GAMES = {}
 
 
-def _init(paths):
+def _init(paths, no_back=False):
+    global NO_BACK
+    NO_BACK = no_back
     for path in paths:
         _, plays = build(load(path))
         for p in plays:
@@ -332,9 +386,9 @@ def _live(args):
 
 
 def _rollouts(args):
-    key, w, w_reject, w_hold = args
+    key, d, w_reject, w_hold = args
     g = GAMES[key]
-    pol = L.Policy(w[:L.NF], w[L.NF:])
+    pol = L.policy_from_json(d)
     return [e for spec, targets, rej in zip(g.specs, g.targets, g.rejected)
             for e in rollout(g, spec, pol, targets, rej, w_reject, w_hold)[1]]
 
@@ -347,9 +401,9 @@ def _evaluate(args):
     g = GAMES[key]
     out = defaultdict(list)
     false = {}
+    pols = {name: L.policy_from_json(d) for name, d in models}
     for spec, targets in zip(g.specs, g.targets):
-        for name, w in models:
-            pol = L.Policy(w[:L.NF], w[L.NF:])
+        for name, pol in pols.items():
             o, _, turns, extra = rollout(g, spec, pol, targets)
             out[name].append(row(o, targets, turns, extra))
         for name, inputs in (("S2-FAST", WS.RecInputs(spec.t0, R.ALL["S2F"], g.shadow[spec.k], g.samples, g.slots, spec.i)),
@@ -364,8 +418,7 @@ def _evaluate(args):
             out[name].append(row(o, targets, turns, extra))
     # open loop over the live game: turn starts where the oracle says none
     targets_all = sorted(tg for ts in g.targets for tg in ts)
-    for name, w in models:
-        pol = L.Policy(w[:L.NF], w[L.NF:])
+    for name, pol in pols.items():
         orc, prev, n = Oracle(list(targets_all)), 0, 0
         for f, h, t in g.live:
             a = pol.decide(f)
@@ -396,9 +449,9 @@ def train(pool, trn, rounds, w_turn, w_reject=W_REJECT, w_hold=W_HOLD, log=None)
     if log:
         log(f"    round 0: {len(data)} live examples, {sum(1 for _, a, _ in data if a)} turns")
     for r in range(1, rounds + 1):
-        res = pool.map(_rollouts, [(k, L.wvec(pol), w_reject, w_hold) for k in trn])
+        res = pool.map(_rollouts, [(k, pol.to_json(), w_reject, w_hold) for k in trn])
         data += [e for rr in res for e in rr]
-        pol = fit(data, w_turn, L.wvec(pol))
+        pol = fit(data, w_turn, pol)
         if log:
             log(f"    round {r}: {len(data)} examples")
     return pol
@@ -456,8 +509,11 @@ def boot(rows, keys, a, b, n=2000, seed=1, acc=False):
 
 def main():
     argv = list(sys.argv)
+    global MODEL, HIDDEN, NO_BACK
     opt = {"--folds": None, "--rounds": str(ROUNDS), "--w-turn": str(W_TURN), "--w-reject": str(W_REJECT),
-           "--w-hold": str(W_HOLD), "--eval": "", "--save": ""}
+           "--w-hold": str(W_HOLD), "--eval": "", "--save": "", "--model": MODEL, "--hidden": str(HIDDEN)}
+    NO_BACK = "--no-back" in argv
+    argv = [a for a in argv if a != "--no-back"]
     for name in list(opt):
         if name in argv:
             i = argv.index(name)
@@ -465,18 +521,20 @@ def main():
             del argv[i:i + 2]
     export = "--export" in argv
     argv = [a for a in argv if a != "--export"]
+    MODEL, HIDDEN = opt["--model"], int(opt["--hidden"])
+    assert MODEL in ("linear", "mlp"), MODEL
     args, o = L.options(argv)
     rounds, w_turn = int(opt["--rounds"]), float(opt["--w-turn"])
     w_reject, w_hold = float(opt["--w-reject"]), float(opt["--w-hold"])
     models = []
     for path in [x for x in opt["--eval"].split(",") if x]:
         spec = json.load(open(path))
-        models.append((spec["name"], L.wvec(L.Policy.from_spec(spec))))
+        models.append((spec["name"], L.policy_from_spec(spec).to_json()))
     keys = []
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args,)) as pool:
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args, NO_BACK)) as pool:
         info = dict((k, (arm, mins)) for k, arm, mins in pool.map(_info, keys))
         arms = {k: info[k][0] for k in keys}
         minutes = {k: info[k][1] for k in keys}
@@ -495,7 +553,7 @@ def main():
         for i, (trn, test) in enumerate(sets):
             print(f"fold {i + 1}/{len(sets)}: train {len(trn)} games, test {len(test)}", flush=True)
             pol = train(pool, trn, rounds, w_turn, w_reject, w_hold, log=lambda s: print(s, flush=True))
-            ev = models + [("new", L.wvec(pol))]
+            ev = models + [("new", pol.to_json())]
             for key, res, fl in pool.map(_evaluate, [(k, ev) for k in (test if opt["--folds"] else trn + test)]):
                 (rows_test if key in test else rows_train)[key] = res
                 false[key] = fl
