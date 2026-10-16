@@ -347,7 +347,7 @@
    "spears": "recorded throws aimed before the window started (throw tick <= start + 18)"
   },
   "note": "the window score only judges the model; it is calibrated to the live recognizer's latency (a turn one tick earlier or later than it loses about 3% of harps either way)",
-  "result": "provisional"
+  "result": "Same 70/30 split by game as ML-3 (--holdout 0.3 --seed 1; the 53 test games were played with ML-1 and are new to ML-1 and MNL1). Window score per 1000 gestures on the test games: MNL1 359.4, ML-1 354.4, S2-FAST 350.2 (MNL1 minus ML-1 +5.0, 90% range -5.6 to +15.3). Final score (tools/compare_models.py --tolerance 4 --alpha 0.9: each window's turns moved together up to 4 ticks either way, 0.9 times the best placement plus 0.1 times the plain run): MNL1 496.9, ML-1 487.9, S2-FAST 488.3 (MNL1 minus ML-1 +9.0, 90% range +3.2 to +16.0; the first model to beat ML-1 on it). Intent metrics on the test games (tools/intentlearn.py): latency to the intended turn 0.593 ticks (ML-1 0.826), turns 2 ticks or later 63 per 1000 (ML-1 130), wrong first turn 1.6 per 1000, missed 0.8, spurious 43.3 (ML-1 5.6 by construction, the test games being its own), a later asked turn made before its finger movement 24.1, open-loop false starts 5.0 per minute (ML-1 2.5). On the 41 games played with S2-FAST (training games of both): latency 0.530 against ML-1's 0.705, turns 2 ticks or later 25 against 67 per 1000, missed 2.5 against 10.0, wrong 5.0 against 5.0, spurious 35.0 against 28.3."
  },
  "w1": [
   [

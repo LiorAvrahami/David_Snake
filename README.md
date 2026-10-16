@@ -107,7 +107,15 @@ edge of the screen from one side to the other turns it off, and on again. The to
   (`tools/models/ml-4.json`) is the same training weighted for fewer turns
   the live game did not make (24 vs 44 per 1000): final score 415.2 on the
   held-out games, between ML-3 and ML-1 in latency (0.71 ticks), a
-  one-line switch if ML-3 turns too eagerly. Before them: `ML-2` (v1.16,
+  one-line switch if ML-3 turns too eagerly. `MNL1` (`tools/models/mnl1.json`)
+  is the non-linear model: one hidden layer of 16 units (304 weights) over
+  17 inputs (no finger speed) with no `back` answer, trained like ML-3; on
+  the held-out games it is the first model to beat ML-1 on the final score
+  with 4 ticks of tolerance (496.9 vs 487.9, +9.0, 90% range +3.2 to
+  +16.0; plain window score 359.4 vs 354.4), turning sooner (0.59 vs 0.83
+  ticks, late turns 63 vs 130 per 1000) but with more unasked turns (43
+  per 1000; open-loop false starts 5.0 vs 2.5 per minute). It is not in
+  the game: the game has no code for the hidden layer yet. Before them: `ML-2` (v1.16,
   trained on the window score: slower, missing more swipes, and less
   accurate: final score 410.0, -4.6 against ML-1, -8.2 to -1.4) and
   `ML-1` (41 games). Every recorded game starts
