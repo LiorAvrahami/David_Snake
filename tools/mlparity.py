@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks games played with a trained model (ML-1, ...) decision by
+"""Checks games played with a trained model (ML-1, ..., MNL1) decision by
 decision. The model is rebuilt from each game's own model line alone; the
 game is replayed exactly (tools/enginesim.py); at every tick the model reads
 the recorded finger samples as the game does (LearnedRecognizer), and its
@@ -66,7 +66,7 @@ def check_play(p):
         if s and s.fresh and not real.lost:
             s.fresh = False
             n = len(s.ts) - 1
-            a = pol.decide(L.features(s.ts, s.xs, s.ys, n, s.lt, h))
+            a = pol.decide(L.features(s.ts, s.xs, s.ys, n, s.lt, h, pol.layout.speed))
             if a:
                 j = bisect.bisect_left(s.ts, s.ts[n] - 160)
                 mine = L.commands(a, h, real, (s.xs[n] - s.xs[j], s.ys[n] - s.ys[j]))
@@ -101,7 +101,8 @@ if __name__ == "__main__":
     for path in sys.argv[1:]:
         _, plays = build(load(path))
         for p in plays:
-            if not p.model or "w_side" not in p.model["spec"].get("recognizer", {}):
+            rec = p.model["spec"].get("recognizer", {}) if p.model else {}
+            if "w_side" not in rec and "w1" not in rec:
                 continue
             fired, same, bad = check_play(p)
             tot += fired

@@ -45,7 +45,7 @@ And yes — after you fall, they keep throwing. The original did that too.
 ## Input test (debug mode)
 
 Debug mode is on when the app starts (for now): games are recorded, with
-the normal input (`ML-1`, the best so far). Dragging along the very top
+the normal input (`MNL1`). Dragging along the very top
 edge of the screen from one side to the other turns it off, and on again. The top-right corner shows how many games are stored.
 
 - Every recorded game is saved as it ends, in the app's own storage, and
@@ -96,26 +96,26 @@ edge of the screen from one side to the other turns it off, and on again. The to
   with `--game` puts it in the game (`MlModel.kt`). `--tolerance 1
   --ref ML-1` in `compare_models.py` prints the accuracy score tables and
   differences against ML-1.
-- The input is `ML-3` (from v1.17), trained with `tools/intentlearn.py`
-  on 123 of the 176 recorded games (53 held out, all new to ML-1 too): on
-  the held-out games it turns about a quarter sooner than ML-1 (0.63 vs
-  0.83 ticks after the gesture start; turns 2 ticks or later 82 vs 130 per
-  1000) and misses fewer swipes, with the same window score (355.3 vs
-  354.4 per 1000 gestures) and the same accuracy by the final score below
-  (411.4 vs 414.7 on the held-out games, 90% range -10.4 to +4.0; anchored
-  to the live turn, +2.4 over all 176 games, -0.5 to +5.5). `ML-4`
-  (`tools/models/ml-4.json`) is the same training weighted for fewer turns
-  the live game did not make (24 vs 44 per 1000): final score 415.2 on the
-  held-out games, between ML-3 and ML-1 in latency (0.71 ticks), a
-  one-line switch if ML-3 turns too eagerly. `MNL1` (`tools/models/mnl1.json`)
-  is the non-linear model: one hidden layer of 16 units (304 weights) over
-  17 inputs (no finger speed) with no `back` answer, trained like ML-3; on
-  the held-out games it is the first model to beat ML-1 on the final score
-  with 4 ticks of tolerance (496.9 vs 487.9, +9.0, 90% range +3.2 to
-  +16.0; plain window score 359.4 vs 354.4), turning sooner (0.59 vs 0.83
-  ticks, late turns 63 vs 130 per 1000) but with more unasked turns (43
-  per 1000; open-loop false starts 5.0 vs 2.5 per minute). It is not in
-  the game: the game has no code for the hidden layer yet. Before them: `ML-2` (v1.16,
+- The input is `MNL1` (from v1.18; `tools/models/mnl1.json`), the
+  non-linear model: one hidden layer of 16 units (304 weights) over 17
+  inputs of finger movement (no finger speed) with no `back` answer, so a
+  U-turn is two side turns. Trained with `tools/intentlearn.py --model mlp`
+  on 123 of the 176 recorded games (53 held out, all played with ML-1 and
+  new to it too): on the held-out games it is the first model to beat
+  ML-1 on the final score below with 4 ticks of tolerance (496.9 vs
+  487.9 per 1000 gestures, +9.0, 90% range +3.2 to +16.0; plain window
+  score 359.4 vs 354.4), turning sooner (0.59 vs 0.83 ticks after the
+  gesture start; turns 2 ticks or later 63 vs 130 per 1000) and making
+  more turns than the live game made (43 per 1000 where the live game
+  made none; fed whole live games, 5.0 turn starts per minute where the
+  live game made none, against ML-1's 2.5). Before it: `ML-3` (v1.17),
+  the linear model trained the same way, which turns about a quarter
+  sooner than ML-1 (0.63 ticks; late turns 82 per 1000) with the same
+  window score (355.3) and the same final score (411.4 vs 414.7 with 1
+  tick of tolerance, 90% range -10.4 to +4.0); `ML-4`
+  (`tools/models/ml-4.json`), the same training weighted for fewer turns
+  the live game did not make (24 vs 44 per 1000): final score 415.2,
+  latency 0.71 ticks; `ML-2` (v1.16,
   trained on the window score: slower, missing more swipes, and less
   accurate: final score 410.0, -4.6 against ML-1, -8.2 to -1.4) and
   `ML-1` (41 games). Every recorded game starts

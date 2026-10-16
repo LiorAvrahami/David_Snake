@@ -286,20 +286,94 @@ class SmartRecognizer(
     }
 }
 
+/** A trained turn model's rule ([MlModel]): which inputs it reads and the
+ *  best action for them. */
+interface TurnModel {
+    /** Reads the finger-speed input (18 inputs) or not (17). */
+    val speed: Boolean
+
+    /** 0 none, 1 right, 2 left, 3 back: the highest score, ties to the first. */
+    fun best(f: DoubleArray): Int
+}
+
+/** The linear model (ML-1 to ML-4): none = 0, right = wSide . f, left =
+ *  wSide . mirror(f), back = wBack . sym(f); mirror negates the sideways
+ *  inputs, sym zeroes them. */
+class LinearTurnModel(private val wSide: DoubleArray, private val wBack: DoubleArray) : TurnModel {
+    override val speed = true
+    private val isSide = LearnedRecognizer.sideMask(speed)
+
+    override fun best(f: DoubleArray): Int {
+        var r = 0.0
+        var l = 0.0
+        var b = 0.0
+        for (i in f.indices) {
+            val side = isSide[i]
+            r += wSide[i] * f[i]
+            l += wSide[i] * (if (side) -f[i] else f[i])
+            b += wBack[i] * (if (side) 0.0 else f[i])
+        }
+        var a = 0
+        var v = 0.0
+        if (r > v) { a = 1; v = r }
+        if (l > v) { a = 2; v = l }
+        if (b > v) a = 3
+        return a
+    }
+}
+
+/** The one-hidden-layer model (MNL1): h(x) = relu(w1 x + b1), none = 0,
+ *  right = v . h(f), left = v . h(mirror(f)), never back. The same sums in
+ *  the same order as the Python twin (tools/simlearn.py MlpPolicy), so the
+ *  decisions match it exactly. */
+class MlpTurnModel(
+    private val w1: Array<DoubleArray>,
+    private val b1: DoubleArray,
+    private val v: DoubleArray,
+    override val speed: Boolean = false
+) : TurnModel {
+    private val isSide = LearnedRecognizer.sideMask(speed)
+
+    private fun score(f: DoubleArray): Double {
+        var s = 0.0
+        for (u in b1.indices) {
+            val row = w1[u]
+            var z = 0.0
+            for (i in f.indices) z += row[i] * f[i]
+            z += b1[u]
+            s += v[u] * (if (z > 0.0) z else 0.0)
+        }
+        return s
+    }
+
+    override fun best(f: DoubleArray): Int {
+        val r = score(f)
+        val m = f.copyOf()
+        for (i in m.indices) if (isSide[i]) m[i] = -m[i]
+        val l = score(m)
+        var a = 0
+        var best = 0.0
+        if (r > best) { a = 1; best = r }
+        if (l > best) a = 2
+        return a
+    }
+}
+
 /**
- * A trained model ([MlModel], tools/simlearn.py): a weighted formula over
- * finger movement only, relative to David's heading. It decides once per
- * game tick, just before it (the engine acts on a turn at the next tick
- * anyway), on the latest finger sample: none, right, left or back.
- * Positions are rounded to 0.1 dp as the test file logs them, and all math
- * is in doubles as in the Python twin, so a recorded game replays exactly
+ * A trained model ([MlModel]: the linear formula of ML-1 to ML-4, or the
+ * one-hidden-layer model of MNL1) over finger movement only, relative to
+ * David's heading. It decides once per game tick, just before it (the
+ * engine acts on a turn at the next tick anyway), on the latest finger
+ * sample: none, right, left or (the linear models only) back. Positions
+ * are rounded to 0.1 dp as the test file logs them, and all math is in
+ * doubles as in the Python twin, so a recorded game replays exactly
  * (tools/mlparity.py). The full rule is in [MlModel.SPEC].
  */
 class LearnedRecognizer(
-    private val wSide: DoubleArray = MlModel.W_SIDE,
-    private val wBack: DoubleArray = MlModel.W_BACK,
+    private val model: TurnModel = MlModel.MODEL,
     private val spec: String = MlModel.SPEC
 ) : Recognizer {
+    private val nf = if (model.speed) NF else NF - 1
 
     private class Stroke {
         var n = 0
@@ -368,7 +442,7 @@ class LearnedRecognizer(
         s.fresh = false
         val k = s.n - 1
         val h = g.heading
-        val a = best(features(s, k, h))
+        val a = model.best(features(s, k, h))
         if (a == 0) return NONE
         tickT = s.ts[k]
         decided = s
@@ -395,7 +469,7 @@ class LearnedRecognizer(
     override fun describe(): String = spec
 
     private fun features(s: Stroke, k: Int, h: Int): DoubleArray {
-        val f = DoubleArray(NF)
+        val f = DoubleArray(nf)
         val fx = dirXd(h)
         val fy = dirYd(h)
         val rx = -fy
@@ -415,8 +489,10 @@ class LearnedRecognizer(
             f[i++] = side
             f[i++] = abs(side)
         }
-        val dt = t - s.ts[j40]
-        f[i++] = if (dt > 0) hypot(x - s.xs[j40], y - s.ys[j40]) * 2.0 / dt else 0.0
+        if (model.speed) {
+            val dt = t - s.ts[j40]
+            f[i++] = if (dt > 0) hypot(x - s.xs[j40], y - s.ys[j40]) * 2.0 / dt else 0.0
+        }
         val lt = s.lt
         val dx = x - s.xs[lt]
         val dy = y - s.ys[lt]
@@ -427,25 +503,6 @@ class LearnedRecognizer(
         f[i++] = abs(side)
         f[i] = 1.0
         return f
-    }
-
-    /** 0 none, 1 right, 2 left, 3 back: the highest score, ties to the first. */
-    private fun best(f: DoubleArray): Int {
-        var r = 0.0
-        var l = 0.0
-        var b = 0.0
-        for (i in 0 until NF) {
-            val side = IS_SIDE[i]
-            r += wSide[i] * f[i]
-            l += wSide[i] * (if (side) -f[i] else f[i])
-            b += wBack[i] * (if (side) 0.0 else f[i])
-        }
-        var a = 0
-        var v = 0.0
-        if (r > v) { a = 1; v = r }
-        if (l > v) { a = 2; v = l }
-        if (b > v) a = 3
-        return a
     }
 
     /** [uTurn] in doubles, as tools/recognizers.py u_turn (lean 3 dp). */
@@ -460,12 +517,18 @@ class LearnedRecognizer(
         return listOf(Cmd(side, "uturn"), Cmd((h + 2) % 4, "uturn"))
     }
 
-    private companion object {
-        val WIN_MS = longArrayOf(40L, 80L, 160L, 300L)
+    companion object {
+        private val WIN_MS = longArrayOf(40L, 80L, 160L, 300L)
+        /** Inputs with the finger-speed one (3 per window, speed, 4 since the last turn, bias). */
         const val NF = 18
-        val IS_SIDE = BooleanArray(NF).also { for (i in intArrayOf(1, 4, 7, 10, 15)) it[i] = true }
 
-        fun dirXd(d: Int) = when (d) { GameEngine.RIGHT -> 1.0; GameEngine.LEFT -> -1.0; else -> 0.0 }
-        fun dirYd(d: Int) = when (d) { GameEngine.DOWN -> 1.0; GameEngine.UP -> -1.0; else -> 0.0 }
+        /** Which of a model's inputs are sideways (negated for the left-turn score). */
+        fun sideMask(speed: Boolean): BooleanArray {
+            val n = if (speed) NF else NF - 1
+            return BooleanArray(n).also { for (i in intArrayOf(1, 4, 7, 10, n - 3)) it[i] = true }
+        }
+
+        private fun dirXd(d: Int) = when (d) { GameEngine.RIGHT -> 1.0; GameEngine.LEFT -> -1.0; else -> 0.0 }
+        private fun dirYd(d: Int) = when (d) { GameEngine.DOWN -> 1.0; GameEngine.UP -> -1.0; else -> 0.0 }
     }
 }
