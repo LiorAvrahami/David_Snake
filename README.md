@@ -63,11 +63,16 @@ edge of the screen from one side to the other turns it off, and on again. The to
   turned David, one more turn may come before his next regular step: the
   second half of a one-cell side step or U-turn), an exact port of the
   engine (`tools/enginesim.py`, checked by replaying every recorded
-  game) plays its turns, and David goes on straight until he eats the
-  harp (+1, whenever it comes) or dies (-0.5, times exp(-(s-1)/d) for a
-  death s steps after the gesture start; d = 1 step for a wall or the
-  tail, 3.7 for a spear; a spear hitting him from the side costs
-  nothing). Reading only 250 ms keeps out what the player did in
+  game) plays its turns, and David goes on straight until he dies: the
+  harp on the way counts +1 (whenever it comes), a death before it -0.5
+  times exp(-(s-1)/d) (s steps after the gesture start; d = 1 step for a
+  wall or the tail, 3.7 for a spear). A run in which he is speared from
+  the side, or speared after eating the harp, has no score and is left
+  out of every average (the tables say how many): the recorded spears
+  were aimed at the path he took in the real game, not this one. The
+  same if he enters the phantom tail, the cell one behind the tail's
+  end, moving as if the tail were one cell longer. Reading only 250 ms
+  keeps out what the player did in
   reaction to the live model's turns. Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older
   ones are for sanity checks.

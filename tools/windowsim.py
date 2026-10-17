@@ -20,15 +20,24 @@ situation, as the player defined it:
   may make one more turn before David's next regular step after its
   latest turn (the second turn of a one-cell side step or U-turn); that
   turn ends the input. Then David goes straight, with no more input,
-  until he eats the harp or dies. The game runs on all along: David
-  steps, the tail follows and grows, spears fly.
+  until he dies, eating the harp on the way or not. The game runs on all
+  along: David steps, the tail follows and grows, spears fly.
 
   harp   +1 for eating the harp, whenever it happens (only the first: the
-         next one appears at random); the run ends there
+         next one appears at random); the run goes on, to see whether a
+         spear gets him afterwards; a wall or tail death after the harp
+         costs nothing
   death  -DEATH, less the later it is: times exp(-(s - 1) / DECAY), s the
          steps from the window start to the death, DECAY by cause (wall
-         and tail 1 step, spear 3.7); a spear that hits David from the
-         side (flying across the way he moves) costs nothing
+         and tail 1 step, spear 3.7)
+  excluded  a run in which David is speared from the side (the spear
+         flying across the way he moves) or speared after eating the harp
+         has no score (NaN) and is left out of every average: the recorded
+         throws were aimed at the path he took in the real game, so on
+         another path such a hit says nothing about the turn. So has a run
+         in which David enters the phantom tail: the cell one behind the
+         tail's end, moving as if the tail were one cell longer (with no
+         tail, the cell he has just left)
 
 Why only READ_MS: the finger was recorded while the player watched the
 live recognizer's turns, and from about 225 ms after a turn it can be a
@@ -209,27 +218,43 @@ def feed(cls, rec, smp, g):
     return (None if last else rec), cmds
 
 
+EXCLUDED = ("speared from the side", "speared after the harp", "hit the phantom tail")   # runs without a score (NaN)
+
+
 class Window:
-    """One window's outcome (acc: a timing-tolerant score, when computed)."""
-    __slots__ = ("harp", "death", "why", "acc")
+    """One window's outcome (acc: a timing-tolerant score, when computed;
+    harp_at: ticks from the start to the harp, if eaten). A run whose cause is
+    in EXCLUDED has no score (NaN) and is left out of every average."""
+    __slots__ = ("harp", "death", "why", "acc", "harp_at")
 
     def __init__(self):
         self.harp = 0.0
         self.death = 0.0
         self.why = None
         self.acc = None
+        self.harp_at = None
+
+    @property
+    def excluded(self):
+        return self.why in EXCLUDED
 
     @property
     def score(self):
-        return self.harp - self.death
+        return float("nan") if self.why in EXCLUDED else self.harp - self.death
 
 
-def outcome(sim, k0, eaten_tick):
+def outcome(sim, k0, eaten_tick, phantom_hit=False):
     w = Window()
     if eaten_tick is not None:
         w.harp = 1.0
+        w.harp_at = eaten_tick - k0
+    if phantom_hit:
+        w.why = "hit the phantom tail"          # excluded: no score
+    elif eaten_tick is not None:
+        if sim.lost == "speared":
+            w.why = "speared after the harp"    # excluded: no score
     elif sim.lost == "speared" and sim.spear_dir % 2 != sim.last % 2:
-        w.why = "speared from the side"     # no penalty
+        w.why = "speared from the side"         # excluded: no score
     elif sim.lost:
         s = (sim.tick_no - k0) / 4.0
         w.death = DEATH * min(1.0, math.exp(-(s - 1.0) / DECAY[sim.lost]))
@@ -238,43 +263,66 @@ def outcome(sim, k0, eaten_tick):
 
 
 def run_window(real, k0, inputs, watch=None, ref=None):
-    """Simulate from the real state after tick k0; inputs.slot(k, sim)
-    yields the commands to run before tick k+1, one sample's at a time,
-    as (t, [(dir, hold), ...]). watch(event, sim, k, t, heading before), if
-    given, sees every command ("cmd") and every tick ("tick"). ref is the
-    window's start when the run begins earlier (the spears taken and the
-    death decay are counted from it)."""
+    """Simulate from the real state after tick k0 until David dies (or MAX_STEPS
+    steps): the harp eaten on the way counts, and the run goes on past it to see
+    whether a spear gets him after it. A phantom tail follows the real one: the
+    cell its end has just left (the cell David left, with no tail), moving as if
+    the tail were one cell longer; David entering it ends the run without a
+    score. inputs.slot(k, sim) yields the commands to run before tick k+1, one
+    sample's at a time, as (t, [(dir, hold), ...]). watch(event, sim, k, t,
+    heading before), if given, sees every command ("cmd") and every tick
+    ("tick"). ref is the window's start when the run begins earlier (the spears
+    taken and the death decay are counted from it)."""
     ref = k0 if ref is None else ref
     sim = real.copy()
     sim.throw_limit = ref + AIM_TICKS
     sim.harp_next = lambda: None
+    phantom = [None]                # the phantom tail's cell, once the tail's end has moved
+
+    def tail_end():
+        return sim.tail[-1] if sim.tail else (sim.hx, sim.hy)
+
+    def stepped(end_before):
+        """After a step: the phantom takes the cell the tail's end left (none, if
+        the tail grew); True if David is on the phantom."""
+        if tail_end() != end_before:
+            phantom[0] = end_before
+        return phantom[0] is not None and (sim.hx, sim.hy) == phantom[0]
+
+    hit = False
     for k in range(k0, k0 + 4 * MAX_STEPS):
         for t, cmds in inputs.slot(k, sim):
             h0, pos, turned = sim.heading, (sim.hx, sim.hy), False
+            end0 = tail_end()
             for d, hold in cmds:
                 if sim.swipe(d, hold) in TURNED:
                     turned = True
-                if sim.lost or sim.eaten:
+                if sim.lost:
                     break
             if turned:
                 inputs.turned(t)
             elif (sim.hx, sim.hy) != pos:
                 inputs.stepped()            # a flushed step, with no turn after it
+            if (sim.hx, sim.hy) != pos and stepped(end0):
+                hit = True
             if watch:
                 watch("cmd", sim, k, t, h0)
-            if sim.lost or sim.eaten:
+            if sim.lost or hit:
                 break
-        if sim.lost or sim.eaten:
+        if sim.lost or hit:
             break
         pos = (sim.hx, sim.hy)
+        end0 = tail_end()
         sim.tick()
         if (sim.hx, sim.hy) != pos:
             inputs.stepped()
+            if stepped(end0):
+                hit = True
         if watch:
             watch("tick", sim, k, None, None)
-        if sim.lost or sim.eaten:
+        if sim.lost or hit:
             break
-    return outcome(sim, ref, sim.eaten[0] if sim.eaten else None)
+    return outcome(sim, ref, sim.eaten[0] if sim.eaten else None, hit)
 
 
 class Inputs:
@@ -377,8 +425,11 @@ def tolerant_score(plain, placements, alpha=1.0):
     """The timing-tolerant score: alpha * (the best placement's score) + (1 -
     alpha) * (the plain run's score); and the best placement's Window (the
     plain run's on a tie)."""
-    best = max(placements, key=lambda d: (placements[d].score, placements[d] is plain))
-    return alpha * placements[best].score + (1 - alpha) * plain.score, placements[best]
+    valid = {d: w for d, w in placements.items() if not w.excluded}
+    if plain.excluded or not valid:
+        return float("nan"), plain             # no score: left out of every average
+    best = max(valid, key=lambda d: (valid[d].score, valid[d] is plain))
+    return alpha * valid[best].score + (1 - alpha) * plain.score, valid[best]
 
 
 class RecInputs(Inputs):
@@ -472,25 +523,30 @@ def evaluate_play(p, models=MODELS):
 
 def summarize(per_game, rows, ref="as played", boots=2000, seed=1):
     games = list(per_game)
-    n = sum(len(per_game[g][ref]) for g in games)
-    print(f"\n{n} gesture windows, {len(games)} games")
-    print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s}"
-          f"   vs {ref} [90% range over games]   (per 1000 gestures; deaths = their penalty)")
+    n_all = sum(len(per_game[g][ref]) for g in games)
+    print(f"\n{n_all} windows, {len(games)} games (per 1000 windows with a score; excl. = windows left out: speared "
+          f"from the side or after the harp, or the phantom tail; differences over the windows both have a score for)")
+    print(f"  {'':10s} {'score':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} {'excl.':>6s}"
+          f"   vs {ref} [90% range over games]")
     for m in rows:
         ws = [w for g in games for w in per_game[g][m]]
-        sc = sum(w.score for w in ws)
-        hp = sum(w.harp for w in ws)
+        ok = [w for w in ws if not w.excluded]
+        n = max(1, len(ok))
+        sc = sum(w.score for w in ok)
+        hp = sum(w.harp for w in ok)
         why = defaultdict(float)
-        for w in ws:
+        for w in ok:
             if w.why:
                 why[w.why] += w.death
         line = (f"  {m:10s} {1000 * sc / n:7.1f} {1000 * hp / n:6.1f} "
                 f"{-1000 * why['hit the wall'] / n:6.1f} {-1000 * why['speared'] / n:6.1f} "
-                f"{-1000 * why['ran into the tail'] / n:6.1f}")
+                f"{-1000 * why['ran into the tail'] / n:6.1f} {len(ws) - len(ok):6d}")
         if m != ref:
             rnd = random.Random(seed)
-            per = {g: (sum(w.score for w in per_game[g][m]) - sum(w.score for w in per_game[g][ref]),
-                       len(per_game[g][ref])) for g in games}
+            per = {}
+            for g in games:
+                pairs = [(a, b) for a, b in zip(per_game[g][m], per_game[g][ref]) if not a.excluded and not b.excluded]
+                per[g] = (sum(a.score - b.score for a, b in pairs), len(pairs))
             ds = []
             for _ in range(boots):
                 pick = [rnd.choice(games) for _ in games]
@@ -498,7 +554,7 @@ def summarize(per_game, rows, ref="as played", boots=2000, seed=1):
                 b = sum(per[g][1] for g in pick) or 1
                 ds.append(1000 * a / b)
             ds.sort()
-            d = 1000 * (sc - sum(w.score for g in games for w in per_game[g][ref])) / n
+            d = 1000 * sum(per[g][0] for g in games) / max(1, sum(per[g][1] for g in games))
             line += f"   {d:+6.1f} [{ds[int(0.05 * boots)]:+.1f}, {ds[int(0.95 * boots)]:+.1f}]"
         print(line)
 

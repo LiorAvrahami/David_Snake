@@ -3,11 +3,14 @@
 and test games of a split (tools/simlearn.py split), with the
 tools/windowsim.py scoring.
 
-Prints three tables, per 1000 windows: the training games and the test
-games (a row per model; columns: total, harp, and the penalties of hitting
-the wall, being speared, running into the tail), and a summary: training
-total, test total, and test minus S2-FAST with its 90% range (bootstrap
-over test games).
+Prints three tables, per 1000 windows with a score: the training games and
+the test games (a row per model; columns: total, harp, the penalties of
+hitting the wall, being speared, running into the tail, and Excl., the
+windows left out: those in which the model's David was speared from the side
+or after the harp, or entered the phantom tail, which have no score), and a
+summary: training total, test total, and test minus the reference over the
+windows both have a score for, with its 90% range (bootstrap over test
+games).
 
 --tolerance N scores each window by the Final score: the model's turns
 moved together so that its first turn lands N ticks before to N ticks
@@ -21,7 +24,7 @@ the real state one tick earlier.
 Usage: python3 tools/compare_models.py FILE... --models tools/models/ml-1.json,tools/models/ml-2.json
                                        [--holdout FRAC] [--seed S] [--never-test FILE,...]
                                        [--tolerance N] [--alpha A] [--anchored] [--ref MODEL]"""
-import bisect, json, os, random, sys
+import bisect, json, math, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
 
@@ -60,29 +63,36 @@ def _outcomes(args):
 
 
 def row(res, keys, m):
-    """Per 1000 windows: the score, the harps, and the death penalties by cause
-    (of the outcomes that count: with tolerance the best placements')."""
-    n = sum(len(res[k][m]) for k in keys)
-    total = sum(sc for k in keys for _, _, _, sc in res[k][m])
-    harp = sum(h for k in keys for h, _, _, _ in res[k][m])
+    """Per 1000 windows with a score: the score, the harps, the death penalties by
+    cause (of the outcomes that count: with tolerance the best placements'), and
+    the number of windows left out (no score)."""
+    rs = [r for k in keys for r in res[k][m]]
+    ok = [r for r in rs if not math.isnan(r[3])]
+    n = max(1, len(ok))
+    total = sum(sc for *_, sc in ok)
+    harp = sum(h for h, *_ in ok)
     pen = defaultdict(float)
-    for k in keys:
-        for _, d, why, _ in res[k][m]:
-            if why in CAUSES:
-                pen[why] += d
-    return [1000 * total / n, 1000 * harp / n] + [-1000 * pen[c] / n for c in CAUSES]
+    for _, d, why, _ in ok:
+        if why in CAUSES:
+            pen[why] += d
+    return [1000 * total / n, 1000 * harp / n] + [-1000 * pen[c] / n for c in CAUSES] + [len(rs) - len(ok)]
 
 
 def boot(res, keys, m, ref="S2-FAST", n=2000, seed=1):
-    per = {k: (sum(sc for *_, sc in res[k][m]) - sum(sc for *_, sc in res[k][ref]), len(res[k][ref]))
-           for k in keys}
+    """m minus ref per 1000 windows over the windows both have a score for, and
+    its 90% range over games."""
+    per = {}
+    for k in keys:
+        pairs = [(a[3], b[3]) for a, b in zip(res[k][m], res[k][ref]) if not (math.isnan(a[3]) or math.isnan(b[3]))]
+        per[k] = (sum(a - b for a, b in pairs), len(pairs))
     rnd = random.Random(seed)
     ds = []
     for _ in range(n):
         pick = [rnd.choice(keys) for _ in keys]
         ds.append(1000 * sum(per[k][0] for k in pick) / max(1, sum(per[k][1] for k in pick)))
     ds.sort()
-    return ds[int(0.05 * n)], ds[int(0.95 * n)]
+    tot = 1000 * sum(per[k][0] for k in keys) / max(1, sum(per[k][1] for k in keys))
+    return tot, ds[int(0.05 * n)], ds[int(0.95 * n)]
 
 
 def main():
@@ -123,22 +133,23 @@ def main():
     for title, ks in (("Training games", trn), ("Test games", test)):
         if not ks:
             continue
-        print(f"\n{title}: {len(ks)} games, {nw(ks)} windows (per 1000 windows)")
-        print(f"  {'':8s} {'Total':>7s} {'Harp':>7s} {'Wall':>7s} {'Spear':>7s} {'Tail':>7s}")
+        print(f"\n{title}: {len(ks)} games, {nw(ks)} windows (per 1000 windows with a score; Excl. = windows "
+              f"left out: speared from the side or after the harp, or the phantom tail)")
+        print(f"  {'':8s} {'Total':>7s} {'Harp':>7s} {'Wall':>7s} {'Spear':>7s} {'Tail':>7s} {'Excl.':>7s}")
         for m in names:
-            print(f"  {m:8s} " + " ".join(f"{v:7.1f}" for v in row(res, ks, m)))
+            r = row(res, ks, m)
+            print(f"  {m:8s} " + " ".join(f"{v:7.1f}" for v in r[:5]) + f" {r[5]:7d}")
     if not test:
         test, trn = trn, []                # no split: the summary over every game
         print("\n(no held-out games: the summary is over every game)")
     if test:
-        print(f"\nSummary (per 1000 windows)")
+        print(f"\nSummary (per 1000 windows with a score; the difference over the windows both have a score for)")
         print(f"  {'':8s} {'Train':>7s} {'Test':>7s}   Test minus {ref} [90% range]")
-        base = row(res, test, ref)[0]
         for m in names:
             line = f"  {m:8s} {row(res, trn, m)[0] if trn else float('nan'):7.1f} {row(res, test, m)[0]:7.1f}"
             if m != ref:
-                lo, hi = boot(res, test, m, ref)
-                line += f"   {row(res, test, m)[0] - base:+6.1f} [{lo:+.1f}, {hi:+.1f}]"
+                tot, lo, hi = boot(res, test, m, ref)
+                line += f"   {tot:+6.1f} [{lo:+.1f}, {hi:+.1f}]"
             print(line)
 
 

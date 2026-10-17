@@ -7,9 +7,15 @@ model (simlearn.MlpPolicy: 17 finger inputs, one hidden layer, none / right /
 left, no back) is read as a softmax policy over its three scores at every
 decision node, so a window's expected Final score is a sum over its courses of
 (probability of the course) x (its score), computed exactly on the tree, and so
-is its gradient. Adam climbs the mean over the training windows. The model put
-in the game is the argmax; its deterministic score is reported alongside. No
-label of any kind: nothing is taken from what the live game did.
+is its gradient. Courses without a score (NaN in the table: David speared from
+the side or after the harp, or in the phantom tail) are left out: a window's
+value is the expected score given a course with a score, S / M with S the
+probability-weighted sum of the scores and M the probability of a scored
+course; a window with M = 0 is left out. Adam climbs the mean over the training
+windows. The model put in the game is the argmax; its deterministic score is
+reported alongside (NaN when its course has no score, and that window is left
+out of the mean). No label of any kind: nothing is taken from what the live
+game did.
 
 Usage: python3 tools/windowlearn.py TABLE.pkl [--holdout FRAC --seed S --never-test FILE,...]
                                     [--hidden H] [--iters N] [--lr R] [--l2 X] [--init-seed S]
@@ -34,7 +40,7 @@ class Table:
     node's three edges (child node or -1), the ending edges' scores, the roots."""
 
     def __init__(self, trees_by_key, keys):
-        F, child, final, plain, roots = [], [], [], [], []
+        F, child, final, plain, roots, win = [], [], [], [], [], []
         off = 0
         for key in keys:
             for Fw, cw, fw, pw, _ in trees_by_key[key]:
@@ -44,6 +50,7 @@ class Table:
                 child.append(c)
                 final.append(fw)
                 plain.append(pw)
+                win.append(np.full(len(Fw), len(roots)))
                 roots.append(off)
                 off += len(Fw)
         self.F = np.concatenate(F)
@@ -53,6 +60,7 @@ class Table:
         self.final = np.concatenate(final)
         self.plain = np.concatenate(plain)
         self.roots = np.asarray(roots)
+        self.win = np.concatenate(win)             # node -> its window's index
         self.ends = self.child < 0
         self.cidx = np.where(self.ends, 0, self.child)
         self.n = len(self.F)
@@ -64,12 +72,28 @@ class Table:
         return np.stack([np.zeros(self.n), Hr @ v, Hl @ v], 1), Hr, Hl
 
     def values(self, P, leaf):
-        """V per node under the policy P (node x 3), with the ending edges' scores leaf."""
-        V = np.zeros(self.n)
+        """Under the policy P (node x 3): per node S = the probability-weighted sum
+        of the scores of the courses below it that have one, M = the probability
+        of ending in a course with a score; QS, QM the same per edge (the child's,
+        or an ending edge's score and 1, or 0 and 0 for an ending without a
+        score). The expected score given a scored course is S / M."""
+        ok = ~np.isnan(leaf)
+        leaf0 = np.where(ok, leaf, 0.0)
+        okf = ok.astype(float)
+        S = np.zeros(self.n)
+        M = np.zeros(self.n)
         for _ in range(SWEEPS):
-            Q = np.where(self.ends, leaf, V[self.cidx])
-            V = (P * Q).sum(1)
-        return V, Q
+            QS = np.where(self.ends, leaf0, S[self.cidx])
+            QM = np.where(self.ends, okf, M[self.cidx])
+            S = (P * QS).sum(1)
+            M = (P * QM).sum(1)
+        return S, M, QS, QM
+
+    def expected(self, P, leaf):
+        """Per window: the expected score over its courses with a score (NaN when none has one)."""
+        S, M, _, _ = self.values(P, leaf)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(M[self.roots] > 1e-12, S[self.roots] / M[self.roots], np.nan)
 
     def reach(self, P):
         """Probability of reaching each node from its window's root under P."""
@@ -103,12 +127,13 @@ class Table:
 
 def report(tag, T, Z, P=None):
     fin, pl, turned = T.greedy(Z)
-    line = f"{tag}: argmax Final {1000 * fin.mean():7.1f}, plain {1000 * pl.mean():7.1f}, turns in {100 * turned.mean():4.1f}% of windows"
+    line = (f"{tag}: argmax Final {1000 * np.nanmean(fin):7.1f}, plain {1000 * np.nanmean(pl):7.1f}, turns in "
+            f"{100 * turned.mean():4.1f}% of windows, {int(np.isnan(fin).sum())} left out")
     if P is not None:
-        V, _ = T.values(P, T.final)
+        E = T.expected(P, T.final)
         R = T.reach(P)
         H = -(P * np.log(P + 1e-12)).sum(1)
-        line += f" | expected Final {1000 * V[T.roots].mean():7.1f}, entropy {(R * H).sum() / R.sum():.3f}"
+        line += f" | expected Final {1000 * np.nanmean(E):7.1f}, entropy {(R * H).sum() / R.sum():.3f}"
     return line
 
 
@@ -154,9 +179,16 @@ def main():
     for it in range(1, iters + 1):
         Z, Hr, Hl = T.logits(W1, b1, v)
         P = L.softmax(Z)
-        V, Q = T.values(P, T.final)
+        S, M, QS, QM = T.values(P, T.final)
         R = T.reach(P)
-        G = (R[:, None] * P * (Q - V[:, None])) / T.nw       # dJ/dZ, J = mean expected Final per window
+        Sw, Mw = S[T.roots][T.win], M[T.roots][T.win]      # per node: its window's S and M
+        okw = Mw > 1e-12
+        nval = max(1, int((M[T.roots] > 1e-12).sum()))
+        # J = mean over windows of S_w / M_w; d(S_w / M_w) / dZ[n, a] by the quotient rule, each piece the
+        # softmax-expectation gradient: reach(n) P[n, a] (edge value - node value)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            G = R[:, None] * P * ((QS - S[:, None]) / Mw[:, None] - (Sw / Mw ** 2)[:, None] * (QM - M[:, None]))
+        G = np.where(okw[:, None], G, 0.0) / nval
         dv = Hr.T @ G[:, 1] + Hl.T @ G[:, 2]
         dHr = (G[:, 1][:, None] * v[None, :]) * (Hr > 0)
         dHl = (G[:, 2][:, None] * v[None, :]) * (Hl > 0)

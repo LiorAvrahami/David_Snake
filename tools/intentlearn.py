@@ -45,7 +45,7 @@ Usage: python3 tools/intentlearn.py FILE... [--folds N | --holdout FRAC --seed S
   --reject-small  weigh none answers during a small movement (one that never
                 gets clear and the live game did not answer) with --w-reject, like
                 a clear movement the live game did not answer"""
-import bisect, json, os, random, sys
+import bisect, json, math, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
 
@@ -345,7 +345,7 @@ def metrics(targets, turns):
 
 def row(o, targets, turns, extra):
     lat, wrong, missed = metrics(targets, turns)
-    return (o.harp, o.death, o.why, lat, wrong, missed, extra[0], extra[1], o.acc)
+    return (o.harp, o.death, o.why, lat, wrong, missed, extra[0], extra[1], o.acc, o.score)
 
 
 MLP_ITERS = 600         # Adam steps per fit of the one-hidden-layer model (the linear model: 400)
@@ -523,25 +523,29 @@ def summarize(rows, names, false, minutes, arms=None):
         return
     keys = [k for k in rows if rows[k]]         # games with windows
     n = sum(len(rows[k][names[0]]) for k in keys)
-    print(f"  {'':10s} {'score':>7s} {'final':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} | {'latency':>7s} {'late':>6s} {'wrong':>6s} "
+    print(f"  {'':10s} {'score':>7s} {'final':>7s} {'harp':>6s} {'wall':>6s} {'spear':>6s} {'tail':>6s} {'excl.':>6s} | {'latency':>7s} {'late':>6s} {'wrong':>6s} "
           f"{'missed':>6s} {'spur.':>6s} {'early':>6s} {'false/min':>9s}")
     for m in names:
         ws = [w for k in keys for w in rows[k][m]]
-        sc = sum(h - d for h, d, *_ in ws)
-        acc = sum(w[8] for w in ws)
-        hp = sum(h for h, *_ in ws)
+        ok = [w for w in ws if not math.isnan(w[9])]                        # windows with a plain score
+        oka = [w for w in ws if w[8] is not None and not math.isnan(w[8])]  # with a final score
+        ns, na = max(1, len(ok)), max(1, len(oka))
+        sc = sum(w[9] for w in ok)
+        acc = sum(w[8] for w in oka)
+        hp = sum(w[0] for w in ok)
         why = defaultdict(float)
-        for h, d, y, *_ in ws:
+        for h, d, y, *_ in ok:
             if y:
                 why[y] += d
         lats = [w[3] for w in ws if w[3] is not None]
         late = sum(1 for x in lats if x >= 2)
         wrong = sum(1 for w in ws if w[4]); missed = sum(1 for w in ws if w[5]); spur = sum(w[6] for w in ws); early = sum(w[7] for w in ws)
         fm = sum(false[k].get(m, 0) for k in keys) / max(1e-9, sum(minutes[k] for k in keys)) if m in false.get(keys[0], {}) else float("nan")
-        print(f"  {m:10s} {1000*sc/n:7.1f} {1000*acc/n:7.1f} {1000*hp/n:6.1f} {-1000*why['hit the wall']/n:6.1f} {-1000*why['speared']/n:6.1f} "
-              f"{-1000*why['ran into the tail']/n:6.1f} | {sum(lats)/max(1,len(lats)):7.3f} {1000*late/max(1,len(lats)):6.1f} {1000*wrong/n:6.1f} "
+        print(f"  {m:10s} {1000*sc/ns:7.1f} {1000*acc/na:7.1f} {1000*hp/ns:6.1f} {-1000*why['hit the wall']/ns:6.1f} {-1000*why['speared']/ns:6.1f} "
+              f"{-1000*why['ran into the tail']/ns:6.1f} {len(ws) - len(ok):6d} | {sum(lats)/max(1,len(lats)):7.3f} {1000*late/max(1,len(lats)):6.1f} {1000*wrong/n:6.1f} "
               f"{1000*missed/n:6.1f} {1000*spur/n:6.1f} {1000*early/n:6.1f} {fm:9.2f}")
-    print(f"  ({n} windows; score columns per 1000 windows, final = {ALPHA:g} times the best score of the turns moved -{TOL}..{TOL} ticks "
+    print(f"  ({n} windows; score columns per 1000 windows with a score, excl. = windows left out (speared from the side or after "
+          f"the harp, or the phantom tail); final = {ALPHA:g} times the best score of the turns moved -{TOL}..{TOL} ticks "
           f"plus {1 - ALPHA:g} times the plain score (timing counts for little); latency = mean ticks from the window start to the "
           f"intended turn, late = per 1000 of them at 2 ticks or more; per 1000 windows: wrong first turn, missed turn, "
           f"spur. = turns after every asked turn was made or where none was asked, early = a later asked turn made "
@@ -549,16 +553,22 @@ def summarize(rows, names, false, minutes, arms=None):
 
 
 def boot(rows, keys, a, b, n=2000, seed=1, acc=False):
+    """a minus b per 1000 windows over the windows both have a score for (the
+    final score with acc), and its 90% range over games."""
     keys = [k for k in keys if rows[k]]
-    val = (lambda w: w[8]) if acc else (lambda w: w[0] - w[1])
-    per = {k: (sum(val(w) for w in rows[k][a]) - sum(val(w) for w in rows[k][b]), len(rows[k][a])) for k in keys}
+    idx = 8 if acc else 9
+    ok = lambda w: w[idx] is not None and not math.isnan(w[idx])
+    per = {}
+    for k in keys:
+        pairs = [(x[idx], y[idx]) for x, y in zip(rows[k][a], rows[k][b]) if ok(x) and ok(y)]
+        per[k] = (sum(x - y for x, y in pairs), len(pairs))
     rnd = random.Random(seed)
     ds = []
     for _ in range(n):
         pick = [rnd.choice(keys) for _ in keys]
         ds.append(1000 * sum(per[k][0] for k in pick) / max(1, sum(per[k][1] for k in pick)))
     ds.sort()
-    tot = 1000 * sum(per[k][0] for k in keys) / sum(per[k][1] for k in keys)
+    tot = 1000 * sum(per[k][0] for k in keys) / max(1, sum(per[k][1] for k in keys))
     return tot, ds[int(0.05 * n)], ds[int(0.95 * n)]
 
 

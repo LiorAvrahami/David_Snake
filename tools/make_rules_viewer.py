@@ -125,12 +125,17 @@ def run_rule(real, k0, t0, cmds, j0, rule, T):
                 if since_r == 2 and limit is None:
                     limit = ts
         frames.append(frame(sim))
-        if sim.lost or sim.eaten:
+        if sim.lost:
             break
-    w = WS.outcome(sim, k0, sim.eaten[0] if sim.eaten else None)
+    w = WS.outcome(sim, k0, sim.eaten[0] if sim.eaten else None)     # (no phantom tail in this viewer's own loop)
+    harp = w.harp > 0 and not w.excluded
+    if harp:
+        frames = frames[:w.harp_at + 1]     # shown up to the harp; the run went on to check for a spear
     # the rest of the commands (neither read nor checked): shown grayed on the timeline
     return {"frames": frames, "turns": turns, "cmds": cmd_log, "steps": steps, "limit": limit,
-            "score": round(w.score, 4), "why": "harp" if w.harp > 0 else w.why, "end": sim.tick_no - k0}
+            "score": None if w.excluded else round(w.score, 4),
+            "why": w.why if w.excluded else ("harp" if w.harp > 0 else w.why),
+            "end": w.harp_at if harp else sim.tick_no - k0}
 
 
 def kind_of(r, last):

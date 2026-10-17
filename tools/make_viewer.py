@@ -57,8 +57,12 @@ def traced(real, k0, inputs):
     sim = ref.get("sim")
     if sim is not None and frames[-1] != frame(sim):
         frames.append(frame(sim))           # the run ended during a command
-    return {"frames": frames, "turns": turns, "score": round(w.score, 4),
-            "why": "harp" if w.harp > 0 else w.why, "end": (sim.tick_no - k0) if sim else 0}
+    harp = w.harp > 0 and not w.excluded
+    if harp:
+        frames = frames[:w.harp_at + 1]     # shown up to the harp; the run went on to check for a spear
+    return {"frames": frames, "turns": turns, "score": None if w.excluded else round(w.score, 4),
+            "why": w.why if w.excluded else ("harp" if w.harp > 0 else w.why),
+            "end": w.harp_at if harp else ((sim.tick_no - k0) if sim else 0)}
 
 
 def game_windows(job):

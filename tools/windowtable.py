@@ -12,7 +12,9 @@ PolicyInputs the judge uses and scoring it with the Final score (the turns
 shifted together -DELTA..DELTA ticks, ALPHA times the best plus 1 - ALPHA
 times the plain run), and records the finger features the model sees at every
 decision tick along the way. A turn the engine blocks (into the tail) is the
-same course as none at that tick.
+same course as none at that tick. A course without a score (David speared
+from the side or after the harp, or in the phantom tail) is stored as NaN; the
+trainer leaves it out.
 
 Per window a small tree: nodes = decision ticks with their features; from each
 node three edges, none / right / left, leading to another node (the next

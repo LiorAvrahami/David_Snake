@@ -115,7 +115,9 @@ const RING = {"S2-FAST": 15, "ML-1": 10.5, "ML-3": 6};
 const LET = "URDL", DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
 const CELL = 48, OFF = 51, COLS = 21, ROWS = 13;
 const WHY = {"harp": "ate the harp", "hit the wall": "hit the wall", "speared": "speared",
-             "ran into the tail": "ran into the tail", "speared from the side": "speared from the side (no penalty)"};
+             "ran into the tail": "ran into the tail", "speared from the side": "speared from the side (excluded: no score)",
+             "speared after the harp": "speared after the harp (excluded: no score)",
+             "hit the phantom tail": "entered the phantom tail (excluded: no score)"};
 const IMG = {};
 let scen = 0, tick = 0, playing = false, timer = null;
 
@@ -142,6 +144,7 @@ const px = (x) => x * CELL + OFF;
 const center = (x) => x * CELL + OFF + 24;
 
 function fmtScore(s) {
+  if (s === null || s === undefined || Number.isNaN(s)) return "";
   if (Math.abs(s) < 0.0005) return s === 0 ? "0" : "≈0";
   return (s > 0 ? "+" : "−") + Math.abs(s).toFixed(Math.abs(s) >= 0.995 ? 0 : 3);
 }

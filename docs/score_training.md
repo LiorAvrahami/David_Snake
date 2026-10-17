@@ -17,13 +17,15 @@ heading at that tick). Each is tried by simulation from the real game state at
 that tick (tools/enginesim.py, the exact engine), with the recorded spear
 throws (those thrown up to 18 ticks after the decision tick):
 
-- none: David goes straight until he eats the harp or dies.
-- a turn: David turns once, then goes straight until he eats the harp or dies.
+- none: David goes straight until he dies, eating the harp on the way or not.
+- a turn: David turns once, then goes straight the same way.
 
 A run scores +1 for eating the harp (whenever it happens), and for a death
 -0.5 times exp(-(s - 1) / decay), s the steps from the decision tick to the
-death, decay 1 step for the wall and the tail and 3.7 for a spear (a spear
-from the side costs nothing).
+death, decay 1 step for the wall and the tail and 3.7 for a spear. A run in
+which David is speared from the side, or speared after eating the harp, or
+enters the phantom tail (the cell one behind the tail's end), has no score
+(NaN); a decision point with such an action is left out.
 
 Timing is forgiven with the lags and weights defined earlier for the Final
 score, delta = 4 ticks and alpha = 0.9: a turn is simulated at every lag

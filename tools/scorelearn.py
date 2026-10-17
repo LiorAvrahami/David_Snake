@@ -17,7 +17,7 @@ Usage: python3 tools/scorelearn.py FILE... [--holdout FRAC --seed S --never-test
                                    [--hidden H] [--iters N] [--delta D] [--alpha A]
                                    [--save EX.pkl | --load EX.pkl] [--export]
 Prints the decision points' label counts and the trained weights (json)."""
-import json, os, pickle, sys
+import json, math, os, pickle, sys
 from multiprocessing import Pool
 
 import numpy as np
@@ -51,7 +51,8 @@ def action_scores(spec, delta=DELTA, alpha=ALPHA):
                 state = spec.prev[j - 1][1]
                 before = [(slot, spec.t0, cmds) for slot, _, cmds in reversed(spec.prev[:j]) if cmds]
                 by_lag[d] = WS.run_window(state, spec.k - j, WS.Schedule(spec.t0, log, d, before), ref=spec.k).score
-        out.append(alpha * max(by_lag.values()) + (1 - alpha) * by_lag[0])
+        valid = [v for v in by_lag.values() if not math.isnan(v)]
+        out.append(alpha * max(valid) + (1 - alpha) * by_lag[0] if valid and not math.isnan(by_lag[0]) else float("nan"))
     return out
 
 
@@ -93,11 +94,15 @@ def labels(S):
     """Per row of scores (none, right, left): the best action, ties to none, and
     the weight: best minus second best."""
     S = np.asarray(S, float)
+    bad = np.isnan(S).any(1)                        # an action without a score: the point is left out
+    S = np.where(np.isnan(S), -np.inf, S)
     lab = np.zeros(len(S), int)
     lab[S[:, 1] > S[:, 0]] = 1
     lab[S[:, 2] > np.maximum(S[:, 0], S[:, 1])] = 2
     srt = np.sort(S, 1)
-    return lab, srt[:, 2] - srt[:, 1]
+    w = srt[:, 2] - srt[:, 1]
+    lab[bad], w[bad] = 0, 0.0
+    return lab, w
 
 
 def fit(F, lab, w, hidden=HIDDEN, iters=ITERS, l2=L.L2, lr=0.01, seed=1):
@@ -176,7 +181,8 @@ def main():
         print(json.dumps(pol.to_json()))
         return
     n = len(lab)
-    print(f"training games {len(trn)}, test {len(test)}; decision points {n}, "
+    excluded = int(np.isnan(np.asarray(S, float)).any(1).sum())
+    print(f"training games {len(trn)}, test {len(test)}; decision points {n}, {excluded} left out (an action without a score), "
           f"{int((w > 0).sum())} with a gap between the best and second-best action")
     for a in range(3):
         m = lab == a

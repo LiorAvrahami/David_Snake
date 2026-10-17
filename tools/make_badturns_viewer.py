@@ -14,7 +14,7 @@ document wrapper, for publishing.
 Usage: python3 tools/make_badturns_viewer.py FILE... --model tools/models/mnw1.json
                                            [--holdout 0.3 --seed 1 --never-test F,...] [--top 40] [--fragment PATH]
                                            [--also PATH:game:tick,...]   (windows from other recordings, shown apart)"""
-import html, json, os, re, sys
+import html, json, math, os, re, sys
 from collections import Counter
 from multiprocessing import Pool
 
@@ -34,7 +34,9 @@ TICK_MS = 45
 POL = None
 PLAYS = {}
 OUT = {"harp": "ate the harp", "hit the wall": "hit the wall", "speared": "speared", "ran into the tail": "ran into the tail",
-       "speared from the side": "speared from the side (costs nothing)", "nothing": "no harp, no death"}
+       "speared from the side": "speared from the side (excluded: no score)",
+       "speared after the harp": "speared after the harp (excluded: no score)",
+       "hit the phantom tail": "entered the phantom tail (excluded: no score)", "nothing": "no harp, no death"}
 
 
 def _init(paths, model):
@@ -48,8 +50,15 @@ def _init(paths, model):
 
 
 def outcome(w):
+    if w.excluded:
+        return w.why
     why = w.why or "nothing"
     return "harp" if w.harp > 0 else (why if why in OUT else "nothing")
+
+
+def num(x):
+    """A score for the page: None when there is none (NaN)."""
+    return None if x is None or math.isnan(x) else round(x, 4)
 
 
 def _scan(key):
@@ -87,7 +96,9 @@ def _course(real, k0, inputs):
         elif ev == "cmd" and sim.heading != h0:
             turns.append([k - k0, sim.heading])
     w = WS.run_window(real, k0, inputs, watch)
-    return {"frames": frames, "turns": turns, "end": outcome(w), "plain": round(w.score, 4)}
+    if w.harp > 0 and not w.excluded:
+        frames = frames[:w.harp_at + 1]     # shown up to the harp; the run went on to check for a spear
+    return {"frames": frames, "turns": turns, "end": outcome(w), "plain": num(w.score)}
 
 
 def _render(args):
@@ -252,7 +263,7 @@ class Player {
       const [ex, ey] = cells[endTick];
       if (course.end === "harp") { ctx.fillStyle = css("--harp"); ctx.beginPath(); ctx.arc(ex, ey, 6, 0, 7); ctx.fill(); }
       else { ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ex - 6, ey - 6); ctx.lineTo(ex + 6, ey + 6); ctx.moveTo(ex - 6, ey + 6); ctx.lineTo(ex + 6, ey - 6); ctx.stroke(); }
-      const text = course.end === "harp" ? "ate the harp  +1" : OUT[course.end] + "  " + course.plain.toFixed(3);
+      const text = course.end === "harp" ? "ate the harp  +1" : OUT[course.end] + (course.plain === null ? "" : "  " + course.plain.toFixed(3));
       ctx.font = "bold 13px system-ui, sans-serif"; const w = ctx.measureText(text).width + 14;
       const bx = Math.min(Math.max(ex - w / 2, 4), COLS * CELL - w - 4), by = ey < 40 ? ey + 14 : ey - 32;
       ctx.fillStyle = css("--card"); ctx.fillRect(bx, by, w, 20); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(bx, by, w, 20);
@@ -315,7 +326,8 @@ DATA.cases.forEach(c => {
   const i = num++;
   const el = document.createElement("article"); el.className = "case";
   const turns = c.courses.model.turns.map(([tt, h]) => NAMES[LET[h]] + " at tick +" + tt).join(", ") || "no turn";
-  const row = (name, label, co) => `<tr><td><span class="sw ${name}"></span>${label}</td><td>${OUT[co.end]} after ${co.frames.length - 1} ticks</td><td>${co.plain.toFixed(3)}</td><td>${(name === "none" ? c.final_none : c.final_model).toFixed(3)}</td></tr>`;
+  const fmt = x => (x === null || x === undefined) ? "no score" : x.toFixed(3);
+  const row = (name, label, co) => `<tr><td><span class="sw ${name}"></span>${label}</td><td>${OUT[co.end]} after ${co.frames.length - 1} ticks</td><td>${fmt(co.plain)}</td><td>${fmt(name === "none" ? c.final_none : c.final_model)}</td></tr>`;
   el.innerHTML = `<h3>${i + 1}. ${c.title}</h3>
     <div class="pics">
       <figure class="pic"><figcaption><span class="sw none"></span>no turn</figcaption><canvas class="board none" width="${COLS * CELL}" height="${ROWS * CELL}"></canvas></figure>
@@ -325,7 +337,7 @@ DATA.cases.forEach(c => {
     <div class="controls"><button class="play" type="button">Play</button><input type="range" id="r${i}" aria-label="time"><span class="tick"></span>
       <label>speed <select id="s${i}"><option value="0.25" selected>x0.25</option><option value="0.5">x0.5</option><option value="1">x1</option></select></label></div>
     <table class="scores"><tr><th></th><th>what happened</th><th>plain</th><th>Final</th></tr>${row("none", "no turn", c.courses.none)}${row("model", NAME + ": " + turns, c.courses.model)}</table>
-    <p class="loss">David heading ${NAMES[LET[c.courses.none.frames[0][2]]]} at the window start. ${fingerNote(c)} The turn cost ${(c.final_none - c.final_model).toFixed(3)} on the Final score.</p>`;
+    <p class="loss">David heading ${NAMES[LET[c.courses.none.frames[0][2]]]} at the window start. ${fingerNote(c)} ${c.final_none === null || c.final_model === null ? "One of the two courses has no score, so this window is left out of the averages." : "The turn cost " + (c.final_none - c.final_model).toFixed(3) + " on the Final score."}</p>`;
   root.appendChild(el);
   new Player(el, c);
 });
@@ -362,7 +374,8 @@ def main():
         trn, _ = L.split(keys, arms, o["holdout"], o["seed"], o["never_test"])
         rows = dict(pool.map(_scan, trn))
         allw = [(key, r) for key in trn for r in rows[key]]
-        turned = [(key, r) for key, r in allw if r[7]]
+        scored = [(key, r) for key, r in allw if not (math.isnan(r[1]) or math.isnan(r[4]))]
+        turned = [(key, r) for key, r in scored if r[7]]
         bad = [(key, r) for key, r in turned if r[1] > r[4] + 1e-9]
         good = [(key, r) for key, r in turned if r[4] > r[1] + 1e-9]
         bad.sort(key=lambda kr: kr[1][1] - kr[1][4], reverse=True)
@@ -378,7 +391,7 @@ def main():
                 continue
             extra.append((key, r))
         pics = dict(pool.map(_render, [(key, r[0]) for key, r in shown + extra]))
-    n, nt = len(allw), len(turned)
+    n, nt, nx = len(allw), len(turned), len(allw) - len(scored)
     loss = sum(r[1] - r[4] for _, r in bad)
     gain = sum(r[4] - r[1] for _, r in good)
     pairs = Counter((r[3], r[6]) for _, r in bad)
@@ -393,7 +406,8 @@ def main():
         f'(tolerance {DELTA}, alpha {ALPHA:g}). The worst {len(shown)} are below; press Play to watch one from {PRE} ticks before the window.</p>',
         '<table class="summary">',
         f"<tr><th>Training windows</th><td>{n}</td></tr>",
-        f"<tr><th>Windows where {name} turns</th><td>{nt} ({100 * nt / n:.0f}%)</td></tr>",
+        f"<tr><th>Windows left out (one of the two courses has no score: speared from the side or after the harp, or the phantom tail)</th><td>{nx}</td></tr>",
+        f"<tr><th>Windows where {name} turns, of the rest</th><td>{nt} ({100 * nt / max(1, n - nx):.0f}%)</td></tr>",
         f"<tr><th>Turns scoring below no turn</th><td>{len(bad)} ({100 * len(bad) / max(1, nt):.0f}% of its turns), total loss {loss:.1f}, mean {loss / max(1, len(bad)):.3f}</td></tr>",
         f"<tr><th>Turns scoring above no turn</th><td>{len(good)} ({100 * len(good) / max(1, nt):.0f}%), total gain {gain:.1f}, mean {gain / max(1, len(good)):.3f}</td></tr>",
         f"<tr><th>Turns scoring the same</th><td>{nt - len(bad) - len(good)}</td></tr>",
@@ -416,7 +430,7 @@ def main():
             d = pics[(key, r[0])]
             d["section"] = section
             d["title"] = f"Game {key[1]} of {html.escape(file_label(key[0]))}, tick {r[0]}"
-            d["final_none"], d["final_model"] = round(r[1], 4), round(r[4], 4)
+            d["final_none"], d["final_model"] = num(r[1]), num(r[4])
             cases.append(d)
     data = {"name": name, "pre": PRE, "out": OUT, "cases": cases}
     frag = (TEMPLATE.replace("__NAME__", html.escape(name)).replace("__SUMMARY__", summary)

@@ -437,6 +437,8 @@ def examples(g, pol):
             for b in range(4):
                 if b != a:
                     q[b] = run(g, spec, pol, force={k: b})
+            if any(math.isnan(x) for x in q):
+                continue                            # an answer without a score: no example
             if max(q) - min(q) > 1e-9:
                 out.append((f, q))
     return out
@@ -506,6 +508,7 @@ def adam(w, g, m, v, it, lr=0.05, b1=0.9, b2=0.999):
 
 
 def per1000(xs):
+    xs = [x for x in xs if not math.isnan(x)]       # windows without a score are left out
     return 1000.0 * sum(xs) / max(1, len(xs))
 
 

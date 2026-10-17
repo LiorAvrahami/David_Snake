@@ -146,7 +146,9 @@ const ARROW = {"U": "↑", "R": "→", "D": "↓", "L": "←"};
 const CELL = 48, OFF = 51, COLS = 21, ROWS = 13;
 const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const WHY = {"harp": "ate the harp", "hit the wall": "hit the wall", "speared": "speared",
-             "ran into the tail": "ran into the tail", "speared from the side": "speared from the side (no penalty)"};
+             "ran into the tail": "ran into the tail", "speared from the side": "speared from the side (excluded: no score)",
+             "speared after the harp": "speared after the harp (excluded: no score)",
+             "hit the phantom tail": "entered the phantom tail (excluded: no score)"};
 const IMG = {};
 let scen = 0, tick = 0, playing = false, timer = null;
 
@@ -185,8 +187,9 @@ const center = (x) => x * CELL + OFF + 24;
 
 function fmtScore(r) {
   const s = r.score;
+  if (s === null || s === undefined || Number.isNaN(s)) return "no score";
   if (r.why === "harp") return "+1";
-  if (Math.abs(s) < 0.0005) return r.why && r.why !== "speared from the side" ? "≈0" : "0";
+  if (Math.abs(s) < 0.0005) return r.why ? "≈0" : "0";
   return (s > 0 ? "+" : "−") + Math.abs(s).toFixed(3);
 }
 const result = r => r.why === "harp" ? "ate the harp: +1" : `${WHY[r.why] || r.why}: ${fmtScore(r)}`;

@@ -13,8 +13,12 @@ does in the window, exactly as `tools/compare_models.py --tolerance 4 --alpha
 or left at every tick with a fresh sample, may make one more turn before
 David's second step after a turn, then David goes straight to the harp or a
 death; its turns are shifted together by -4..+4 ticks and 0.9 times the best
-shift plus 0.1 times the unshifted run counts. The held-out games are never
-used for training or for choosing between runs; they judge the result.
+shift plus 0.1 times the unshifted run counts. A run in which David is speared
+from the side, or speared after eating the harp, or enters the phantom tail
+(the cell one behind the tail's end, moving as if the tail were one cell
+longer), has no score (NaN) and is left out: a window's value is the expected
+score given a course with a score. The held-out games are never used for
+training or for choosing between runs; they judge the result.
 
 ## How the maximum is found
 
