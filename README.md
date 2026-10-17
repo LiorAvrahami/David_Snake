@@ -125,7 +125,15 @@ edge of the screen from one side to the other turns it off, and on again. The to
   the final score's lags) and scores far below (149.1 vs 304.4 plain,
   309.8 vs 379.2 final): at two thirds of the decision points a turn
   toward the harp's row or column beats going straight whatever the
-  finger did, which a finger-only model cannot tell apart. Before it: `ML-3` (v1.17),
+  finger did, which a finger-only model cannot tell apart. `MNW1`
+  (`tools/models/mnw1.json`) was trained on the window score itself
+  (`tools/windowtable.py`, `tools/windowlearn.py`, `docs/window_training.md`:
+  every course of action in every window scored once, then the softmax
+  model's expected final score climbed exactly, from random weights, no
+  labels) and is the first model trained on a score to beat MNL1: final
+  score 385.5 vs 379.2 on the held-out games (+6.3, 90% range +1.2 to
+  +10.9; plain 308.4 vs 304.4); it still makes the recorded lift-off turn.
+  Before it: `ML-3` (v1.17),
   the linear model trained the same way, which turns about a quarter
   sooner than ML-1 (0.63 ticks; late turns 82 per 1000) with the same
   window score (355.3) and the same final score (411.4 vs 414.7 with 1
