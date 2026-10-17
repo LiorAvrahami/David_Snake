@@ -241,7 +241,39 @@ def training_score(commit, data, split_args, test_games, trainer_args, result):
     }
 
 
-TRAINING = {"simlearn": training_simlearn, "intent": training_intent, "score": training_score}
+def training_window(commit, data, split_args, test_games, trainer_args, result):
+    args = dict(zip(trainer_args[::2], trainer_args[1::2]))
+    hidden, iters = int(args.get("--hidden", 16)), int(args.get("--iters", 3000))
+    lr, l2, seed = float(args.get("--lr", 0.01)), float(args.get("--l2", 1e-4)), int(args.get("--init-seed", 1))
+    delta, alpha = int(args.get("--delta", 4)), float(args.get("--alpha", 0.9))
+    return {
+        "code": f"tools/windowtable.py and tools/windowlearn.py at commit {commit}",
+        "command": "python3 tools/windowtable.py " + " ".join(d["file"] for d in data)
+                   + f" --out TABLE.pkl --delta {delta} --alpha {alpha:g}; python3 tools/windowlearn.py TABLE.pkl"
+                   + f" --hidden {hidden} --iters {iters} --lr {lr:g} --l2 {l2:g} --init-seed {seed}"
+                   + "".join(" " + a for a in split_args) + " --export",
+        "deterministic": "re-running the commands on the same files gives identical weights",
+        "data": data,
+        "test_games": [{"file": f, "game": n} for f, n in test_games],
+        "method": "the window score alone (docs/window_training.md): every course of action in every "
+                  "window of the training games (no turn; a first turn at any decision tick, either way; "
+                  "then a second turn at any remaining decision tick, either way) is scored once with the "
+                  f"Final score (the turns shifted together -{delta}..{delta} ticks, {alpha:g} times the best "
+                  f"shift plus {1 - alpha:g} times the unshifted run); the model, read as a softmax policy "
+                  "over its three scores at each decision tick, has an expected Final score per window that "
+                  "is computed exactly over those courses, and Adam climbs its mean over the training windows "
+                  "from random initial weights. The model in the game is the argmax. Nothing is taken from "
+                  "the live game's turns",
+        "settings": {"delta": delta, "alpha": alpha, "hidden": hidden, "fit_steps": iters, "adam_lr": lr,
+                     "l2": l2, "init_seed": seed, "model": "mlp", "no_back": True, "speed_input": False},
+        "split": split_text(split_args),
+        "objective": objective(),
+        "result": result,
+    }
+
+
+TRAINING = {"simlearn": training_simlearn, "intent": training_intent, "score": training_score,
+            "window": training_window}
 
 
 def kotlin(spec):
@@ -309,7 +341,7 @@ if __name__ == "__main__":
             split_args += argv[i:i + 2]
             del argv[i:i + 2]
     for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold", "--iters", "--tolerance", "--alpha", "--init",
-                "--model", "--hidden", "--delta"):
+                "--model", "--hidden", "--delta", "--lr", "--l2", "--init-seed"):
         if opt in argv:
             i = argv.index(opt)
             trainer_args += argv[i:i + 2]
