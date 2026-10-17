@@ -109,7 +109,17 @@ edge of the screen from one side to the other turns it off, and on again. The to
   gesture start; turns 2 ticks or later 63 vs 130 per 1000) and making
   more turns than the live game made (43 per 1000 where the live game
   made none; fed whole live games, 5.0 turn starts per minute where the
-  live game made none, against ML-1's 2.5). Before it: `ML-3` (v1.17),
+  live game made none, against ML-1's 2.5). On the per-tick windows (every
+  game tick with finger movement) the picture is the same: final score
+  379.2 vs ML-1's 368.3 per 1000 windows (+10.9, 90% range +6.0 to +17.0;
+  plain 304.4 vs 298.9), with more turns the live game did not make (fed
+  whole live games, 2.8 turn starts per minute against 0.1 on ML-1's own
+  games, 2.7 against 1.7 on S2-FAST's). `MNL2-a` and `MNL2-b`
+  (`tools/models/`), MNL1's training rerun on the per-tick windows (b
+  weighting small movements the live game ignored, `--reject-small`),
+  score the same (+9.1, +10.0) with fewer such turns (1.9 per minute),
+  still make the recorded lift-off turn that killed MNL1, and are not in
+  the game. Before it: `ML-3` (v1.17),
   the linear model trained the same way, which turns about a quarter
   sooner than ML-1 (0.63 ticks; late turns 82 per 1000) with the same
   window score (355.3) and the same final score (411.4 vs 414.7 with 1
