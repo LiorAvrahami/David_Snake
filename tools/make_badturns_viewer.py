@@ -5,7 +5,8 @@ windows that score lower than making no turn at all, each replayable.
 For every window of the training games (tools/windowsim.py: a game tick with
 finger movement) two courses are simulated as the judge does: no turn at all,
 and the model's own play. A turn is 'bad' when the no-turn course's Final
-score (tolerance 4, alpha 0.9) is higher. The page shows the worst N: for each,
+score (tolerance 4, alpha 0.9) is higher. The page shows the worst N, no two of
+them from the same game within 10 ticks: for each,
 the two boards played side by side from PRE ticks before the window at a
 chosen speed, with the finger drawn as it moved (lifts break the trace), the
 scores, and what happened. --fragment PATH also writes the page without the
@@ -29,6 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DELTA, ALPHA = 4, 0.9
 SHIFTS = tuple(range(-DELTA, DELTA + 1))
 PRE = 20                # real-game ticks shown before the window (0.9 s: the previous gesture too)
+APART = 10              # two shown windows of one game are at least this many ticks apart
 POST_TICKS = 60         # finger samples kept after the window start
 TICK_MS = 45
 POL = None
@@ -379,7 +381,12 @@ def main():
         bad = [(key, r) for key, r in turned if r[1] > r[4] + 1e-9]
         good = [(key, r) for key, r in turned if r[4] > r[1] + 1e-9]
         bad.sort(key=lambda kr: kr[1][1] - kr[1][4], reverse=True)
-        shown = bad[:top]
+        shown = []                      # the worst, but no two windows of a game within APART ticks
+        for key, r in bad:
+            if len(shown) >= top:
+                break
+            if all(k2 != key or abs(r2[0] - r[0]) >= APART for k2, r2 in shown):
+                shown.append((key, r))
         also_keys = sorted({(os.path.basename(path), game) for path, game, _ in also})
         also_rows = dict(pool.map(_scan, also_keys)) if also_keys else {}
         extra = []
