@@ -116,11 +116,9 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
 
 def objective():
     return {
-        "windows": "one per gesture start: the finger starts moving (speed over "
-                   f"{WS.SPEED_MS} ms rising above {WS.V_REST:g} dp/s) and travels {WS.START_DP:g} dp, "
-                   f"however small or slow the movement, or turns by {WS.SPLIT_DEG:g} degrees or more "
-                   f"while moving; a gesture starting less than {WS.JOIN_MS} ms after a window's "
-                   "start belongs to that window",
+        "windows": "one at every game tick in which the finger moved: its samples in the tick "
+                   f"got {WS.MOVE_DP:g} dp or more away from where it was at the end of the tick before "
+                   "(or from the touch-down); a resting finger, or none, starts nothing",
         "input": f"the finger samples of the first {WS.READ_MS} ms from the window's start; then, "
                  "if David turned, one more turn before his next regular step after the latest "
                  "turn, which ends the input",

@@ -3,7 +3,7 @@
 and test games of a split (tools/simlearn.py split), with the
 tools/windowsim.py scoring.
 
-Prints three tables, per 1000 gestures: the training games and the test
+Prints three tables, per 1000 windows: the training games and the test
 games (a row per model; columns: total, harp, and the penalties of hitting
 the wall, being speared, running into the tail), and a summary: training
 total, test total, and test minus S2-FAST with its 90% range (bootstrap
@@ -123,7 +123,7 @@ def main():
     for title, ks in (("Training games", trn), ("Test games", test)):
         if not ks:
             continue
-        print(f"\n{title}: {len(ks)} games, {nw(ks)} gestures (per 1000 gestures)")
+        print(f"\n{title}: {len(ks)} games, {nw(ks)} windows (per 1000 windows)")
         print(f"  {'':8s} {'Total':>7s} {'Harp':>7s} {'Wall':>7s} {'Spear':>7s} {'Tail':>7s}")
         for m in names:
             print(f"  {m:8s} " + " ".join(f"{v:7.1f}" for v in row(res, ks, m)))
@@ -131,7 +131,7 @@ def main():
         test, trn = trn, []                # no split: the summary over every game
         print("\n(no held-out games: the summary is over every game)")
     if test:
-        print(f"\nSummary (per 1000 gestures)")
+        print(f"\nSummary (per 1000 windows)")
         print(f"  {'':8s} {'Train':>7s} {'Test':>7s}   Test minus {ref} [90% range]")
         base = row(res, test, ref)[0]
         for m in names:

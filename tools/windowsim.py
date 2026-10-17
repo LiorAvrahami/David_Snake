@@ -2,14 +2,18 @@
 """Scores input recognizers by simulating the game forward from the real
 situation, as the player defined it:
 
-  A window starts at every gesture: the finger starts moving (its speed
-  over SPEED_MS rises above V_REST) and travels START_DP, however small
-  or slow the movement after that, or, while moving, turns by SPLIT_DEG
-  or more from where it was going. A finger resting on the screen starts
-  nothing. A gesture that starts less than JOIN_MS after a window's start
-  belongs to that window, so a side step or U-turn is one window, not two.
-  (Until v1.18 a gesture had to reach V_MOVE with GESTURE_DP of travel,
-  which left every smaller movement, and the turns made on it, unscored.)
+  A window starts at every game tick in which the finger moves: its
+  samples in that tick get MOVE_DP or more away from where it was at the
+  end of the tick before (sample noise is about 0.3 dp). So every
+  decision a recognizer makes on a moving finger is scored, from the real
+  situation at that tick; a resting finger, or none, starts nothing.
+  (Until v1.18 a window started only at a gesture the detector counted,
+  the finger reaching V_MOVE with GESTURE_DP of travel, which left every
+  smaller movement, and the turns made on it, unscored; gestures within
+  JOIN_MS of a window's start joined it. gesture_starts is still the
+  detector, now counting START_DP of travel after a rest; the oracle of
+  tools/intentlearn.py uses the old criterion to say when a movement is
+  clear.)
   From David's real state at the window's start (enginesim, an exact port
   of the engine), a recognizer reads the recorded finger input of the
   first READ_MS and the engine executes its turns. If it turned David, it
@@ -50,7 +54,8 @@ import enginesim as E
 import recognizers as R
 
 V_REST, V_MOVE = 60.0, 150.0
-START_DP = 3.0                            # travel after a rest that makes a gesture (above sample noise)     # finger speed, dp/s
+START_DP = 3.0                            # travel after a rest that makes a gesture (gesture_starts)
+MOVE_DP = 1.0                             # finger travel within a tick that counts as movement (a window)     # finger speed, dp/s
 GESTURE_DP = 10.0       # a gesture travels at least this far
 SPLIT_DEG = 60.0        # a turn this sharp while moving starts a new gesture
 SPEED_MS = 40           # finger speed is measured over this long
@@ -116,17 +121,25 @@ def gesture_starts(stroke):
 
 
 def window_starts(p, samples, slots):
-    """The game's windows, [(k0, t0)]: t0 the time of the gesture's first
-    sample, k0 the game ticks done before it was handled. A gesture that
-    starts less than JOIN_MS after a window's start belongs to that window."""
-    times = [smp[0] for smp in samples]
-    out, w0 = [], None
-    for t in sorted(t for s in p.strokes for t in gesture_starts(s)):
-        if w0 is None or t - w0 >= JOIN_MS:
-            w0 = t
-            k = slots[bisect.bisect_left(times, t)]
-            if not out or k > out[-1][0]:
-                out.append((k, t))
+    """The game's windows, [(k0, t0)]: one at every game tick in which the
+    finger moved MOVE_DP or more (the farthest of the tick's samples from the
+    latest sample of the tick before, or from the touch-down in a stroke's
+    first tick); t0 the time of the tick's first sample, k0 the game ticks
+    done before it was handled."""
+    out, ref, i, n = [], None, 0, len(samples)
+    while i < n:
+        k, j, d = slots[i], i, 0.0
+        while j < n and slots[j] == k:
+            _, x, y, first, _, _ = samples[j][:6]
+            if first or ref is None:
+                ref = (x, y)
+            d = max(d, math.hypot(x - ref[0], y - ref[1]))
+            j += 1
+        if d >= MOVE_DP and (not out or k > out[-1][0]):
+            out.append((k, samples[i][0]))
+        _, x, y, _, last, _ = samples[j - 1][:6]
+        ref = None if last else (x, y)          # a lifted finger: the next stroke starts fresh
+        i = j
     return out
 
 

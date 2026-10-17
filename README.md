@@ -54,11 +54,11 @@ edge of the screen from one side to the other turns it off, and on again. The to
   `Downloads/DavidSnake_Games_v<version>_<date>_<time>_<N>games.txt`,
   reads it back to check it is complete, and only then clears them.
   Analyze with `python3 tools/lab_report.py FILE`; score input methods
-  with `python3 tools/windowsim.py FILE...`: at every gesture start
-  (the finger moves 3 dp after resting, however small or slow the
-  movement, or turns sharply while moving; a resting finger starts
-  nothing; a gesture starting less than 250 ms after a window's start
-  belongs to that window), each method
+  with `python3 tools/windowsim.py FILE...`: at every game tick in which
+  the finger moves (1 dp or more within the tick; a resting finger, or
+  none, starts nothing; until v1.18 only at detected gestures, so the
+  scores quoted for the models up to MNL1 are per 1000 of those
+  gestures and not comparable with the per-tick windows), each method
   reads the first 250 ms of finger input from the real situation (if it
   turned David, one more turn may come before his next regular step: the
   second half of a one-cell side step or U-turn), an exact port of the

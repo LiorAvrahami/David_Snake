@@ -121,6 +121,7 @@ def gesture_spans(stroke):
     return [tuple(sp) for sp in out]
 
 
+LATE_MS = 150           # a live turn this long after its movement ended still answers it
 REJECT_SMALL = False    # weigh none answers during a small movement (never clear, no live turn) like
                         # those during a clear movement the live game did not answer (w_reject)
 
@@ -132,7 +133,7 @@ class Oracle:
     __slots__ = ("targets", "p", "rejected", "r")
 
     def __init__(self, targets, rejected=()):
-        self.targets = targets          # [(t_move, t_clear, screen dir)]
+        self.targets = targets          # [(t_asked, t_clear, screen dir, t_turn)]
         self.p = 0
         self.rejected = rejected        # [(t_clear, t_end)] movements the live game did not answer
         self.r = 0
@@ -168,7 +169,9 @@ class IGame(L.Game):
         self.targets, self.rejected = [], []
         spans = sorted(sp for s in p.strokes for sp in gesture_spans(s))
         for spec in self.specs:
-            subs = [sp for sp in spans if spec.t0 <= sp[0] < spec.t0 + WS.JOIN_MS]   # the window's movements
+            # the window's movements: in progress at its start (or just over: the live game's turn
+            # on a movement may come up to LATE_MS after it), or starting within JOIN_MS of it
+            subs = [sp for sp in spans if sp[0] < spec.t0 + WS.JOIN_MS and sp[2] + LATE_MS >= spec.t0]
             turns = []                  # the live game's turns in the window: (time, heading after)
 
             def watch(ev, sim, k, t, h0, turns=turns):
@@ -179,13 +182,17 @@ class IGame(L.Game):
             sub_t = [sp[0] for sp in subs]
             answered = set()
             for t, hd in turns:
-                i = max(0, bisect.bisect_right(sub_t, t) - 1)      # the movement this turn answers
+                i = bisect.bisect_right(sub_t, t) - 1               # the movement this turn answers
+                if i < 0:
+                    continue                                        # no finger movement before it in the window
                 answered.add(i)
                 n = seen.get(i, 0)
-                if n == 0:
-                    targets.append((subs[i][0], min(subs[i][1], t) if subs[i][1] is not None else t, hd))
+                if n == 0:              # asked from the movement's start, or the window's if it is in progress;
+                    asked = max(subs[i][0], spec.t0)                # clear at the detector's moment or the live turn
+                    c = subs[i][1]
+                    targets.append((asked, t if c is None else max(min(c, t), asked), hd, t))
                 else:                   # its 2nd turn: asked from when the 1st was clear, clear at the live turn
-                    targets.append((targets[-1][1], t, hd))
+                    targets.append((targets[-1][1], t, hd, t))
                 seen[i] = n + 1
             self.targets.append(targets)
             rej = []
@@ -263,9 +270,20 @@ def weight(lab, t, f, orc, w_reject, w_hold):
     return w
 
 
+def live_targets(g):
+    """The live game's targets in time order, each turn once (the windows overlap,
+    so a turn is a target of every window that reads it; the earliest asking wins)."""
+    out, seen = [], set()
+    for tg in sorted(tg for ts in g.targets for tg in ts):
+        if (tg[3], tg[2]) not in seen:
+            seen.add((tg[3], tg[2]))
+            out.append(tg)
+    return out
+
+
 def live_examples(g, w_reject=W_REJECT, w_hold=W_HOLD):
     """Oracle answers along the live game (all its targets in time order)."""
-    orc = Oracle(sorted(tg for ts in g.targets for tg in ts), sorted(r for rs in g.rejected for r in rs))
+    orc = Oracle(live_targets(g), sorted(set(r for rs in g.rejected for r in rs)))
     out = []
     for f, h, t in g.live_features(LAYOUT):
         lab = orc.answer(t, h)
@@ -454,7 +472,7 @@ def _evaluate(args):
                     extra[0 if orc.p >= len(targets) else 1] += 1
             out[name].append(row(o, targets, turns, extra))
     # open loop over the live game: turn starts where the oracle says none
-    targets_all = sorted(tg for ts in g.targets for tg in ts)
+    targets_all = live_targets(g)
     for name, pol in pols.items():
         orc, prev, n = Oracle(list(targets_all)), 0, 0
         for f, h, t in g.live_features(pol.layout):
