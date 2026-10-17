@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Builds viewer/bad_turns.html: the turns a model makes in the training
-windows that score lower than making no turn at all, drawn one by one.
+windows that score lower than making no turn at all, each replayable.
 
 For every window of the training games (tools/windowsim.py: a game tick with
 finger movement) two courses are simulated as the judge does: no turn at all,
 and the model's own play. A turn is 'bad' when the no-turn course's Final
-score (tolerance 4, alpha 0.9) is higher. The page shows the worst N: the
-board at the window's start with both paths, the finger movement that made
-the model turn, and the scores (--fragment PATH also writes the page without the
-document wrapper, for publishing).
+score (tolerance 4, alpha 0.9) is higher. The page shows the worst N: for each,
+the two boards played side by side from PRE ticks before the window at a
+chosen speed, with the finger drawn as it moved (lifts break the trace), the
+scores, and what happened. --fragment PATH also writes the page without the
+document wrapper, for publishing.
 
 Usage: python3 tools/make_badturns_viewer.py FILE... --model tools/models/mnw1.json
                                            [--holdout 0.3 --seed 1 --never-test F,...] [--top 40] [--fragment PATH]"""
@@ -26,15 +27,23 @@ import windowsim as WS
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DELTA, ALPHA = 4, 0.9
 SHIFTS = tuple(range(-DELTA, DELTA + 1))
-PRE_TICKS, POST_TICKS = 12, 10          # finger shown before the window and after its start
-CELL = 20
+PRE = 8                 # real-game ticks shown before the window
+POST_TICKS = 60         # finger samples kept after the window start
+TICK_MS = 45
 POL = None
+PLAYS = {}
+OUT = {"harp": "ate the harp", "hit the wall": "hit the wall", "speared": "speared", "ran into the tail": "ran into the tail",
+       "speared from the side": "speared from the side (costs nothing)", "nothing": "no harp, no death"}
 
 
 def _init(paths, model):
     global POL
     I._init(paths, True, False)
     POL = L.policy_from_spec(json.load(open(model)))
+    for path in paths:
+        _, plays = build(load(path))
+        for p in plays:
+            PLAYS[(os.path.basename(path), p.n)] = p
 
 
 def outcome(w):
@@ -62,35 +71,46 @@ def _scan(key):
     return key, out
 
 
-def _paths(real, k0, inputs):
-    """David's cell after every tick of a run, and the run's outcome."""
-    cells = [(real.hx, real.hy)]
+def frame(sim):
+    return [sim.hx, sim.hy, sim.heading, [list(xy) for xy in sim.tail], [list(s) for s in sim.spears],
+            list(sim.harp) if sim.harp else None]
+
+
+def _course(real, k0, inputs):
+    """Frames after every tick of a run (frame 0: the start), the turns and the outcome."""
+    frames, turns = [frame(real)], []
 
     def watch(ev, sim, k, t, h0):
         if ev == "tick":
-            cells.append((sim.hx, sim.hy))
+            frames.append(frame(sim))
+        elif ev == "cmd" and sim.heading != h0:
+            turns.append([k - k0, sim.heading])
     w = WS.run_window(real, k0, inputs, watch)
-    return cells, outcome(w), w.score
+    return {"frames": frames, "turns": turns, "end": outcome(w), "plain": round(w.score, 4)}
 
 
 def _render(args):
-    """Everything the page needs to draw one window."""
+    """Everything the page needs to replay one window."""
     key, k = args
     g = I.GAMES[key]
     spec = next(s for s in g.specs if s.k == k)
     real = spec.real
-    none_cells, none_out, _ = _paths(real, k, WS.Schedule(spec.t0, [], 0))
+    pre = {}
+
+    def on_slot(kk, sim, cmds):
+        if k - PRE <= kk < k:
+            pre[kk] = frame(sim)
+    E.replay(PLAYS[key], on_slot)
     rec = []
-    inp = L.PolicyInputs(spec.t0, POL, g.samples, g.slots, spec.i, spec.stroke, record=rec)
-    model_cells, model_out, _ = _paths(real, k, inp)
-    turn_times = [t for kk, f, a, h, t in rec if a]
-    fin = [[t, x, y, g.slots[i] - k, int(first), int(last)] for i, (t, x, y, first, last, _) in enumerate(g.samples)
-           if k - PRE_TICKS <= g.slots[i] <= k + POST_TICKS]
-    att = [[sx, sy, d] for tk, lst in real.throws.items() if k - 40 < tk <= k + WS.AIM_TICKS for sx, sy, d in lst]
-    return (key, k), {"head": (real.hx, real.hy, real.heading), "tail": list(real.tail), "harp": real.harp,
-                      "spears": [list(s) for s in real.spears], "attackers": att, "t0": spec.t0,
-                      "none": (none_cells, none_out), "model": (model_cells, model_out),
-                      "turn_times": turn_times, "finger": fin}
+    none = _course(real, k, WS.Schedule(spec.t0, [], 0))
+    model = _course(real, k, L.PolicyInputs(spec.t0, POL, g.samples, g.slots, spec.i, spec.stroke, record=rec))
+    t0 = spec.t0
+    marks = [round((t - t0) / TICK_MS, 3) for kk, f, a, h, t in rec if a]
+    fin = [[round((t - t0) / TICK_MS, 3), x, y, int(first), int(last)] for i, (t, x, y, first, last, _) in enumerate(g.samples)
+           if k - PRE <= g.slots[i] <= k + POST_TICKS]
+    att = [[tk - k, sx, sy, d] for tk, lst in real.throws.items() if k - PRE - 20 < tk <= k + WS.AIM_TICKS for sx, sy, d in lst]
+    return (key, k), {"pre": [pre.get(kk) for kk in range(k - PRE, k)], "courses": {"none": none, "model": model},
+                      "attackers": att, "finger": fin, "marks": marks}
 
 
 def file_label(f):
@@ -101,168 +121,203 @@ def file_label(f):
 
 LET = "URDL"
 NAMES = {"U": "up", "R": "right", "D": "down", "L": "left"}
-OUT = {"harp": "ate the harp", "hit the wall": "hit the wall", "speared": "speared", "ran into the tail": "ran into the tail",
-       "speared from the side": "speared from the side (costs nothing)", "nothing": "no harp, no death"}
 
-
-def board_svg(d):
-    W, H = E.COLS * CELL, E.ROWS * CELL
-    c = lambda xy: (xy[0] * CELL + CELL / 2, xy[1] * CELL + CELL / 2)
-    s = [f'<svg viewBox="-6 -6 {W + 12} {H + 12}" class="board" role="img" aria-label="the board at the window start with both paths">',
-         f'<rect x="0" y="0" width="{W}" height="{H}" class="field"/>']
-    for i in range(1, E.COLS):
-        s.append(f'<line x1="{i * CELL}" y1="0" x2="{i * CELL}" y2="{H}" class="grid"/>')
-    for j in range(1, E.ROWS):
-        s.append(f'<line x1="0" y1="{j * CELL}" x2="{W}" y2="{j * CELL}" class="grid"/>')
-    for x, y in d["tail"]:
-        s.append(f'<rect x="{x * CELL + 2}" y="{y * CELL + 2}" width="{CELL - 4}" height="{CELL - 4}" class="tail"/>')
-    if d["harp"]:
-        hx, hy = c(d["harp"])
-        s.append(f'<circle cx="{hx}" cy="{hy}" r="7" class="harp"/>')
-    for x, y, dd in d["spears"]:
-        cx, cy = c((x, y))
-        dx, dy = E.DX[dd] * 8, E.DY[dd] * 8
-        s.append(f'<line x1="{cx - dx}" y1="{cy - dy}" x2="{cx + dx}" y2="{cy + dy}" class="spear"/>')
-    for x, y, dd in d["attackers"]:
-        cx, cy = c((x, y))
-        s.append(f'<rect x="{cx - 6}" y="{cy - 6}" width="12" height="12" class="attacker"/>')
-    for name, (cells, out), off in (("none", d["none"], -2.5), ("model", d["model"], 2.5)):
-        pts = " ".join(f"{c(xy)[0] + off},{c(xy)[1] + off}" for xy in cells)
-        s.append(f'<polyline points="{pts}" class="path {name}"/>')
-        ex, ey = c(cells[-1])
-        if out == "harp":
-            s.append(f'<circle cx="{ex + off}" cy="{ey + off}" r="6" class="end harp-end {name}"/>')
-        else:
-            s.append(f'<line x1="{ex + off - 5}" y1="{ey + off - 5}" x2="{ex + off + 5}" y2="{ey + off + 5}" class="end {name}"/>'
-                     f'<line x1="{ex + off - 5}" y1="{ey + off + 5}" x2="{ex + off + 5}" y2="{ey + off - 5}" class="end {name}"/>')
-    hx, hy, h = d["head"]
-    cx, cy = c((hx, hy))
-    s.append(f'<rect x="{hx * CELL + 1}" y="{hy * CELL + 1}" width="{CELL - 2}" height="{CELL - 2}" class="david"/>')
-    s.append(f'<line x1="{cx}" y1="{cy}" x2="{cx + E.DX[h] * 8}" y2="{cy + E.DY[h] * 8}" class="heading"/>')
-    s.append("</svg>")
-    return "".join(s)
-
-
-def finger_svg(d):
-    f = d["finger"]
-    if not f:
-        return ""
-    xs, ys = [p[1] for p in f], [p[2] for p in f]
-    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-    span = max(x1 - x0, y1 - y0, 60.0)
-    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-    size = 240
-    sc = (size - 40) / span
-    X = lambda x: (x - mx) * sc + size / 2
-    Y = lambda y: (y - my) * sc + size / 2
-    t0 = d["t0"]
-    s = [f'<svg viewBox="0 0 {size} {size}" class="finger" role="img" aria-label="the finger movement">',
-         f'<rect x="0" y="0" width="{size}" height="{size}" class="field"/>']
-    # 10 dp grid
-    step = 10 * sc
-    k = 0
-    while k * step < size:
-        s.append(f'<line x1="{k * step}" y1="0" x2="{k * step}" y2="{size}" class="grid"/>')
-        s.append(f'<line x1="0" y1="{k * step}" x2="{size}" y2="{k * step}" class="grid"/>')
-        k += 1
-    def seg(cls, pts):
-        if len(pts) >= 2:
-            s.append('<polyline class="trace ' + cls + '" points="' + " ".join(f"{X(x):.1f},{Y(y):.1f}" for x, y in pts) + '"/>')
-    before = [(x, y) for t, x, y, *_ in f if t < t0]
-    during = [(x, y) for t, x, y, *_ in f if t0 <= t <= t0 + WS.READ_MS]
-    after = [(x, y) for t, x, y, *_ in f if t > t0 + WS.READ_MS]
-    # join the segments so the line is continuous
-    if before and during:
-        during = [before[-1]] + during
-    if during and after:
-        after = [during[-1]] + after
-    seg("before", before)
-    seg("after", after)
-    seg("during", during)
-    for t, x, y, *_ in f:
-        if t in d["turn_times"]:
-            s.append(f'<circle cx="{X(x):.1f}" cy="{Y(y):.1f}" r="7" class="turnmark"/>')
-    # David's heading at the window start, as a compass
-    h = d["head"][2]
-    cx, cy = size - 26, 26
-    s.append(f'<circle cx="{cx}" cy="{cy}" r="14" class="compass"/>')
-    s.append(f'<line x1="{cx}" y1="{cy}" x2="{cx + E.DX[h] * 11}" y2="{cy + E.DY[h] * 11}" class="heading"/>')
-    rh = (h + 1) % 4
-    s.append(f'<text x="{cx + E.DX[rh] * 22}" y="{cy + E.DY[rh] * 22 + 4}" class="lab" text-anchor="middle">R</text>')
-    s.append(f'<text x="8" y="{size - 8}" class="lab">grid 10 dp</text>')
-    s.append("</svg>")
-    return "".join(s)
-
-
-def card(i, key, row, d):
-    k, fn, pn, on, fm, pm, om, turns = row
-    hx, hy, h = d["head"]
-    tl = ", ".join(f"{NAMES[LET[hd]]} at tick +{tt}" for tt, hd, _ in turns)
-    none_cells, _ = d["none"]
-    model_cells, _ = d["model"]
-    return (f'<article class="case"><h3>{i}. Game {key[1]} of {html.escape(file_label(key[0]))}, tick {k}</h3>'
-            f'<div class="pics">{board_svg(d)}{finger_svg(d)}</div>'
-            f'<table class="scores"><tr><th></th><th>what happened</th><th>plain</th><th>Final</th></tr>'
-            f'<tr><td><span class="sw none"></span>no turn</td><td>{OUT[on]} after {len(none_cells) - 1} ticks</td><td>{pn:+.3f}</td><td>{fn:+.3f}</td></tr>'
-            f'<tr><td><span class="sw model"></span>MNW1: {html.escape(tl)}</td><td>{OUT[om]} after {len(model_cells) - 1} ticks</td><td>{pm:+.3f}</td><td>{fm:+.3f}</td></tr>'
-            f'</table><p class="loss">David heading {NAMES[LET[h]]}. The turn cost {fn - fm:.3f} on the Final score.</p></article>')
-
-
-STYLE = """
+TEMPLATE = r"""<title>__NAME__ bad turns</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* layout: summary first, then one card per bad turn; board and finger side by side, stacked on a phone */
-:root { --bg: #f7f5f0; --fg: #23211d; --muted: #6b665c; --line: #d9d4c8; --card: #fffdf8;
-        --field: #efece4; --grid: #ddd8cc; --tail: #b9b3a4; --david: #2b2824; --harp: #d9a000;
-        --spear: #8a2f1c; --attacker: #b5402a; --none: #2a6fd6; --model: #e2702a; --turnmark: #e2702a; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1b1a17; --fg: #ece8df; --muted: #a39d90;
-        --line: #3a372f; --card: #23211d; --field: #2a2823; --grid: #3a372f; --tail: #5a564c; --david: #f0ece2;
-        --harp: #f0b323; --spear: #e0735a; --attacker: #e0735a; --none: #6ea2ff; --model: #ff9a5c; --turnmark: #ff9a5c; color-scheme: dark } }
-:root[data-theme="dark"] { --bg: #1b1a17; --fg: #ece8df; --muted: #a39d90; --line: #3a372f; --card: #23211d;
-        --field: #2a2823; --grid: #3a372f; --tail: #5a564c; --david: #f0ece2; --harp: #f0b323; --spear: #e0735a;
-        --attacker: #e0735a; --none: #6ea2ff; --model: #ff9a5c; --turnmark: #ff9a5c; color-scheme: dark }
+/* layout: summary first, then one replayable card per bad turn; two boards and the finger side by side, stacking on a phone */
+:root { --bg: #f7f5f0; --fg: #23211d; --muted: #6b665c; --line: #d9d4c8; --card: #fffdf8; --field: #efece4; --grid: #ddd8cc;
+        --tail: #b9b3a4; --david: #2b2824; --harp: #d9a000; --spear: #8a2f1c; --attacker: #b5402a; --none: #2a6fd6; --model: #e2702a;
+        --trace: #23211d; --tracepast: #9c968a; --btn: #e9e5da; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1b1a17; --fg: #ece8df; --muted: #a39d90; --line: #3a372f;
+        --card: #23211d; --field: #2a2823; --grid: #3a372f; --tail: #5a564c; --david: #f0ece2; --harp: #f0b323; --spear: #e0735a;
+        --attacker: #e0735a; --none: #6ea2ff; --model: #ff9a5c; --trace: #ece8df; --tracepast: #6f6a5f; --btn: #33302a; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #1b1a17; --fg: #ece8df; --muted: #a39d90; --line: #3a372f; --card: #23211d; --field: #2a2823;
+        --grid: #3a372f; --tail: #5a564c; --david: #f0ece2; --harp: #f0b323; --spear: #e0735a; --attacker: #e0735a; --none: #6ea2ff;
+        --model: #ff9a5c; --trace: #ece8df; --tracepast: #6f6a5f; --btn: #33302a; color-scheme: dark }
 body { background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
        padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px; }
-main { max-width: 980px; margin: 0 auto; }
+main { max-width: 1040px; margin: 0 auto; }
 h1 { font-size: 1.5rem; margin: 0 0 6px; text-wrap: balance; }
 h2 { font-size: 1.1rem; margin: 28px 0 8px; }
 h3 { font-size: 1rem; margin: 0 0 8px; }
-p { max-width: 68ch; }
-.lead { color: var(--muted); margin: 0 0 16px; }
+p { max-width: 70ch; }
+.lead, .legend, .loss { color: var(--muted); }
 table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .summary td, .summary th, .scores td, .scores th { padding: 4px 10px 4px 0; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
 .summary th { font-weight: 600; }
 .cases { display: grid; gap: 18px; margin-top: 12px; }
 .case { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
 .pics { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
-svg.board { width: 440px; max-width: 100%; height: auto; }
-svg.finger { width: 240px; max-width: 100%; height: auto; }
-.field { fill: var(--field); stroke: var(--line); }
-.grid { stroke: var(--grid); stroke-width: 0.6; }
-.tail { fill: var(--tail); }
-.david { fill: var(--david); }
-.heading { stroke: var(--bg); stroke-width: 2.5; stroke-linecap: round; }
-svg.finger .heading { stroke: var(--fg); }
-.harp { fill: var(--harp); }
-.spear { stroke: var(--spear); stroke-width: 3; stroke-linecap: round; }
-.attacker { fill: var(--attacker); }
-.path { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; opacity: 0.9; }
-.path.none, .end.none { stroke: var(--none); }
-.path.model, .end.model { stroke: var(--model); }
-.end { stroke-width: 3; fill: none; }
-.harp-end { fill: var(--harp); }
-.trace { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
-.trace.before { stroke: var(--tail); }
-.trace.during { stroke: var(--fg); }
-.trace.after { stroke: var(--tail); stroke-dasharray: 3 3; }
-.turnmark { fill: none; stroke: var(--turnmark); stroke-width: 2.5; }
-.compass { fill: var(--card); stroke: var(--line); }
-.lab { font: 11px system-ui, sans-serif; fill: var(--muted); }
+.pic { min-width: 0; }
+.pic figcaption { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+canvas { display: block; max-width: 100%; height: auto; background: var(--field); border: 1px solid var(--line); }
+canvas.board { width: 420px; }
+canvas.finger { width: 240px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 14px; }
+.controls input[type=range] { flex: 1 1 160px; min-width: 120px; }
+button, select { font: inherit; color: var(--fg); background: var(--btn); border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--none); outline-offset: 2px; }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
 .sw.none { background: var(--none); } .sw.model { background: var(--model); }
 .scores { margin-top: 10px; font-size: 14px; }
-.loss { color: var(--muted); margin: 8px 0 0; font-size: 14px; }
-.legend { color: var(--muted); font-size: 14px; }
+.loss { margin: 8px 0 0; font-size: 14px; }
+.legend { font-size: 14px; }
+.tick { font-variant-numeric: tabular-nums; min-width: 9ch; }
 </style>
+<main>
+__SUMMARY__
+<div class="cases" id="cases"></div>
+</main>
+<script>
+const DATA = /*DATA*/{};
+const CELL = 20, COLS = 21, ROWS = 13, TICK_MS = 45, PRE = DATA.pre, DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
+const NAME = DATA.name, OUT = DATA.out, LET = "URDL", NAMES = {U: "up", R: "right", D: "down", L: "left"};
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+const cx = x => x * CELL + CELL / 2, cy = y => y * CELL + CELL / 2;
+
+class Player {
+  constructor(el, d) {
+    this.d = d; this.t = -PRE; this.playing = false; this.speed = 0.25; this.last = null;
+    this.endTick = Math.max(d.courses.none.frames.length, d.courses.model.frames.length) - 1;
+    this.boards = {none: el.querySelector("canvas.none"), model: el.querySelector("canvas.model")};
+    this.fingerCv = el.querySelector("canvas.finger");
+    this.range = el.querySelector("input[type=range]"); this.label = el.querySelector(".tick");
+    this.btn = el.querySelector("button.play");
+    this.range.min = -PRE; this.range.max = this.endTick; this.range.step = 0.25; this.range.value = this.t;
+    this.range.addEventListener("input", () => { this.pause(); this.t = parseFloat(this.range.value); this.draw(); });
+    this.btn.addEventListener("click", () => this.playing ? this.pause() : this.play());
+    el.querySelector("select").addEventListener("change", e => { this.speed = parseFloat(e.target.value); });
+    const f = d.finger, xs = f.map(s => s[1]), ys = f.map(s => s[2]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    this.span = Math.max(x1 - x0, y1 - y0, 60); this.mx = (x0 + x1) / 2; this.my = (y0 + y1) / 2;
+    this.draw();
+  }
+  play() { if (this.t >= this.endTick) this.t = -PRE; this.playing = true; this.btn.textContent = "Pause"; this.last = null;
+           if (ACTIVE && ACTIVE !== this) ACTIVE.pause(); ACTIVE = this; requestAnimationFrame(ts => this.step(ts)); }
+  pause() { this.playing = false; this.btn.textContent = "Play"; }
+  step(ts) {
+    if (!this.playing) return;
+    if (this.last !== null) this.t = Math.min(this.endTick, this.t + (ts - this.last) / TICK_MS * this.speed);
+    this.last = ts; this.draw();
+    if (this.t >= this.endTick) { this.pause(); return; }
+    requestAnimationFrame(t2 => this.step(t2));
+  }
+  frameAt(course, tick) {
+    if (tick < 0) return this.d.pre[PRE + tick];
+    const fr = course.frames; return fr[Math.min(tick, fr.length - 1)];
+  }
+  draw() {
+    this.range.value = this.t; const tick = Math.floor(this.t);
+    this.label.textContent = (tick < 0 ? "tick " + tick + " (before)" : "tick +" + tick) + ", " + Math.round(this.t * TICK_MS) + " ms";
+    for (const name of ["none", "model"]) this.drawBoard(name, tick);
+    this.drawFinger();
+  }
+  drawBoard(name, tick) {
+    const course = this.d.courses[name], cv = this.boards[name], ctx = cv.getContext("2d"), col = css("--" + name);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = css("--field"); ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.strokeStyle = css("--grid"); ctx.lineWidth = 0.6; ctx.beginPath();
+    for (let i = 1; i < COLS; i++) { ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, ROWS * CELL); }
+    for (let j = 1; j < ROWS; j++) { ctx.moveTo(0, j * CELL); ctx.lineTo(COLS * CELL, j * CELL); }
+    ctx.stroke();
+    const fr = this.frameAt(course, tick);
+    if (!fr) return;
+    const [hx, hy, hd, tail, spears, harp] = fr;
+    // attackers: visible from 18 ticks before their throw to 6 after
+    ctx.fillStyle = css("--attacker");
+    for (const [T, sx, sy, d] of this.d.attackers) if (T - 18 <= tick && tick <= T + 6) ctx.fillRect(cx(sx) - 6, cy(sy) - 6, 12, 12);
+    ctx.fillStyle = css("--tail");
+    for (const [x, y] of tail) ctx.fillRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4);
+    if (harp) { ctx.fillStyle = css("--harp"); ctx.beginPath(); ctx.arc(cx(harp[0]), cy(harp[1]), 7, 0, 7); ctx.fill(); }
+    ctx.strokeStyle = css("--spear"); ctx.lineWidth = 3; ctx.lineCap = "round";
+    for (const [x, y, d] of spears) { ctx.beginPath(); ctx.moveTo(cx(x) - DX[d] * 8, cy(y) - DY[d] * 8); ctx.lineTo(cx(x) + DX[d] * 8, cy(y) + DY[d] * 8); ctx.stroke(); }
+    // the course's path: solid up to now, dashed ahead
+    const cells = course.frames.map(f => [cx(f[0]), cy(f[1])]);
+    const now = Math.max(0, Math.min(tick, cells.length - 1));
+    ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.strokeStyle = col;
+    if (tick >= 0 && now > 0) { ctx.beginPath(); ctx.moveTo(...cells[0]); for (let i = 1; i <= now; i++) ctx.lineTo(...cells[i]); ctx.stroke(); }
+    ctx.setLineDash([4, 5]); ctx.globalAlpha = 0.6; ctx.beginPath();
+    const from = tick < 0 ? 0 : now; ctx.moveTo(...cells[from]); for (let i = from + 1; i < cells.length; i++) ctx.lineTo(...cells[i]);
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    for (const [tt, h] of course.turns) if (tt < cells.length) { ctx.beginPath(); ctx.arc(cells[tt][0], cells[tt][1], 7, 0, 7); ctx.stroke(); }
+    // David, with his heading
+    ctx.fillStyle = css("--david"); ctx.fillRect(hx * CELL + 1, hy * CELL + 1, CELL - 2, CELL - 2);
+    ctx.strokeStyle = css("--bg"); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(cx(hx), cy(hy)); ctx.lineTo(cx(hx) + DX[hd] * 8, cy(hy) + DY[hd] * 8); ctx.stroke();
+    // the end
+    const endTick = course.frames.length - 1;
+    if (tick >= endTick) {
+      const [ex, ey] = cells[endTick];
+      if (course.end === "harp") { ctx.fillStyle = css("--harp"); ctx.beginPath(); ctx.arc(ex, ey, 6, 0, 7); ctx.fill(); }
+      else { ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ex - 6, ey - 6); ctx.lineTo(ex + 6, ey + 6); ctx.moveTo(ex - 6, ey + 6); ctx.lineTo(ex + 6, ey - 6); ctx.stroke(); }
+      const text = course.end === "harp" ? "ate the harp  +1" : OUT[course.end] + "  " + course.plain.toFixed(3);
+      ctx.font = "bold 13px system-ui, sans-serif"; const w = ctx.measureText(text).width + 14;
+      const bx = Math.min(Math.max(ex - w / 2, 4), COLS * CELL - w - 4), by = ey < 40 ? ey + 14 : ey - 32;
+      ctx.fillStyle = css("--card"); ctx.fillRect(bx, by, w, 20); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(bx, by, w, 20);
+      ctx.fillStyle = css("--fg"); ctx.fillText(text, bx + 7, by + 14);
+    } else if (tick < 0) {
+      ctx.font = "12px system-ui, sans-serif"; ctx.fillStyle = css("--muted"); ctx.fillText("the real game, before the window", 6, ROWS * CELL - 6);
+    }
+  }
+  drawFinger() {
+    const cv = this.fingerCv, ctx = cv.getContext("2d"), size = cv.width, sc = (size - 40) / this.span;
+    const X = x => (x - this.mx) * sc + size / 2, Y = y => (y - this.my) * sc + size / 2;
+    ctx.clearRect(0, 0, size, size); ctx.fillStyle = css("--field"); ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = css("--grid"); ctx.lineWidth = 0.6; ctx.beginPath();
+    for (let k = 0; k * 10 * sc < size; k++) { ctx.moveTo(k * 10 * sc, 0); ctx.lineTo(k * 10 * sc, size); ctx.moveTo(0, k * 10 * sc); ctx.lineTo(size, k * 10 * sc); }
+    ctx.stroke();
+    const f = this.d.finger, t = this.t;
+    // strokes: a touch-down (first) starts one, a lift (last) ends it; nothing is drawn between strokes
+    ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.lineWidth = 2.5;
+    let pos = null, lifted = false;
+    for (let i = 1; i < f.length; i++) {
+      const a = f[i - 1], b = f[i];
+      if (b[3]) continue;                       // b is a touch-down: no line from the previous stroke
+      const past = b[0] <= t;
+      ctx.strokeStyle = past ? css("--trace") : css("--tracepast");
+      ctx.setLineDash(past ? [] : [3, 3]);
+      ctx.beginPath(); ctx.moveTo(X(a[1]), Y(a[2])); ctx.lineTo(X(b[1]), Y(b[2])); ctx.stroke();
+      if (a[0] <= t && t < b[0]) { const u = (t - a[0]) / (b[0] - a[0]); pos = [a[1] + u * (b[1] - a[1]), a[2] + u * (b[2] - a[2])]; }
+    }
+    ctx.setLineDash([]);
+    if (pos === null) {                          // between strokes, or before the first sample / after the last
+      for (const s of f) if (s[0] <= t && s[4]) lifted = true;
+      for (const s of f) if (s[0] <= t && s[3]) lifted = false;
+      const on = f.filter(s => s[0] <= t); const lastS = on.length ? on[on.length - 1] : null;
+      if (lastS && !lifted) pos = [lastS[1], lastS[2]];
+    }
+    for (const m of this.d.marks) { const s = f.reduce((best, s) => Math.abs(s[0] - m) < Math.abs(best[0] - m) ? s : best, f[0]);
+      ctx.strokeStyle = css("--model"); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(X(s[1]), Y(s[2]), 7, 0, 7); ctx.stroke(); }
+    if (pos) { ctx.fillStyle = css("--fg"); ctx.beginPath(); ctx.arc(X(pos[0]), Y(pos[1]), 5, 0, 7); ctx.fill(); }
+    else { ctx.font = "12px system-ui, sans-serif"; ctx.fillStyle = css("--muted"); ctx.fillText("finger up", 8, 18); }
+    // compass: David's heading at the window start and his right-hand side
+    const h = this.d.courses.none.frames[0][2], px = size - 26, py = 26, rh = (h + 1) % 4;
+    ctx.fillStyle = css("--card"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px, py, 14, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = css("--fg"); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + DX[h] * 11, py + DY[h] * 11); ctx.stroke();
+    ctx.font = "11px system-ui, sans-serif"; ctx.fillStyle = css("--muted"); ctx.textAlign = "center";
+    ctx.fillText("R", px + DX[rh] * 22, py + DY[rh] * 22 + 4); ctx.textAlign = "left"; ctx.fillText("grid 10 dp", 8, size - 8);
+  }
+}
+let ACTIVE = null;
+const root = document.getElementById("cases");
+DATA.cases.forEach((c, i) => {
+  const el = document.createElement("article"); el.className = "case";
+  const turns = c.courses.model.turns.map(([tt, h]) => NAMES[LET[h]] + " at tick +" + tt).join(", ") || "no turn";
+  const row = (name, label, co) => `<tr><td><span class="sw ${name}"></span>${label}</td><td>${OUT[co.end]} after ${co.frames.length - 1} ticks</td><td>${co.plain.toFixed(3)}</td><td>${(name === "none" ? c.final_none : c.final_model).toFixed(3)}</td></tr>`;
+  el.innerHTML = `<h3>${i + 1}. ${c.title}</h3>
+    <div class="pics">
+      <figure class="pic"><figcaption><span class="sw none"></span>no turn</figcaption><canvas class="board none" width="${COLS * CELL}" height="${ROWS * CELL}"></canvas></figure>
+      <figure class="pic"><figcaption><span class="sw model"></span>${NAME}</figcaption><canvas class="board model" width="${COLS * CELL}" height="${ROWS * CELL}"></canvas></figure>
+      <figure class="pic"><figcaption>your finger</figcaption><canvas class="finger" width="240" height="240"></canvas></figure>
+    </div>
+    <div class="controls"><button class="play" type="button">Play</button><input type="range" id="r${i}" aria-label="time"><span class="tick"></span>
+      <label>speed <select id="s${i}"><option value="0.25" selected>x0.25</option><option value="0.5">x0.5</option><option value="1">x1</option></select></label></div>
+    <table class="scores"><tr><th></th><th>what happened</th><th>plain</th><th>Final</th></tr>${row("none", "no turn", c.courses.none)}${row("model", NAME + ": " + turns, c.courses.model)}</table>
+    <p class="loss">David heading ${NAMES[LET[c.courses.none.frames[0][2]]]} at the window start. The turn cost ${(c.final_none - c.final_model).toFixed(3)} on the Final score.</p>`;
+  root.appendChild(el);
+  new Player(el, c);
+});
+</script>
 """
 
 
@@ -304,32 +359,39 @@ def main():
                ("0.5 to 0.9", sum(1 for _, r in bad if 0.5 <= r[1] - r[4] < 0.9)),
                ("0.1 to 0.5", sum(1 for _, r in bad if 0.1 <= r[1] - r[4] < 0.5)),
                ("under 0.1", sum(1 for _, r in bad if r[1] - r[4] < 0.1))]
-    body = [f"<title>{name} bad turns</title>", '<meta name="claude:viewport-fit-sides" content="cover">', STYLE, "<main>",
-            f"<h1>{name}: turns that score below no turn</h1>",
-            f'<p class="lead">Every window of the {len(trn)} training games, simulated twice as the judge does: with no turn at all, '
-            f'and with {name} playing. A turn is counted here when the no-turn course scores higher on the Final score '
-            f'(tolerance {DELTA}, alpha {ALPHA:g}). The worst {len(shown)} are drawn below.</p>',
-            '<table class="summary">',
-            f"<tr><th>Training windows</th><td>{n}</td></tr>",
-            f"<tr><th>Windows where {name} turns</th><td>{nt} ({100 * nt / n:.0f}%)</td></tr>",
-            f"<tr><th>Turns scoring below no turn</th><td>{len(bad)} ({100 * len(bad) / max(1, nt):.0f}% of its turns), total loss {loss:.1f}, mean {loss / max(1, len(bad)):.3f}</td></tr>",
-            f"<tr><th>Turns scoring above no turn</th><td>{len(good)} ({100 * len(good) / max(1, nt):.0f}%), total gain {gain:.1f}, mean {gain / max(1, len(good)):.3f}</td></tr>",
-            f"<tr><th>Turns scoring the same</th><td>{nt - len(bad) - len(good)}</td></tr>",
-            "</table>",
-            "<h2>How much the bad turns cost</h2><table class=\"summary\">"
-            + "".join(f"<tr><th>{t}</th><td>{c}</td></tr>" for t, c in buckets) + "</table>",
-            "<h2>What happened instead</h2><table class=\"summary\"><tr><th>no turn</th><th>with the turn</th><th>windows</th></tr>"
-            + "".join(f"<tr><td>{OUT[a]}</td><td>{OUT[b]}</td><td>{c}</td></tr>" for (a, b), c in pairs.most_common()) + "</table>",
-            f"<h2>The worst {len(shown)}</h2>",
-            '<p class="legend">Board: David is the dark square with a short line for his heading, his tail grey, the harp gold, spears in flight dark red, attackers red squares at the walls. '
-            '<span class="sw none"></span>blue path: no turn. <span class="sw model"></span>orange path: ' + name + '. A gold dot ends a path at the harp, a cross at a death. '
-            'Finger: grey before the window, black during its 250 ms of reading, dashed after; the orange ring is the sample at which ' + name + ' turned. '
-            'The compass shows David\'s heading at the window start and his right-hand side.</p>',
-            '<div class="cases">']
-    for i, (key, r) in enumerate(shown, 1):
-        body.append(card(i, key, r, pics[(key, r[0])]))
-    body.append("</div></main>")
-    frag = "\n".join(body)
+    summary = "\n".join([
+        f"<h1>{name}: turns that score below no turn</h1>",
+        f'<p class="lead">Every window of the {len(trn)} training games, simulated twice as the judge does: with no turn at all, '
+        f'and with {name} playing. A turn is counted here when the no-turn course scores higher on the Final score '
+        f'(tolerance {DELTA}, alpha {ALPHA:g}). The worst {len(shown)} are below; press Play to watch one from {PRE} ticks before the window.</p>',
+        '<table class="summary">',
+        f"<tr><th>Training windows</th><td>{n}</td></tr>",
+        f"<tr><th>Windows where {name} turns</th><td>{nt} ({100 * nt / n:.0f}%)</td></tr>",
+        f"<tr><th>Turns scoring below no turn</th><td>{len(bad)} ({100 * len(bad) / max(1, nt):.0f}% of its turns), total loss {loss:.1f}, mean {loss / max(1, len(bad)):.3f}</td></tr>",
+        f"<tr><th>Turns scoring above no turn</th><td>{len(good)} ({100 * len(good) / max(1, nt):.0f}%), total gain {gain:.1f}, mean {gain / max(1, len(good)):.3f}</td></tr>",
+        f"<tr><th>Turns scoring the same</th><td>{nt - len(bad) - len(good)}</td></tr>",
+        "</table>",
+        '<h2>How much the bad turns cost</h2><table class="summary">'
+        + "".join(f"<tr><th>{t}</th><td>{c}</td></tr>" for t, c in buckets) + "</table>",
+        '<h2>What happened instead</h2><table class="summary"><tr><th>no turn</th><th>with the turn</th><th>windows</th></tr>'
+        + "".join(f"<tr><td>{OUT[a]}</td><td>{OUT[b]}</td><td>{c}</td></tr>" for (a, b), c in pairs.most_common()) + "</table>",
+        f"<h2>The worst {len(shown)}</h2>",
+        '<p class="legend">Boards: David is the dark square with a short line for his heading, his tail grey, the harp gold, spears in flight dark red, '
+        'attackers red squares at the walls from 18 ticks before their throw. The path is solid where David has been and dashed where he is going; '
+        'rings mark the turns; a gold dot ends a path at the harp, a cross at a death. '
+        'Finger: the line is drawn as the finger moved, dashed where it has not yet been; the dot is the finger now, interpolated between samples; '
+        'a lift breaks the line, and the dot is gone while the finger is up. The orange ring is the sample at which ' + name + ' turned. '
+        'The compass shows David\'s heading at the window start and his right-hand side.</p>',
+    ])
+    cases = []
+    for key, r in shown:
+        d = pics[(key, r[0])]
+        d["title"] = f"Game {key[1]} of {html.escape(file_label(key[0]))}, tick {r[0]}"
+        d["final_none"], d["final_model"] = round(r[1], 4), round(r[4], 4)
+        cases.append(d)
+    data = {"name": name, "pre": PRE, "out": OUT, "cases": cases}
+    frag = (TEMPLATE.replace("__NAME__", html.escape(name)).replace("__SUMMARY__", summary)
+            .replace("/*DATA*/{}", json.dumps(data, separators=(",", ":"))))
     os.makedirs(os.path.join(ROOT, "viewer"), exist_ok=True)
     out = os.path.join(ROOT, "viewer", "bad_turns.html")
     with open(out, "w") as f:
@@ -340,7 +402,7 @@ def main():
         with open(fragment, "w") as f:
             f.write(frag)
     print(f"wrote {out}; {n} windows, {name} turns in {nt}, below no turn {len(bad)} (loss {loss:.1f}), "
-          f"above {len(good)} (gain {gain:.1f}); shown {len(shown)}")
+          f"above {len(good)} (gain {gain:.1f}); shown {len(shown)}, {os.path.getsize(out) // 1024} KB")
 
 
 if __name__ == "__main__":
