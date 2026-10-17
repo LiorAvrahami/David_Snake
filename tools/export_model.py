@@ -212,7 +212,36 @@ def training_intent(commit, data, split_args, test_games, trainer_args, result):
     }
 
 
-TRAINING = {"simlearn": training_simlearn, "intent": training_intent}
+def training_score(commit, data, split_args, test_games, trainer_args, result):
+    args = dict(zip(trainer_args[::2], trainer_args[1::2]))
+    hidden, iters = int(args.get("--hidden", 16)), int(args.get("--iters", 600))
+    delta, alpha = int(args.get("--delta", 4)), float(args.get("--alpha", 0.9))
+    return {
+        "code": f"tools/scorelearn.py at commit {commit}",
+        "command": "python3 tools/scorelearn.py " + " ".join(d["file"] for d in data)
+                   + f" --hidden {hidden} --iters {iters} --delta {delta} --alpha {alpha:g}"
+                   + "".join(" " + a for a in split_args) + " --export",
+        "deterministic": "re-running the command on the same files gives identical weights",
+        "data": data,
+        "test_games": [{"file": f, "game": n} for f, n in test_games],
+        "method": "the score alone (docs/score_training.md): at every decision point (a game tick with "
+                  "finger movement) the actions none, right and left are each tried by simulation from the "
+                  "real game state (none: straight; a turn: once, then straight; until the harp or a death, "
+                  f"the window score); a turn at every lag -{delta}..{delta} ticks from the decision tick (a "
+                  "lag before it runs from the real state that many ticks earlier, with the live game's "
+                  f"commands in between), scored {alpha:g} times the best lag plus {1 - alpha:g} times lag 0. "
+                  "The right action is the one with the highest score (a tie goes to none); the model is "
+                  "fitted to pick it (softmax, cross-entropy, Adam, L2), each decision point weighted by the "
+                  "gap between the best and the second-best score. Nothing is taken from the live game's turns",
+        "settings": {"delta": delta, "alpha": alpha, "hidden": hidden, "fit_steps": iters, "adam_lr": 0.01,
+                     "l2": L.L2, "model": "mlp", "no_back": True, "speed_input": False},
+        "split": split_text(split_args),
+        "objective": objective(),
+        "result": result,
+    }
+
+
+TRAINING = {"simlearn": training_simlearn, "intent": training_intent, "score": training_score}
 
 
 def kotlin(spec):
@@ -280,7 +309,7 @@ if __name__ == "__main__":
             split_args += argv[i:i + 2]
             del argv[i:i + 2]
     for opt in ("--rounds", "--w-turn", "--w-reject", "--w-hold", "--iters", "--tolerance", "--alpha", "--init",
-                "--model", "--hidden"):
+                "--model", "--hidden", "--delta"):
         if opt in argv:
             i = argv.index(opt)
             trainer_args += argv[i:i + 2]
