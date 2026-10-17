@@ -129,8 +129,8 @@ def objective():
         "excluded": "a run in which David is speared from the side (the spear flying across the direction of his "
                     "last step) or speared after eating the harp has no score (NaN) and is left out of every "
                     "average: the recorded throws were aimed at the path he took in the real game. So has a run in "
-                    "which he enters the phantom tail, the cell one behind the tail's end, moving as if the tail were "
-                    "one cell longer (with no tail, the cell he has just left)",
+                    f"which he enters the phantom tail, the {WS.PHANTOM} cells behind the tail's end, moving as if the "
+                    "tail were that much longer (with no tail, the cells he has just left)",
         "death_decay_steps": WS.DECAY,
         "spears": f"recorded throws aimed before the window started (throw tick <= start + {WS.AIM_TICKS})",
     }

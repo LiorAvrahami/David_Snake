@@ -70,8 +70,8 @@ edge of the screen from one side to the other turns it off, and on again. The to
   the side, or speared after eating the harp, has no score and is left
   out of every average (the tables say how many): the recorded spears
   were aimed at the path he took in the real game, not this one. The
-  same if he enters the phantom tail, the cell one behind the tail's
-  end, moving as if the tail were one cell longer. Reading only 250 ms
+  same if he enters the phantom tail, the two cells behind the tail's
+  end, moving as if the tail were two cells longer. Reading only 250 ms
   keeps out what the player did in
   reaction to the live model's turns. Needs v1.7+ recordings (every
   spear throw logged); model choices and training use only those, older

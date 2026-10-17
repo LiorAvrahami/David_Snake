@@ -24,7 +24,7 @@ A run scores +1 for eating the harp (whenever it happens), and for a death
 -0.5 times exp(-(s - 1) / decay), s the steps from the decision tick to the
 death, decay 1 step for the wall and the tail and 3.7 for a spear. A run in
 which David is speared from the side, or speared after eating the harp, or
-enters the phantom tail (the cell one behind the tail's end), has no score
+enters the phantom tail (the two cells behind the tail's end), has no score
 (NaN); a decision point with such an action is left out.
 
 Timing is forgiven with the lags and weights defined earlier for the Final

@@ -35,9 +35,9 @@ situation, as the player defined it:
          has no score (NaN) and is left out of every average: the recorded
          throws were aimed at the path he took in the real game, so on
          another path such a hit says nothing about the turn. So has a run
-         in which David enters the phantom tail: the cell one behind the
-         tail's end, moving as if the tail were one cell longer (with no
-         tail, the cell he has just left)
+         in which David enters the phantom tail: the PHANTOM cells behind
+         the tail's end, moving as if the tail were that much longer (with
+         no tail, the cells he has just left)
 
 Why only READ_MS: the finger was recorded while the player watched the
 live recognizer's turns, and from about 225 ms after a turn it can be a
@@ -72,6 +72,7 @@ MAX_STEPS = 200         # safety cap on a run (going straight, a wall comes with
 DECAY = {"hit the wall": 1.0, "speared": 3.7, "ran into the tail": 1.0}
 DEATH = 0.5
 AIM_TICKS = 18
+PHANTOM = 2             # cells of phantom tail behind the real tail's end (David entering one: no score)
 JOIN_MS = 250           # a gesture starting this soon after a window's start belongs to it
 READ_MS = 250           # the input read from the window's start
 SLOT_LAG_MS = 5         # a touch sample is handled ~5 ms after its time stamp
@@ -265,10 +266,11 @@ def outcome(sim, k0, eaten_tick, phantom_hit=False):
 def run_window(real, k0, inputs, watch=None, ref=None):
     """Simulate from the real state after tick k0 until David dies (or MAX_STEPS
     steps): the harp eaten on the way counts, and the run goes on past it to see
-    whether a spear gets him after it. A phantom tail follows the real one: the
-    cell its end has just left (the cell David left, with no tail), moving as if
-    the tail were one cell longer; David entering it ends the run without a
-    score. inputs.slot(k, sim) yields the commands to run before tick k+1, one
+    whether a spear gets him after it. A phantom tail of PHANTOM cells follows
+    the real one: the cells its end has left most recently (the cells David
+    left, with no tail), moving as if the tail were PHANTOM cells longer; David
+    entering one ends the run without a score. inputs.slot(k, sim) yields the
+    commands to run before tick k+1, one
     sample's at a time, as (t, [(dir, hold), ...]). watch(event, sim, k, t,
     heading before), if given, sees every command ("cmd") and every tick
     ("tick"). ref is the window's start when the run begins earlier (the spears
@@ -277,17 +279,19 @@ def run_window(real, k0, inputs, watch=None, ref=None):
     sim = real.copy()
     sim.throw_limit = ref + AIM_TICKS
     sim.harp_next = lambda: None
-    phantom = [None]                # the phantom tail's cell, once the tail's end has moved
+    phantom = []                    # the phantom tail's cells, nearest the real tail first
 
     def tail_end():
         return sim.tail[-1] if sim.tail else (sim.hx, sim.hy)
 
     def stepped(end_before):
-        """After a step: the phantom takes the cell the tail's end left (none, if
-        the tail grew); True if David is on the phantom."""
+        """After a step: the cell the tail's end left becomes the phantom's first
+        cell and the rest move back (nothing moves if the tail grew); True if
+        David is on the phantom."""
         if tail_end() != end_before:
-            phantom[0] = end_before
-        return phantom[0] is not None and (sim.hx, sim.hy) == phantom[0]
+            phantom.insert(0, end_before)
+            del phantom[PHANTOM:]
+        return (sim.hx, sim.hy) in phantom
 
     hit = False
     for k in range(k0, k0 + 4 * MAX_STEPS):
