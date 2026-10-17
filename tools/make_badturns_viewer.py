@@ -27,7 +27,7 @@ import windowsim as WS
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DELTA, ALPHA = 4, 0.9
 SHIFTS = tuple(range(-DELTA, DELTA + 1))
-PRE = 8                 # real-game ticks shown before the window
+PRE = 20                # real-game ticks shown before the window (0.9 s: the previous gesture too)
 POST_TICKS = 60         # finger samples kept after the window start
 TICK_MS = 45
 POL = None
@@ -299,6 +299,13 @@ class Player {
   }
 }
 let ACTIVE = null;
+function fingerNote(c) {
+  const downs = c.finger.filter(s => s[3] && s[0] <= 0), lifts = c.finger.filter(s => s[4] && s[0] < 0);
+  if (!downs.length) return "The finger was already down more than " + PRE + " ticks before the window.";
+  const d = downs[downs.length - 1][0];
+  const prev = lifts.length ? ", the previous stroke lifted " + (-lifts[lifts.length - 1][0]).toFixed(1) + " ticks before it" : "";
+  return "The finger touched down " + (-d).toFixed(1) + " ticks before the window" + prev + ".";
+}
 const root = document.getElementById("cases");
 DATA.cases.forEach((c, i) => {
   const el = document.createElement("article"); el.className = "case";
@@ -313,7 +320,7 @@ DATA.cases.forEach((c, i) => {
     <div class="controls"><button class="play" type="button">Play</button><input type="range" id="r${i}" aria-label="time"><span class="tick"></span>
       <label>speed <select id="s${i}"><option value="0.25" selected>x0.25</option><option value="0.5">x0.5</option><option value="1">x1</option></select></label></div>
     <table class="scores"><tr><th></th><th>what happened</th><th>plain</th><th>Final</th></tr>${row("none", "no turn", c.courses.none)}${row("model", NAME + ": " + turns, c.courses.model)}</table>
-    <p class="loss">David heading ${NAMES[LET[c.courses.none.frames[0][2]]]} at the window start. The turn cost ${(c.final_none - c.final_model).toFixed(3)} on the Final score.</p>`;
+    <p class="loss">David heading ${NAMES[LET[c.courses.none.frames[0][2]]]} at the window start. ${fingerNote(c)} The turn cost ${(c.final_none - c.final_model).toFixed(3)} on the Final score.</p>`;
   root.appendChild(el);
   new Player(el, c);
 });
