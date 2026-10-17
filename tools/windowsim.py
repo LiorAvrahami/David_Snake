@@ -268,8 +268,9 @@ def run_window(real, k0, inputs, watch=None, ref=None):
     steps): the harp eaten on the way counts, and the run goes on past it to see
     whether a spear gets him after it. A phantom tail of PHANTOM cells follows
     the real one: the cells its end has left most recently (the cells David
-    left, with no tail), moving as if the tail were PHANTOM cells longer; David
-    entering one ends the run without a score. inputs.slot(k, sim) yields the
+    left, with no tail), taken from his path in the real game at the start and
+    moving as if the tail were PHANTOM cells longer; David entering one ends
+    the run without a score. inputs.slot(k, sim) yields the
     commands to run before tick k+1, one
     sample's at a time, as (t, [(dir, hold), ...]). watch(event, sim, k, t,
     heading before), if given, sees every command ("cmd") and every tick
@@ -279,7 +280,11 @@ def run_window(real, k0, inputs, watch=None, ref=None):
     sim = real.copy()
     sim.throw_limit = ref + AIM_TICKS
     sim.harp_next = lambda: None
-    phantom = []                    # the phantom tail's cells, nearest the real tail first
+    # the phantom tail's cells, nearest the real tail first: at the start, the cells David
+    # occupied just before the tail's end, from his path in the real game
+    n = len(sim.tail)
+    older = sim.hist[:len(sim.hist) - n] if n else list(sim.hist)
+    phantom = list(reversed(older[-PHANTOM:]))
 
     def tail_end():
         return sim.tail[-1] if sim.tail else (sim.hx, sim.hy)

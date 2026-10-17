@@ -44,11 +44,14 @@ class Sim:
         self.tick_no = 0
         self.steps = []                 # (tick, x, y, flush) for checks
         self.eaten = []                 # ticks a harp was eaten
+        self.hist = []                  # the cells the head left, oldest first: the tail's cells and
+                                        # a few before them (for the scorer's phantom tail)
 
     def copy(self):
         s = Sim.__new__(Sim)
         s.__dict__.update(self.__dict__)
         s.tail = list(self.tail)
+        s.hist = list(self.hist)
         s.tails = set(self.tails)
         s.spears = [list(p) for p in self.spears]
         s.steps = []
@@ -91,6 +94,7 @@ class Sim:
         self.counter = 4
         self.last = self.hd
         ox, oy = self.hx, self.hy
+        self.hist.append((ox, oy))
         if self.tail:
             self.tails.add((ox, oy))
         self.hx += DX[self.hd]
@@ -115,6 +119,7 @@ class Sim:
             self.tails.discard((lx, ly))
             self.tail.insert(0, (ox, oy))
             self.tails.add((ox, oy))
+        del self.hist[:-(len(self.tail) + 4)]
         d = self.pending                # promotePendingDir
         if d >= 0:
             self.pending = -1
