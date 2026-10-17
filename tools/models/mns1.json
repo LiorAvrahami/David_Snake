@@ -342,7 +342,7 @@
    },
    "spears": "recorded throws aimed before the window started (throw tick <= start + 18)"
   },
-  "result": "provisional"
+  "result": "Trained on the score alone (docs/score_training.md), same 70/30 split as MNL1 (53 test games, played with ML-1). Per 1000 windows (every game tick with finger movement) on the test games: window score 149.1 (MNL1 304.4, ML-1 298.9; minus MNL1 -155.3, 90% range -187.7 to -128.8); Final score (tolerance 4, alpha 0.9) 309.8 (MNL1 379.2, ML-1 368.3; -69.4, -89.7 to -52.9). Of the 19266 training decision points a turn scored higher than going straight at 67% (none best at 33%, by a mean gap of 0.13 against 0.4 for turns): a single turn toward the harp's row or column pays whatever the finger did, and the finger-only model learned to turn on most finger movement. Turns on the recorded lift-off flick that killed MNL1, a tick earlier (right-turn score +2.91 at tick 948, +4.01 at 949; MNL1 +0.52 at 949, ML-1 -1.06). Not in the game."
  },
  "w1": [
   [

@@ -119,7 +119,13 @@ edge of the screen from one side to the other turns it off, and on again. The to
   weighting small movements the live game ignored, `--reject-small`),
   score the same (+9.1, +10.0) with fewer such turns (1.9 per minute),
   still make the recorded lift-off turn that killed MNL1, and are not in
-  the game. Before it: `ML-3` (v1.17),
+  the game. `MNS1` (`tools/models/mns1.json`) was trained on the score
+  alone (`tools/scorelearn.py`, `docs/score_training.md`: at every
+  moving-finger tick the best of none, right and left by simulation, with
+  the final score's lags) and scores far below (149.1 vs 304.4 plain,
+  309.8 vs 379.2 final): at two thirds of the decision points a turn
+  toward the harp's row or column beats going straight whatever the
+  finger did, which a finger-only model cannot tell apart. Before it: `ML-3` (v1.17),
   the linear model trained the same way, which turns about a quarter
   sooner than ML-1 (0.63 ticks; late turns 82 per 1000) with the same
   window score (355.3) and the same final score (411.4 vs 414.7 with 1
