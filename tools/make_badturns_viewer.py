@@ -12,7 +12,8 @@ scores, and what happened. --fragment PATH also writes the page without the
 document wrapper, for publishing.
 
 Usage: python3 tools/make_badturns_viewer.py FILE... --model tools/models/mnw1.json
-                                           [--holdout 0.3 --seed 1 --never-test F,...] [--top 40] [--fragment PATH]"""
+                                           [--holdout 0.3 --seed 1 --never-test F,...] [--top 40] [--fragment PATH]
+                                           [--also PATH:game:tick,...]   (windows from other recordings, shown apart)"""
 import html, json, os, re, sys
 from collections import Counter
 from multiprocessing import Pool
@@ -147,6 +148,7 @@ table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .summary td, .summary th, .scores td, .scores th { padding: 4px 10px 4px 0; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
 .summary th { font-weight: 600; }
 .cases { display: grid; gap: 18px; margin-top: 12px; }
+.cases h2 { margin: 16px 0 0; }
 .case { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
 .pics { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .pic { min-width: 0; }
@@ -307,7 +309,10 @@ function fingerNote(c) {
   return "The finger touched down " + (-d).toFixed(1) + " ticks before the window" + prev + ".";
 }
 const root = document.getElementById("cases");
-DATA.cases.forEach((c, i) => {
+let section = null, num = 0;
+DATA.cases.forEach(c => {
+  if (c.section !== section) { section = c.section; num = 0; const h = document.createElement("h2"); h.textContent = section; root.appendChild(h); }
+  const i = num++;
   const el = document.createElement("article"); el.className = "case";
   const turns = c.courses.model.turns.map(([tt, h]) => NAMES[LET[h]] + " at tick +" + tt).join(", ") || "no turn";
   const row = (name, label, co) => `<tr><td><span class="sw ${name}"></span>${label}</td><td>${OUT[co.end]} after ${co.frames.length - 1} ticks</td><td>${co.plain.toFixed(3)}</td><td>${(name === "none" ? c.final_none : c.final_model).toFixed(3)}</td></tr>`;
@@ -330,16 +335,20 @@ DATA.cases.forEach((c, i) => {
 
 def main():
     argv = list(sys.argv)
-    model, top, fragment = os.path.join(ROOT, "tools", "models", "mnw1.json"), 40, ""
-    for opt in ("--model", "--top", "--fragment"):
+    model, top, fragment, also = os.path.join(ROOT, "tools", "models", "mnw1.json"), 40, "", []
+    for opt in ("--model", "--top", "--fragment", "--also"):
         if opt in argv:
             i = argv.index(opt)
             if opt == "--model":
                 model = argv[i + 1]
             elif opt == "--top":
                 top = int(argv[i + 1])
-            else:
+            elif opt == "--fragment":
                 fragment = argv[i + 1]
+            else:                       # PATH:game:tick,... windows from other recordings, shown apart
+                for item in argv[i + 1].split(","):
+                    path, game, tick = item.rsplit(":", 2)
+                    also.append((path, int(game), int(tick)))
             del argv[i:i + 2]
     args, o = L.options(argv)
     name = json.load(open(model))["name"]
@@ -347,7 +356,8 @@ def main():
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args, model)) as pool:
+    extra_paths = sorted({path for path, _, _ in also if path not in args})
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args + extra_paths, model)) as pool:
         arms = {k: arm for k, arm, _ in pool.map(I._info, keys)}
         trn, _ = L.split(keys, arms, o["holdout"], o["seed"], o["never_test"])
         rows = dict(pool.map(_scan, trn))
@@ -357,7 +367,17 @@ def main():
         good = [(key, r) for key, r in turned if r[4] > r[1] + 1e-9]
         bad.sort(key=lambda kr: kr[1][1] - kr[1][4], reverse=True)
         shown = bad[:top]
-        pics = dict(pool.map(_render, [(key, r[0]) for key, r in shown]))
+        also_keys = sorted({(os.path.basename(path), game) for path, game, _ in also})
+        also_rows = dict(pool.map(_scan, also_keys)) if also_keys else {}
+        extra = []
+        for path, game, tick in also:
+            key = (os.path.basename(path), game)
+            r = next((r for r in also_rows[key] if r[0] == tick), None)
+            if r is None:
+                print(f"no window at tick {tick} in game {game} of {path}", file=sys.stderr)
+                continue
+            extra.append((key, r))
+        pics = dict(pool.map(_render, [(key, r[0]) for key, r in shown + extra]))
     n, nt = len(allw), len(turned)
     loss = sum(r[1] - r[4] for _, r in bad)
     gain = sum(r[4] - r[1] for _, r in good)
@@ -382,7 +402,7 @@ def main():
         + "".join(f"<tr><th>{t}</th><td>{c}</td></tr>" for t, c in buckets) + "</table>",
         '<h2>What happened instead</h2><table class="summary"><tr><th>no turn</th><th>with the turn</th><th>windows</th></tr>'
         + "".join(f"<tr><td>{OUT[a]}</td><td>{OUT[b]}</td><td>{c}</td></tr>" for (a, b), c in pairs.most_common()) + "</table>",
-        f"<h2>The worst {len(shown)}</h2>",
+        "<h2>Legend</h2>",
         '<p class="legend">Boards: David is the dark square with a short line for his heading, his tail grey, the harp gold, spears in flight dark red, '
         'attackers red squares at the walls from 18 ticks before their throw. The path is solid where David has been and dashed where he is going; '
         'rings mark the turns; a gold dot ends a path at the harp, a cross at a death. '
@@ -391,11 +411,13 @@ def main():
         'The compass shows David\'s heading at the window start and his right-hand side.</p>',
     ])
     cases = []
-    for key, r in shown:
-        d = pics[(key, r[0])]
-        d["title"] = f"Game {key[1]} of {html.escape(file_label(key[0]))}, tick {r[0]}"
-        d["final_none"], d["final_model"] = round(r[1], 4), round(r[4], 4)
-        cases.append(d)
+    for section, group in ((f"The worst {len(shown)}", shown), ("Not in the training set: the recorded flick that killed MNL1", extra)):
+        for key, r in group:
+            d = pics[(key, r[0])]
+            d["section"] = section
+            d["title"] = f"Game {key[1]} of {html.escape(file_label(key[0]))}, tick {r[0]}"
+            d["final_none"], d["final_model"] = round(r[1], 4), round(r[4], 4)
+            cases.append(d)
     data = {"name": name, "pre": PRE, "out": OUT, "cases": cases}
     frag = (TEMPLATE.replace("__NAME__", html.escape(name)).replace("__SUMMARY__", summary)
             .replace("/*DATA*/{}", json.dumps(data, separators=(",", ":"))))
