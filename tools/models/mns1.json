@@ -1,0 +1,692 @@
+{
+ "name": "MNS1",
+ "type": "non-linear turn policy (one hidden layer) over finger movement only, without the back answer",
+ "recognizer": "LearnedRecognizer (app/src/main/java/com/davidsnake/game/Recognizers.kt); Python twin: tools/simlearn.py Policy + features",
+ "turn_mode": "STEP_SAFE",
+ "hold_uturn": true,
+ "input": "the current stroke's finger samples (time ms; x, y in dp rounded to 0.1 dp, as logged) and David's heading (a queued turn counts)",
+ "decides": "once per game tick, just before it (the engine acts on a turn at the next tick), on the stroke's latest sample, if samples arrived since its last decision; a lifted or replaced stroke's last samples are decided at the next tick, and then a new stroke's samples wait one more tick",
+ "window_travel": "from the first sample at or after (t - window) to the latest sample t",
+ "features": [
+  "fwd40: finger travel along David's heading over the last 40 ms, per 20 dp",
+  "side40: finger travel to David's right over the last 40 ms, per 20 dp",
+  "|side40|: its size",
+  "fwd80: finger travel along David's heading over the last 80 ms, per 20 dp",
+  "side80: finger travel to David's right over the last 80 ms, per 20 dp",
+  "|side80|: its size",
+  "fwd160: finger travel along David's heading over the last 160 ms, per 20 dp",
+  "side160: finger travel to David's right over the last 160 ms, per 20 dp",
+  "|side160|: its size",
+  "fwd300: finger travel along David's heading over the last 300 ms, per 20 dp",
+  "side300: finger travel to David's right over the last 300 ms, per 20 dp",
+  "|side300|: its size",
+  "since: ms since the last-turn sample, at most 400, per 400",
+  "fwdSince: finger travel along the heading since the last-turn sample, per 40 dp",
+  "sideSince: finger travel to David's right since the last-turn sample, per 40 dp",
+  "|sideSince|: its size",
+  "bias: 1"
+ ],
+ "side_features": [
+  1,
+  4,
+  7,
+  10,
+  14
+ ],
+ "scores": "none = 0; h(x) = relu(w1 x + b1); right = v . h(f); left = v . h(mirror(f)), mirror negating the side features; no back answer (a U-turn is two side turns); the highest wins, ties going to the first of none, right, left",
+ "commands": {
+  "right": "turn to David's right (kind ml)",
+  "left": "turn to David's left (kind ml)"
+ },
+ "last_turn": "after a decision's commands run, if David's heading changed, the latest sample becomes the last-turn sample; it starts at the stroke's first sample",
+ "weights_sha256": "8d56ab7cc58e90c0fdff7cc9efabb5a6be1dce76a92e702e63fa75cff3949ec5",
+ "training": {
+  "code": "tools/scorelearn.py at commit 0bd7dd8",
+  "command": "python3 tools/scorelearn.py DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt --hidden 16 --iters 600 --delta 4 --alpha 0.9 --holdout 0.3 --seed 1 --never-test DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt,DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt,zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt --export",
+  "deterministic": "re-running the command on the same files gives identical weights",
+  "data": [
+   {
+    "file": "DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt",
+    "sha256": "ce3aa1d5c28bedf8d648d86393db0dca7f748a77a3d70387f0f5be9f3e9d56c4",
+    "app": "1.10.63",
+    "session_start": "2026-10-03 23:58:21",
+    "games": 19
+   },
+   {
+    "file": "DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt",
+    "sha256": "ae2bfb32ae31e6054b597e117b891e2f597b109b0fcc0e400493b75e0dd8d3f6",
+    "app": "1.13.66",
+    "session_start": "2026-10-04 00:38:49",
+    "games": 8
+   },
+   {
+    "file": "zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt",
+    "sha256": "2c987b86e9182b7f4304e059049130ab7447ed5c246efdd37456a8f075c9d15b",
+    "app": "1.13.66",
+    "session_start": "2026-10-08 13:09:59",
+    "games": 14
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "sha256": "40b601854dd2b224fd71cfe854c059ecb5a2630dc7b2ff95caedc541a6aef6aa",
+    "app": "1.15.72",
+    "session_start": "2026-10-08 21:00:16",
+    "games": 12
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "sha256": "d6d60de321b55200a0af6e9ed4df68f924e2d390dd0a2cf2070469c117224b53",
+    "app": "1.15.73",
+    "session_start": "2026-10-09 08:50:06",
+    "games": 24
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "sha256": "4c5df9aa5674b8b6fb36aeea26d5f2c3ccac19b3ebc74e2aab6814501ea6535a",
+    "app": "1.15.73",
+    "session_start": "2026-10-09 09:28:05",
+    "games": 15
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "sha256": "980ec6293a81d5a940f8762f19c4dafcbd9cf2a8bab2259b710ded22343a6437",
+    "app": "1.15.73",
+    "session_start": "2026-10-09 09:59:16",
+    "games": 29
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "sha256": "634fcb3c12293d589aac32767aeb21aeff09f5b9eca78f15beb7e6253a154c39",
+    "app": "1.15.87",
+    "session_start": "2026-10-12 16:07:45",
+    "games": 55
+   }
+  ],
+  "test_games": [
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 6
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 7
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 8
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 9
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 10
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.72_2026-10-08_210016_12games.txt",
+    "game": 11
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 15
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 18
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 19
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 20
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 21
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 22
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 23
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 32
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 33
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_085006_24games.txt",
+    "game": 34
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 40
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 42
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 44
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 46
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_092805_15games.txt",
+    "game": 47
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 53
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 60
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 61
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 67
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 69
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 73
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 77
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.73_2026-10-09_095916_29games.txt",
+    "game": 79
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 81
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 82
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 85
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 86
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 89
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 91
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 94
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 95
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 97
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 100
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 102
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 106
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 112
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 113
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 119
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 120
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 122
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 124
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 129
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 130
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 131
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 132
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 133
+   },
+   {
+    "file": "DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt",
+    "game": 134
+   }
+  ],
+  "method": "the score alone (docs/score_training.md): at every decision point (a game tick with finger movement) the actions none, right and left are each tried by simulation from the real game state (none: straight; a turn: once, then straight; until the harp or a death, the window score); a turn at every lag -4..4 ticks from the decision tick (a lag before it runs from the real state that many ticks earlier, with the live game's commands in between), scored 0.9 times the best lag plus 0.1 times lag 0. The right action is the one with the highest score (a tie goes to none); the model is fitted to pick it (softmax, cross-entropy, Adam, L2), each decision point weighted by the gap between the best and the second-best score. Nothing is taken from the live game's turns",
+  "settings": {
+   "delta": 4,
+   "alpha": 0.9,
+   "hidden": 16,
+   "fit_steps": 600,
+   "adam_lr": 0.01,
+   "l2": 0.001,
+   "model": "mlp",
+   "no_back": true,
+   "speed_input": false
+  },
+  "split": "the games listed in test_games were held out (not trained on): --holdout 0.3 --seed 1 --never-test DavidSnake_InputLab_v1.10.63_2026-10-03_235821.txt,DavidSnake_InputLab_v1.13.66_2026-10-04_003849.txt,zDavidSnake_InputLab_v1.13.66_2026-10-08_130959.txt in tools/simlearn.py split()",
+  "objective": {
+   "windows": "one at every game tick in which the finger moved: its samples in the tick got 1 dp or more away from where it was at the end of the tick before (or from the touch-down); a resting finger, or none, starts nothing",
+   "input": "the finger samples of the first 250 ms from the window's start; then, if David turned, one more turn before his next regular step after the latest turn, which ends the input",
+   "run": "after the input David goes straight until he eats the harp or dies",
+   "harp": "+1 for eating the harp, whenever it happens (only the first); the run ends there",
+   "death": "-0.5 times exp(-(s - 1) / decay), s = steps from the window start to the death, decay by cause; a spear hitting David from the side (flying across the direction of his last step) costs nothing",
+   "death_decay_steps": {
+    "hit the wall": 1.0,
+    "speared": 3.7,
+    "ran into the tail": 1.0
+   },
+   "spears": "recorded throws aimed before the window started (throw tick <= start + 18)"
+  },
+  "result": "provisional"
+ },
+ "w1": [
+  [
+   0.020045796211556874,
+   0.034848905232976415,
+   -0.05315021111044485,
+   -0.024337016652578813,
+   0.05573775632780209,
+   -0.04410856022047182,
+   -0.09200563629741655,
+   -0.0037274146729590505,
+   -0.056946202182478485,
+   -0.0315505104725586,
+   -0.10552888887724131,
+   -0.03000988672248043,
+   -0.044660644946261936,
+   -0.04314452179909074,
+   -0.15367298942028493,
+   -0.016670604031091916,
+   -0.08818090732180234
+  ],
+  [
+   0.1878358096814727,
+   0.09534740807085423,
+   -0.1645366420554434,
+   0.11075429601342976,
+   0.008271721412673017,
+   0.006059064822730966,
+   0.24085751533198255,
+   -0.4179827173018031,
+   -0.41136738467526957,
+   -0.11028713944391817,
+   -0.019426782010247917,
+   -0.17317904090825945,
+   -0.07411086779789637,
+   0.20604760983966086,
+   0.017418614105866,
+   -0.12177670769178944,
+   0.1297029727792056
+  ],
+  [
+   0.39413464095014306,
+   -1.0954497802815184,
+   -1.011240863476092,
+   -0.08421445191961087,
+   -0.545043137615094,
+   -0.8898745321341879,
+   -0.6184462666114072,
+   -0.46927055992569233,
+   0.002840430753097643,
+   -0.1847744032819527,
+   -0.30692281590794057,
+   -0.05376701597637547,
+   0.21198957484931005,
+   0.2715707749924135,
+   0.09100179042070239,
+   0.014133197304938984,
+   0.19741035916239122
+  ],
+  [
+   0.17390936182672323,
+   -0.30787100773704196,
+   -0.21238209370874583,
+   0.038564887327148065,
+   -0.26544672897324706,
+   -0.15011315500900932,
+   -0.1584092937660138,
+   -0.21244696557254672,
+   -0.05443164396819389,
+   -0.09193994943096098,
+   0.12085432948496645,
+   -0.29241200163547415,
+   0.13389139200946507,
+   0.09203585310845394,
+   -0.14620568744294962,
+   0.057852604848997784,
+   0.07164276254080564
+  ],
+  [
+   -0.7145924882284497,
+   0.6586825653385162,
+   -0.10430662080106977,
+   -0.10899458958319919,
+   0.202120286439875,
+   -0.3208213221934386,
+   0.6402463303892247,
+   0.35303556395589797,
+   -0.1619603169978739,
+   -0.32905762270323863,
+   0.10180312653424274,
+   -0.33410808676407017,
+   -0.15423862496010213,
+   -0.07570472844363212,
+   -0.0450148803641675,
+   -0.027527992053639004,
+   0.2738287595630807
+  ],
+  [
+   0.1293647716134702,
+   -0.15739966798578475,
+   -0.16196025337628633,
+   0.039628232815111505,
+   -0.0941197550964996,
+   -0.16710345266511306,
+   -0.11685994366385119,
+   -0.10532002468082517,
+   -0.05953683800137362,
+   -0.11111840881606717,
+   -0.11792827471920929,
+   -0.08293935691327042,
+   0.012310657530808318,
+   0.07269111293864251,
+   -0.1828824849331034,
+   -0.12071048429626978,
+   0.05507530252074051
+  ],
+  [
+   -0.08837748506526356,
+   -0.45923178494404987,
+   -0.6481916340576517,
+   -0.015675070622223508,
+   -0.39406277172393,
+   -0.3396545639663255,
+   0.19973211946201525,
+   0.042284177689750395,
+   0.1827564490775732,
+   0.07933461544940128,
+   0.10027030989544614,
+   -0.07851494099397958,
+   0.08709271578199189,
+   -0.0691632123709098,
+   -0.02935055276521973,
+   0.04550041711076674,
+   0.20500312630428075
+  ],
+  [
+   -0.9988165309635003,
+   0.7526488319200204,
+   0.2623722136048774,
+   -0.7095123053839854,
+   0.370255045425725,
+   0.5459200747607712,
+   0.10890173360870273,
+   -0.03207447637472043,
+   0.35076437041687064,
+   -0.03085922501199034,
+   -0.12134356362127273,
+   -0.002638873257389263,
+   -0.08770522277334973,
+   -0.07443548245002622,
+   0.17797810705224643,
+   -0.16335211165399222,
+   0.14194492392526376
+  ],
+  [
+   -0.13361063983187976,
+   0.4399006172507162,
+   0.4508301017707022,
+   -0.23747012796416983,
+   0.33285044060489133,
+   0.34325958654745886,
+   -0.17274348319681943,
+   0.189898410342002,
+   0.013327337010693063,
+   -0.35935635141939254,
+   0.1102452643431838,
+   -0.11596734070181514,
+   -0.2149302668023614,
+   -0.21519469363964236,
+   0.08735945021059673,
+   0.009868132197518665,
+   -0.14833961817232227
+  ],
+  [
+   -0.09641275723090977,
+   0.6676812967932061,
+   -0.3219893247466601,
+   0.33120504632609765,
+   0.3579359550220068,
+   -0.5146087569857831,
+   0.21955739350645714,
+   0.3976098880123299,
+   -0.49966010829006535,
+   -0.5338485520432147,
+   0.35470908794321876,
+   -0.3674956224478148,
+   0.16300656567423985,
+   -0.03132249344977126,
+   0.2071860456094412,
+   -0.13554921803728526,
+   0.14625009347759085
+  ],
+  [
+   0.09655464819151911,
+   -1.0155456430962675,
+   -1.0753581417153695,
+   -0.4226965563130434,
+   -0.5075618656961293,
+   -0.22190017976544893,
+   -0.2362086137848744,
+   0.11221576685063696,
+   0.11559331092269734,
+   0.45944492933051845,
+   0.5230487762650186,
+   -0.09634370134711484,
+   -0.058583527090318034,
+   0.029841611841998975,
+   -0.1859980650500491,
+   -0.0017556993243698592,
+   0.24438759474645735
+  ],
+  [
+   -0.25548630564435115,
+   0.23751269737857852,
+   0.12474316402478329,
+   -0.11468225383499846,
+   0.5378788402129482,
+   0.2596352423349628,
+   -0.37826061518892173,
+   0.2607757493404739,
+   -0.14458004284277143,
+   -0.0038353871991765485,
+   0.10940646650679636,
+   0.2624927324064121,
+   -0.07416308249902594,
+   -0.046409965038698674,
+   0.13410440719315928,
+   0.007318719960107845,
+   0.11940374067903094
+  ],
+  [
+   0.14126968845957974,
+   0.9229428067267677,
+   -0.30625465175193883,
+   0.016404309631849093,
+   -0.3125651823437625,
+   0.01521134905134764,
+   0.279183314271706,
+   -0.2225792753883639,
+   0.05814336235950147,
+   -0.585311749395154,
+   -0.3376621575621791,
+   -0.41052778427398995,
+   0.013647952823658483,
+   0.08752655732445856,
+   0.13473376783290733,
+   0.17130539179351584,
+   0.491192520670174
+  ],
+  [
+   -0.043011474967937745,
+   0.5256432488529548,
+   -0.1277994067302549,
+   -0.029894534322398716,
+   -0.32638582938544414,
+   -0.5386872998802017,
+   -0.10319555148060316,
+   -0.07894138537397956,
+   -0.1849787644059939,
+   0.3095629841964834,
+   0.22281426052821,
+   0.2771516331306482,
+   0.18529248225172845,
+   0.2918322860840621,
+   0.01909716995735203,
+   -0.0302223599321389,
+   0.5084341055483658
+  ],
+  [
+   -0.2706965880142996,
+   -0.2840189808537716,
+   0.4810495381833948,
+   0.15826411971973695,
+   -0.6009963489589571,
+   0.08138227987973985,
+   0.561456546925121,
+   -0.23433632107656455,
+   0.38582246922559493,
+   -0.27967576452338266,
+   0.10531283379163399,
+   -0.08664965436737028,
+   -0.19128578242272734,
+   -0.27787225700791773,
+   0.17956849262368463,
+   -0.35950916578718584,
+   0.2862903559967185
+  ],
+  [
+   0.20327058111334745,
+   -0.5695881935062175,
+   -0.3961685534908082,
+   0.3076126699429599,
+   -0.3266480740056403,
+   -0.14102519884415943,
+   0.39069801145628386,
+   -0.2450865791032589,
+   -0.01979572371053833,
+   0.3668725517362571,
+   -0.3939961842451807,
+   -0.19828321859785517,
+   0.3153402614604526,
+   0.34435547454250204,
+   0.2127213803026479,
+   0.2012574468645752,
+   0.13379068674850195
+  ]
+ ],
+ "b1": [
+  -0.0930776331272061,
+  0.00954378038771496,
+  0.19722414222722842,
+  0.05807662306719324,
+  0.2230753708123888,
+  0.05507402732742352,
+  0.2196263956812151,
+  0.21598518985111984,
+  -0.1483020816039636,
+  0.14627464218417027,
+  0.24880346758426725,
+  0.08832232755351746,
+  0.4917241733506815,
+  0.5035863070347062,
+  0.2863208807764584,
+  0.13000029628704007
+ ],
+ "v": [
+  -0.08473769719454986,
+  0.3007800321179867,
+  -2.0178482758001532,
+  -0.525519734012047,
+  0.781136060299323,
+  -0.34249659440115104,
+  -0.8176831863373525,
+  0.7808125218866377,
+  -0.5902012609701279,
+  1.2087689311650696,
+  -1.066297019952164,
+  0.37706724670831177,
+  1.4208726573366839,
+  1.2396573020620034,
+  1.2188731168933176,
+  -0.6883872833274131
+ ],
+ "hidden": 16,
+ "speed": false,
+ "no_back": true
+}
