@@ -116,11 +116,11 @@ def spec_of(name, weights, commit, data, result, split_args=(), test_games=(), t
 
 def objective():
     return {
-        "windows": "one per gesture start: finger speed rising from under "
-                   f"{WS.V_REST:g} to over {WS.V_MOVE:g} dp/s with {WS.GESTURE_DP:g} dp of travel, "
-                   f"or a turn of {WS.SPLIT_DEG:g} degrees or more while moving (speed over "
-                   f"{WS.SPEED_MS} ms); a gesture starting less than {WS.JOIN_MS} ms after a "
-                   "window's start belongs to that window",
+        "windows": "one per gesture start: the finger starts moving (speed over "
+                   f"{WS.SPEED_MS} ms rising above {WS.V_REST:g} dp/s) and travels {WS.START_DP:g} dp, "
+                   f"however small or slow the movement, or turns by {WS.SPLIT_DEG:g} degrees or more "
+                   f"while moving; a gesture starting less than {WS.JOIN_MS} ms after a window's "
+                   "start belongs to that window",
         "input": f"the finger samples of the first {WS.READ_MS} ms from the window's start; then, "
                  "if David turned, one more turn before his next regular step after the latest "
                  "turn, which ends the input",
@@ -169,8 +169,8 @@ def training_simlearn(commit, data, split_args, test_games, trainer_args, result
 
 
 def training_intent(commit, data, split_args, test_games, trainer_args, result):
-    flags = [a for a in trainer_args if a == "--no-back"]
-    pairs = [a for a in trainer_args if a != "--no-back"]
+    flags = [a for a in trainer_args if a in ("--no-back", "--reject-small")]
+    pairs = [a for a in trainer_args if a not in ("--no-back", "--reject-small")]
     args = dict(zip(pairs[::2], pairs[1::2]))
     rounds, w_turn = int(args.get("--rounds", I.ROUNDS)), float(args.get("--w-turn", I.W_TURN))
     w_reject, w_hold = float(args.get("--w-reject", I.W_REJECT)), float(args.get("--w-hold", I.W_HOLD))
@@ -196,11 +196,15 @@ def training_intent(commit, data, split_args, test_games, trainer_args, result):
                   "then at every tick the model decides while playing the windows (one round of "
                   "rollouts per round); the softmax policy is refitted on all examples each round "
                   "(cross-entropy, L2, Adam) with turn answers weighted w_turn, none answers during "
-                  "a clear finger movement the live game did not answer (for 300 ms) w_reject, and "
+                  "a clear finger movement the live game did not answer (for 300 ms) w_reject"
+                  + (" (with --reject-small also none answers during a small movement that never gets "
+                     "clear and the live game did not answer, until 300 ms after it)" if "--reject-small" in flags else "")
+                  + ", and "
                   f"none answers within {I.HOLD_MS} ms after a turn w_hold",
         "settings": {"rounds": rounds, "w_turn": w_turn, "w_reject": w_reject, "w_hold": w_hold,
                      "timeout_ms": I.TIMEOUT_MS, "hold_ms": I.HOLD_MS, "l2": L.L2, "model": model,
                      "hidden": hidden if model == "mlp" else None, "no_back": model == "mlp" or "--no-back" in flags, "speed_input": model != "mlp",
+                     "reject_small": "--reject-small" in flags,
                      "adam_lr": 0.01 if model == "mlp" else 0.05, "fit_steps": I.MLP_ITERS if model == "mlp" else 400},
         "split": split_text(split_args),
         "objective": objective(),
@@ -283,9 +287,10 @@ if __name__ == "__main__":
             i = argv.index(opt)
             trainer_args += argv[i:i + 2]
             del argv[i:i + 2]
-    if "--no-back" in argv:
-        trainer_args.append("--no-back")
-        argv.remove("--no-back")
+    for flag in ("--no-back", "--reject-small"):
+        if flag in argv:
+            trainer_args.append(flag)
+            argv.remove(flag)
     if "--trainer" in argv:
         i = argv.index("--trainer")
         trainer = argv[i + 1]

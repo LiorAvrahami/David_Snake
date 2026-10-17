@@ -3,11 +3,13 @@
 situation, as the player defined it:
 
   A window starts at every gesture: the finger starts moving (its speed
-  rises from under V_REST to over V_MOVE, and it travels GESTURE_DP), or,
-  while moving, turns by SPLIT_DEG or more from where it was going. A
-  finger resting on the screen starts nothing. A gesture that starts less
-  than JOIN_MS after a window's start belongs to that window, so a side
-  step or U-turn is one window, not two.
+  over SPEED_MS rises above V_REST) and travels START_DP, however small
+  or slow the movement after that, or, while moving, turns by SPLIT_DEG
+  or more from where it was going. A finger resting on the screen starts
+  nothing. A gesture that starts less than JOIN_MS after a window's start
+  belongs to that window, so a side step or U-turn is one window, not two.
+  (Until v1.18 a gesture had to reach V_MOVE with GESTURE_DP of travel,
+  which left every smaller movement, and the turns made on it, unscored.)
   From David's real state at the window's start (enginesim, an exact port
   of the engine), a recognizer reads the recorded finger input of the
   first READ_MS and the engine executes its turns. If it turned David, it
@@ -47,7 +49,8 @@ from lab_report import load, build
 import enginesim as E
 import recognizers as R
 
-V_REST, V_MOVE = 60.0, 150.0     # finger speed, dp/s
+V_REST, V_MOVE = 60.0, 150.0
+START_DP = 3.0                            # travel after a rest that makes a gesture (above sample noise)     # finger speed, dp/s
 GESTURE_DP = 10.0       # a gesture travels at least this far
 SPLIT_DEG = 60.0        # a turn this sharp while moving starts a new gesture
 SPEED_MS = 40           # finger speed is measured over this long
@@ -89,14 +92,13 @@ def gesture_starts(stroke):
         v = math.hypot(vx, vy)
         if not moving:
             if v >= V_REST:     # starts moving: the gesture starts at the last rest
-                moving, start, peak, ref, counted, corner = True, max(i - 1, 0), v, None, False, None
+                moving, start, ref, counted, corner = True, max(i - 1, 0), None, False, None
             continue
         if v < V_REST:
             moving = False
             continue
-        peak = max(peak, v)
         _, sx, sy = sm[start]
-        if not counted and peak >= V_MOVE and math.hypot(x - sx, y - sy) >= GESTURE_DP:
+        if not counted and math.hypot(x - sx, y - sy) >= START_DP:
             counted = True
             out.append(sm[start][0])
         if ref is None:         # where this gesture goes, once it is clear
@@ -109,7 +111,7 @@ def gesture_starts(stroke):
         dot = ref[0] * vx + ref[1] * vy
         if v >= V_MOVE and abs(math.degrees(math.atan2(cross, dot))) >= SPLIT_DEG:
             # a sharp turn: a new gesture from the slowest point of the corner
-            start, peak, ref, counted, corner = corner[1], v, None, False, None
+            start, ref, counted, corner = corner[1], None, False, None
     return out
 
 

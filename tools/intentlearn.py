@@ -41,7 +41,10 @@ Usage: python3 tools/intentlearn.py FILE... [--folds N | --holdout FRAC --seed S
                                     [--eval MODEL.json,...] [--save ROWS.pkl] [--export]
   --model mlp   the one-hidden-layer model (simlearn.MlpPolicy, H units): no back
                 answer, no speed input (the MNL models)
-  --no-back     the linear model without the 'back' answer"""
+  --no-back     the linear model without the 'back' answer
+  --reject-small  weigh none answers during a small movement (one that never
+                gets clear and the live game did not answer) with --w-reject, like
+                a clear movement the live game did not answer"""
 import bisect, json, os, random, sys
 from collections import defaultdict
 from multiprocessing import Pool
@@ -73,9 +76,11 @@ def relative(d, h):
 
 
 def gesture_spans(stroke):
-    """Per gesture of a stroke (tools/windowsim.py gesture_starts' rule): (start
-    time, the time the movement is clear: GESTURE_DP of travel with a peak speed
-    of V_MOVE)."""
+    """Per gesture of a stroke (tools/windowsim.py gesture_starts' rule: START_DP
+    of travel after a rest, or a sharp turn while moving): (start time, the time
+    the movement is clear: GESTURE_DP of travel with a peak speed of V_MOVE, or
+    None if it never is, end time: its last sample before the finger rests, turns
+    sharply or lifts)."""
     import math
     sm = stroke.samples
     out, j, moving = [], 0, False
@@ -95,11 +100,16 @@ def gesture_spans(stroke):
             continue
         peak = max(peak, v)
         _, sx, sy = sm[start]
-        if not counted and peak >= WS.V_MOVE and math.hypot(x - sx, y - sy) >= WS.GESTURE_DP:
+        d = math.hypot(x - sx, y - sy)
+        if not counted and d >= WS.START_DP:
             counted = True
-            out.append((sm[start][0], t))
+            out.append([sm[start][0], None, t])
+        if counted:
+            out[-1][2] = t
+            if out[-1][1] is None and peak >= WS.V_MOVE and d >= WS.GESTURE_DP:
+                out[-1][1] = t
         if ref is None:
-            if math.hypot(x - sx, y - sy) >= 8.0:
+            if d >= 8.0:
                 ref = (x - sx, y - sy)
             continue
         if corner is None or v < corner[0]:
@@ -108,8 +118,11 @@ def gesture_spans(stroke):
         dot = ref[0] * vx + ref[1] * vy
         if v >= WS.V_MOVE and abs(math.degrees(math.atan2(cross, dot))) >= WS.SPLIT_DEG:
             start, peak, ref, counted, corner = corner[1], v, None, False, None
-    return out
+    return [tuple(sp) for sp in out]
 
+
+REJECT_SMALL = False    # weigh none answers during a small movement (never clear, no live turn) like
+                        # those during a clear movement the live game did not answer (w_reject)
 
 UNKNOWN = -1
 
@@ -170,12 +183,20 @@ class IGame(L.Game):
                 answered.add(i)
                 n = seen.get(i, 0)
                 if n == 0:
-                    targets.append((subs[i][0], min(subs[i][1], t), hd))
+                    targets.append((subs[i][0], min(subs[i][1], t) if subs[i][1] is not None else t, hd))
                 else:                   # its 2nd turn: asked from when the 1st was clear, clear at the live turn
                     targets.append((targets[-1][1], t, hd))
                 seen[i] = n + 1
             self.targets.append(targets)
-            self.rejected.append([(sp[1], sp[1] + 300) for i, sp in enumerate(subs) if i not in answered])
+            rej = []
+            for i, sp in enumerate(subs):
+                if i in answered:
+                    continue
+                if sp[1] is not None:
+                    rej.append((sp[1], sp[1] + 300))        # clear, not answered: none, w_reject for 300 ms
+                elif REJECT_SMALL:
+                    rej.append((sp[0], sp[2] + 300))        # small, never clear: none, w_reject until 300 ms after it
+            self.rejected.append(rej)
         # the live game tick by tick: (sample times, xs, ys, latest index, last-turn index, heading, latest time);
         # S2-FAST's shadow state at window starts
         self.live, self.shadow = [], {}
@@ -379,9 +400,9 @@ def fit_mlp(ex, w_turn=W_TURN, w0=None, l2=L.L2, iters=600, seed=1):
 GAMES = {}
 
 
-def _init(paths, no_back=False, speed=True):
-    global NO_BACK, LAYOUT
-    NO_BACK = no_back
+def _init(paths, no_back=False, speed=True, reject_small=False):
+    global NO_BACK, LAYOUT, REJECT_SMALL
+    NO_BACK, REJECT_SMALL = no_back, reject_small
     LAYOUT = L.LAYOUT_SPEED if speed else L.LAYOUT_NOSPEED
     for path in paths:
         _, plays = build(load(path))
@@ -525,11 +546,12 @@ def boot(rows, keys, a, b, n=2000, seed=1, acc=False):
 
 def main():
     argv = list(sys.argv)
-    global MODEL, HIDDEN, NO_BACK, LAYOUT
+    global MODEL, HIDDEN, NO_BACK, LAYOUT, REJECT_SMALL
     opt = {"--folds": None, "--rounds": str(ROUNDS), "--w-turn": str(W_TURN), "--w-reject": str(W_REJECT),
            "--w-hold": str(W_HOLD), "--eval": "", "--save": "", "--model": MODEL, "--hidden": str(HIDDEN)}
     NO_BACK = "--no-back" in argv or "--model" in argv and argv[argv.index("--model") + 1] == "mlp"
-    argv = [a for a in argv if a != "--no-back"]
+    REJECT_SMALL = "--reject-small" in argv
+    argv = [a for a in argv if a not in ("--no-back", "--reject-small")]
     for name in list(opt):
         if name in argv:
             i = argv.index(name)
@@ -551,7 +573,7 @@ def main():
     for path in args:
         _, plays = build(load(path))
         keys += [(os.path.basename(path), p.n) for p in plays if p.spears and not p.aborted]
-    with Pool(os.cpu_count(), initializer=_init, initargs=(args, NO_BACK, LAYOUT.speed)) as pool:
+    with Pool(os.cpu_count(), initializer=_init, initargs=(args, NO_BACK, LAYOUT.speed, REJECT_SMALL)) as pool:
         info = dict((k, (arm, mins)) for k, arm, mins in pool.map(_info, keys))
         arms = {k: info[k][0] for k in keys}
         minutes = {k: info[k][1] for k in keys}

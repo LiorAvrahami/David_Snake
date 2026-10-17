@@ -55,9 +55,10 @@ edge of the screen from one side to the other turns it off, and on again. The to
   reads it back to check it is complete, and only then clears them.
   Analyze with `python3 tools/lab_report.py FILE`; score input methods
   with `python3 tools/windowsim.py FILE...`: at every gesture start
-  (the finger starts moving after resting, or turns sharply while
-  moving; a resting finger starts nothing; a gesture starting less than
-  250 ms after a window's start belongs to that window), each method
+  (the finger moves 3 dp after resting, however small or slow the
+  movement, or turns sharply while moving; a resting finger starts
+  nothing; a gesture starting less than 250 ms after a window's start
+  belongs to that window), each method
   reads the first 250 ms of finger input from the real situation (if it
   turned David, one more turn may come before his next regular step: the
   second half of a one-cell side step or U-turn), an exact port of the
