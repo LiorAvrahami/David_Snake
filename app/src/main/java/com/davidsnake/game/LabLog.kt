@@ -33,18 +33,16 @@ object Arms {
     val SMART2_FAST = Arm("S2-FAST", GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) {
         SmartRecognizer(v2 = true, cooldownMs = 120L)
     }
-    /** The trained turn model ([MlModel]; now MNL1). */
+    /** The trained turn model ([MlModel]; now MNW2). */
     val ML = Arm(MlModel.NAME, GameEngine.TurnMode.STEP_SAFE, holdUTurn = true) { LearnedRecognizer() }
 
-    /** Normal play and debug recording. MNL1 (one hidden layer, no back
-     *  answer: a U-turn is two side turns) is trained to make the turn the
-     *  player meant as early as the finger shows it (tools/intentlearn.py):
-     *  on held-out games it is the first model to beat ML-1 on the
-     *  timing-tolerant final score, turning sooner, with more turns the
-     *  live game did not make. Before it ML-3, the linear model trained the
-     *  same way, and ML-2, trained on the window score, slower and missing
-     *  more (the score is calibrated to the live recognizer's latency).
-     *  Earlier models: tools/models/. */
+    /** Normal play and debug recording. MNW2 (one hidden layer, no back
+     *  answer: a U-turn is two side turns) is trained on the window score
+     *  itself (tools/windowlearn.py, docs/window_training.md): every course
+     *  of action in every window of the training games scored by the game
+     *  simulation, the model's expected score climbed directly, no labels.
+     *  On held-out games it beats MNL1, the model trained on the live game's
+     *  turns, which beat ML-1. Earlier models: tools/models/. */
     val DEFAULT = ML
 
     /** Debug mode records with these arms in turn, [BLOCK] games each; a
