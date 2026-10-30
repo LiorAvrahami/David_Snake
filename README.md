@@ -45,8 +45,13 @@ And yes — after you fall, they keep throwing. The original did that too.
 ## Input test (debug mode)
 
 Debug mode is on when the app starts (for now): games are recorded, with
-the normal input (`MNW2`). Dragging along the very top
+the normal input (`MNW1`). Dragging along the very top
 edge of the screen from one side to the other turns it off, and on again. The top-right corner shows how many games are stored.
+A double tap during a recorded game (two taps within 300 ms and 80 dp of
+each other) marks the moment: a short buzz and a ring confirm it, and the
+recording gets a `mark` line with the time and game tick of each tap, for
+the player to point out a move (usually the one just before). The taps
+are logged as strokes too. `tools/lab_report.py` keeps them as `Play.marks`.
 
 - Every recorded game is saved as it ends, in the app's own storage, and
   kept across app restarts and debug mode on/off. *Export games* (start
@@ -102,11 +107,13 @@ edge of the screen from one side to the other turns it off, and on again. The to
   with `--game` puts it in the game (`MlModel.kt`). `--tolerance 1
   --ref ML-1` in `compare_models.py` prints the accuracy score tables and
   differences against ML-1.
-- The input is `MNW2` (from v1.19; `tools/models/mnw2.json`): MNW1's
-  training (below) repeated under the scoring rules above, with runs
-  without a score left out. On the held-out games its final score is
-  378.7 per 1000 windows against MNL1's 371.3 (+7.1, 90% range +2.0 to
-  +11.5) and MNW1's 378.1; plain 302.4 against 298.9. Before it:
+- The input is `MNW1` (from v1.20, the start of the data set with the
+  player's marks; `tools/models/mnw1.json`). v1.19 played `MNW2`
+  (`tools/models/mnw2.json`): MNW1's training (below) repeated under the
+  scoring rules above, with runs without a score left out. On the
+  held-out games its final score is 378.7 per 1000 windows against
+  MNL1's 371.3 (+7.1, 90% range +2.0 to +11.5) and MNW1's 378.1; plain
+  302.4 against 298.9. Before it:
   `MNL1` (v1.18; `tools/models/mnl1.json`), the
   non-linear model: one hidden layer of 16 units (304 weights) over 17
   inputs of finger movement (no finger speed) with no `back` answer, so a

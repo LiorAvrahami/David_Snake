@@ -10,6 +10,8 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Build
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
@@ -70,7 +72,42 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     private var animAccMs = 0L
 
     // the input path: recognizer, engine commands and test-file lines
-    val session = InputSession(engine) { lab.line(it) }.also { it.appVersion = version }
+    val session = InputSession(engine) { lab.line(it) }.also {
+        it.appVersion = version
+        it.onMark = { _, x, y -> onMark(x, y) }
+    }
+
+    // a mark (double tap) just made: a ring at the tap fades out
+    private var markT = 0L
+    private var markX = 0f
+    private var markY = 0f
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = HUD_COLOR
+    }
+
+    /** A double tap marked the moment: a short buzz and a ring at the
+     *  first tap (dp), so the player knows it registered. */
+    private fun onMark(xDp: Float, yDp: Float) {
+        markT = SystemClock.uptimeMillis()
+        markX = xDp * density
+        markY = yDp * density
+        try {
+            val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            v?.vibrate(VibrationEffect.createOneShot(40L, VibrationEffect.DEFAULT_AMPLITUDE))
+        } catch (e: Exception) {
+            // no vibrator: the ring is the feedback
+        }
+    }
+
+    private fun drawMark(canvas: Canvas) {
+        val age = SystemClock.uptimeMillis() - markT
+        if (markT == 0L || age > 600L) return
+        val k = age / 600f
+        markPaint.strokeWidth = (4f - 3f * k) * density
+        markPaint.alpha = (255 * (1f - k)).toInt()
+        canvas.drawCircle(markX, markY, (18f + 40f * k) * density, markPaint)
+    }
 
     // the one finger being followed (the latest to land), in px
     private var activeId = -1
@@ -162,6 +199,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         }
         canvas.restore()
 
+        drawMark(canvas)
         drawHud(canvas)
     }
 
@@ -333,6 +371,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val lines = ArrayList<Pair<String, Boolean>>()  // text, bold
         lines.add(Pair("recording · ${Arms.DEFAULT.name}", true))
         lines.add(Pair("${lab.storedGames} games stored", false))
+        if (session.marks > 0) lines.add(Pair("${session.marks} marks", false))
         for ((text, bold) in lines) {
             cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             cornerPaint.textSize = (if (bold) 15f else 12f) * density

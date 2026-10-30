@@ -96,6 +96,7 @@ class Play:
         self.strokes, self.cmds, self.steps, self.flags, self.harps = [], [], [], [], []
         self.spears = []        # throws (v1.6+ recordings)
         self.model = None       # the input in full (v1.15+ recordings)
+        self.marks = []         # the player's double taps (v1.20+ recordings)
 
     @property
     def rec(self):
@@ -142,6 +143,8 @@ def build(recs):
                 p.model = r
             elif k == "death":
                 p.death = r
+            elif k == "mark":
+                p.marks.append(r)
     # attach commands to strokes by time
     for p in plays.values():
         p.strokes.sort(key=lambda s: s.t0)

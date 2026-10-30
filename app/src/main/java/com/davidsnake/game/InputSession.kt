@@ -13,6 +13,17 @@ class InputSession(
     private val lab: (String) -> Unit
 ) {
 
+    companion object {
+        /** A tap: the finger up within [TAP_MS] of landing, never [TAP_DP]
+         *  from where it landed. A double tap, which marks the moment: a
+         *  second tap landing within [DOUBLE_MS] of the first one's lift
+         *  and [DOUBLE_DP] of where it landed. */
+        const val TAP_MS = 300L
+        const val TAP_DP = 12f
+        const val DOUBLE_MS = 300L
+        const val DOUBLE_DP = 80f
+    }
+
     var arm: Arm = Arms.DEFAULT
         private set
     /** App version, logged with every recorded game. */
@@ -59,6 +70,20 @@ class InputSession(
     private var tickNo = 0                         // game ticks since the game started
     private val knownSpears = HashSet<GameEngine.Spear>()   // by identity
 
+    // the last tap during a recorded game, waiting for a second one
+    private var tapPlay = 0
+    private var tapDownT = 0L
+    private var tapUpT = 0L
+    private var tapX = 0f
+    private var tapY = 0f
+    private var tapTk = 0
+    /** Marks (double taps) in the current recorded game. */
+    var marks = 0
+        private set
+    /** Called when a double tap marks the moment: its time and where the
+     *  first tap landed (dp), for the screen's feedback. */
+    var onMark: ((t: Long, x: Float, y: Float) -> Unit)? = null
+
     // ------------------------------------------------------------ games
 
     /** A game starts with [a]; [n] > 0 records it as test game n. */
@@ -68,6 +93,8 @@ class InputSession(
         recognizer = a.make()
         playNo = n
         tickNo = 0
+        marks = 0
+        tapPlay = 0
         knownSpears.clear()
         knownSpears.addAll(engine.spears)
         if (n > 0) {
@@ -163,6 +190,33 @@ class InputSession(
         if (strokePlay > 0 && live) {
             if (strokePlay == playNo) playStrokes++
             lab(LabLog.stroke(strokePlay, t0, how, pts.toString(), heads.toString(), tk0, ticks.toString()))
+        }
+        tap(t, how)
+    }
+
+    /** A double tap during a recorded game marks the moment (a "mark"
+     *  line: the player points out something, usually the move just
+     *  before). The taps themselves are strokes like any other, logged and
+     *  read by the recognizer as usual. */
+    private fun tap(t: Long, how: String) {
+        val isTap = how == "up" && t - t0 <= TAP_MS && maxDist <= TAP_DP &&
+            live && strokePlay > 0 && strokePlay == playNo
+        if (!isTap) {
+            tapPlay = 0
+            return
+        }
+        if (tapPlay == playNo && t0 - tapUpT <= DOUBLE_MS &&
+            hypot(downX - tapX, downY - tapY) <= DOUBLE_DP
+        ) {
+            marks++
+            lab(LabLog.mark(playNo, tapDownT, tapTk, t0, tk0, tapX, tapY))
+            onMark?.invoke(t, tapX, tapY)
+            tapPlay = 0
+        } else {
+            tapPlay = playNo
+            tapDownT = t0; tapUpT = t
+            tapX = downX; tapY = downY
+            tapTk = tk0
         }
     }
 
