@@ -97,6 +97,7 @@ class Play:
         self.spears = []        # throws (v1.6+ recordings)
         self.model = None       # the input in full (v1.15+ recordings)
         self.marks = []         # the player's double taps (v1.20+ recordings)
+        self.start = r.get("start")   # debug head start: {"tail": "x,y;...", "ticks": n} (v1.21+)
 
     @property
     def rec(self):

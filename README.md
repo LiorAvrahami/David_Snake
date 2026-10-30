@@ -52,6 +52,14 @@ each other) marks the moment: a short buzz and a ring confirm it, and the
 recording gets a `mark` line with the time and game tick of each tap, for
 the player to point out a move (usually the one just before). The taps
 are logged as strokes too. `tools/lab_report.py` keeps them as `Play.marks`.
+Temporary, debug mode only (from v1.21): every recorded game starts as
+if it had been going on for a while, David with a tail of 10 cells and
+the attackers' wave timer run ahead by 580 ticks, the time the recorded
+games typically took to eat 10 harps (`GameEngine.headStart`; the
+constants at the top of `GameView.kt`, `HEAD_START_TAIL = 0` undoes it).
+The score still counts from 0. The `play` line records the start (`start`:
+the tail cells and the ticks), and the replay and scoring tools begin from
+it. The normal game is unchanged.
 
 - Every recorded game is saved as it ends, in the app's own storage, and
   kept across app restarts and debug mode on/off. *Export games* (start

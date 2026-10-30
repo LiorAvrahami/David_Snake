@@ -36,6 +36,15 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         private val FIELD_COLOR = Color.rgb(166, 202, 240)
         private val HUD_COLOR = Color.rgb(40, 60, 90)
         private val ALERT_COLOR = Color.rgb(170, 30, 30)
+
+        /** TEMPORARY, debug mode only: every recorded game starts as if it
+         *  had been going on for a while, David with a tail of
+         *  [HEAD_START_TAIL] cells and the attackers' wave timer run ahead by
+         *  [HEAD_START_TICKS] ticks ([GameEngine.headStart]; the recorded
+         *  games that reached 10 harps did so at tick 577 in the median).
+         *  Set HEAD_START_TAIL to 0 to undo. The normal game is unchanged. */
+        private const val HEAD_START_TAIL = 10
+        private const val HEAD_START_TICKS = 580
     }
 
     val engine = GameEngine()
@@ -234,6 +243,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         when (phase) {
             GameEngine.Phase.PLAYING -> {
                 if (debugMode) {
+                    if (HEAD_START_TAIL > 0) engine.headStart(HEAD_START_TAIL, HEAD_START_TICKS)
                     val n = lab.nextGameNo()
                     lab.beginGame(n)
                     session.startPlay(Arms.DEFAULT, n, 1, t, wallClock())
@@ -371,6 +381,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         val lines = ArrayList<Pair<String, Boolean>>()  // text, bold
         lines.add(Pair("recording · ${Arms.DEFAULT.name}", true))
         lines.add(Pair("${lab.storedGames} games stored", false))
+        if (HEAD_START_TAIL > 0) lines.add(Pair("head start · tail $HEAD_START_TAIL, +$HEAD_START_TICKS ticks", false))
         if (session.marks > 0) lines.add(Pair("${session.marks} marks", false))
         for ((text, bold) in lines) {
             cornerPaint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT

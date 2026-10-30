@@ -47,6 +47,13 @@ class Sim:
         self.hist = []                  # the cells the head left, oldest first: the tail's cells and
                                         # a few before them (for the scorer's phantom tail)
 
+    def head_start(self, cells):
+        """A game that began with a tail (the recorded head start): `cells`
+        head-first. The head left them in order, so they are its history."""
+        self.tail = list(cells)
+        self.tails = set(cells)
+        self.hist = list(reversed(cells))
+
     def copy(self):
         s = Sim.__new__(Sim)
         s.__dict__.update(self.__dict__)
@@ -219,6 +226,9 @@ def held_flags(cmds):
 def start_sim(play):
     """A fresh game for `play` with its recorded throws and harps."""
     s = Sim()
+    start = getattr(play, "start", None)
+    if start and start.get("tail"):
+        s.head_start([tuple(int(v) for v in c.split(",")) for c in start["tail"].split(";")])
     for th in play.spears:
         s.throws.setdefault(th["tk"], []).append((th["at"][0], th["at"][1], LET.index(th["d"])))
     nexts = iter([tuple(h["next"]) for h in play.harps if "next" in h])

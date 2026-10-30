@@ -109,7 +109,7 @@ object LabLog {
     val LEGEND = Json()
         .s("time", "t/t0 = Android uptime ms, one clock for touches and game events")
         .s("session", "device and screen; board = the 21x13 play area on screen in dp")
-        .s("play", "a game starts: n = game number in the test, arm = input variant, arm_n = its play count")
+        .s("play", "a game starts: n = game number in the test, arm = input variant, arm_n = its play count; start (only when the game began with a head start): tail = the cells David's tail begins with, head-first, and ticks = how far the attackers' wave timer was run ahead; the score still counts from 0")
         .s("stroke", "one finger from down to up: pts = 'dt,x,y;...' dt ms since the previous sample (first since t0), x/y in 0.1dp; ih = per sample, the intended heading it was judged against; tk0 = game ticks done when the finger landed; tkd = per sample, game ticks done since the previous sample (a digit, or (n) from 10 on); end = up | cancel | steal (another finger took over)")
         .s("mark", "the player double-tapped during the game to point out the moment (usually the move just before): t/tk = when the first tap landed and the game ticks done then; t2/tk2 = the same for the second tap; x,y = where the first tap landed, in dp. A tap lifts within 300 ms and 12 dp of landing; the second lands within 300 ms of the first one's lift and 80 dp of it. The two taps are also logged as strokes")
         .s("model", "the input this game was played with, complete enough to rebuild it: arm, turn mode, recognizer and all its settings; a trained model adds its weights, features and how it was trained (code commit, training files with sha256, settings); app = app version")
@@ -137,9 +137,20 @@ object LabLog {
         .raw("legend", LEGEND)
         .toString()
 
-    fun play(n: Int, arm: Arm, armN: Int, t: Long, wall: String, ver: String): String = Json()
-        .s("k", "play").n("n", n).s("arm", arm.name).s("mode", arm.mode.name)
-        .n("arm_n", armN).n("t", t).s("wall", wall).s("app", ver).toString()
+    /** [start]: the head start as JSON ([headStart]), or empty for a normal game. */
+    fun play(n: Int, arm: Arm, armN: Int, t: Long, wall: String, ver: String, start: String = ""): String {
+        val j = Json().s("k", "play").n("n", n).s("arm", arm.name).s("mode", arm.mode.name)
+            .n("arm_n", armN).n("t", t).s("wall", wall).s("app", ver)
+        if (start.isNotEmpty()) j.raw("start", start)
+        return j.toString()
+    }
+
+    /** The head start a game began with ([GameEngine.headStart]), or empty. */
+    fun headStart(e: GameEngine): String {
+        if (e.headStartTicks == 0 && e.tail.isEmpty()) return ""
+        return Json().s("tail", e.tail.joinToString(";") { "${it.x},${it.y}" })
+            .n("ticks", e.headStartTicks).toString()
+    }
 
     /** The game's input in full ([Arm.describe]). */
     fun model(n: Int, arm: Arm, ver: String): String = Json()

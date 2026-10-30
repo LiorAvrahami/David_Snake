@@ -149,6 +149,10 @@ class GameEngine(private val rng: Random = Random.Default) {
     private var attackerCountGoal = 60  // ramps 60 -> 19
     private var cont3 = 0               // original 'timer_2_cont_to_3'
 
+    /** Ticks the wave timer was run ahead by [headStart] (0: a normal start). */
+    var headStartTicks = 0
+        private set
+
     init {
         reset()
     }
@@ -176,6 +180,7 @@ class GameEngine(private val rng: Random = Random.Default) {
         turnStepped = false
         cont3 = 0
         score = 0
+        headStartTicks = 0
 
         harpX = 3; harpY = 5
         harpAnim.frame = 0; harpAnim.frameUp = true
@@ -188,6 +193,37 @@ class GameEngine(private val rng: Random = Random.Default) {
         attackers.add(Attacker(RIGHT, 6))
 
         setPhase(Phase.READY)
+    }
+
+    /** A game that begins as if it had been going on for a while (debug
+     *  recording): right after [reset], before the first tick, David gets
+     *  a tail of [tailLength] cells laid behind him (down from the head,
+     *  then along the bottom row to the right), and the attackers' wave
+     *  timer runs ahead by [ticks] ticks without spawning anyone, so the
+     *  waves come as they do that late in a game. The score stays 0 (it
+     *  counts the harps eaten), the wall room claims stay clear, and the
+     *  opening attacker stays. */
+    fun headStart(tailLength: Int, ticks: Int) {
+        check(tail.isEmpty() && score == 0 && stepCounter == 4 && headDir == UP) { "not a fresh game" }
+        var x = headX
+        var y = headY
+        repeat(tailLength) {
+            if (y + 1 < ROWS) y++ else x++
+            check(inBounds(x, y) && blocks[x][y] == EMPTY) { "no room for the tail" }
+            tail.add(Segment(x, y))
+            blocks[x][y] = TAIL
+        }
+        repeat(ticks) {
+            // attackerTick's wave schedule, with the waves themselves left out
+            cont3 = if (cont3 < 3) cont3 + 1 else 0
+            if (attackerCount == 0) {
+                if (attackerCountGoal >= 20 && cont3 % (3 - difficulty.idx) == 0) attackerCountGoal--
+                attackerCount = attackerCountGoal
+            } else {
+                attackerCount--
+            }
+        }
+        headStartTicks = ticks
     }
 
     /** Tap: start on the title screen, retry after a loss. */

@@ -100,7 +100,7 @@ class InputSession(
         if (n > 0) {
             playStartT = t
             playStrokes = 0; playCmds = 0
-            lab(LabLog.play(n, a, armN, t, wall, appVersion))
+            lab(LabLog.play(n, a, armN, t, wall, appVersion, LabLog.headStart(engine)))
             lab(LabLog.model(n, a, appVersion))
         }
     }
