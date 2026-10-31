@@ -86,10 +86,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         it.onMark = { _, x, y -> onMark(x, y) }
     }
 
-    // a tap on the lose screen of a recorded game waits for a second one
-    // (a mark) before it acts
-    private var pendingTap: Runnable? = null
-
     // a mark (double tap) just made: a ring at the tap fades out
     private var markT = 0L
     private var markX = 0f
@@ -102,8 +98,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     /** A double tap marked the moment: a short buzz and a ring at the
      *  first tap (dp), so the player knows it registered. */
     private fun onMark(xDp: Float, yDp: Float) {
-        pendingTap?.let { removeCallbacks(it); pendingTap = null }   // the taps were a mark, not a retry
-        lab.flush()
+        lab.flush()   // a mark on the lose screen is saved at once
         markT = SystemClock.uptimeMillis()
         markX = xDp * density
         markY = yDp * density
@@ -143,7 +138,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
 
     override fun onDetachedFromWindow() {
         Choreographer.getInstance().removeFrameCallback(this)
-        pendingTap?.let { removeCallbacks(it); pendingTap = null }
         super.onDetachedFromWindow()
     }
 
@@ -335,21 +329,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             return
         }
 
-        if (session.strokeCmds == 0 && !session.strokeMarked) tapped()
-    }
-
-    /** A tap that gave no command: start, or retry after a loss. On the
-     *  lose screen of a recorded game it first waits out the double-tap
-     *  window, since a second tap there marks the game instead. */
-    private fun tapped() {
-        if (pendingTap != null) return
-        if (debugMode && engine.phase == GameEngine.Phase.LOST) {
-            val r = Runnable { pendingTap = null; performClick() }
-            pendingTap = r
-            postDelayed(r, InputSession.DOUBLE_MS + 50L)
-        } else {
-            performClick()
-        }
+        // a tap or a swipe here starts nothing: the panel's button does
     }
 
     /** MainActivity refreshes its buttons when debug mode flips. */
@@ -379,12 +359,6 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
             GameEngine.COLS * CELL * scale / density, GameEngine.ROWS * CELL * scale / density,
             wallClock(), SystemClock.uptimeMillis()
         )
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        engine.tapAction()  // start on the title screen, retry after a loss
-        return true
     }
 
     // ------------------------------------------------------------- HUD

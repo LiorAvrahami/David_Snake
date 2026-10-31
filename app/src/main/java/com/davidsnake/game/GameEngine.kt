@@ -226,7 +226,13 @@ class GameEngine(private val rng: Random = Random.Default) {
         headStartTicks = ticks
     }
 
-    /** Tap: start on the title screen, retry after a loss. */
+    /** The play button: start on the title screen, play again after a loss. */
+    fun play() {
+        if (phase == Phase.LOST) reset()
+        if (phase == Phase.READY) setPhase(Phase.PLAYING)
+    }
+
+    /** Start on the title screen, back to it after a loss (the desktop checks). */
     fun tapAction() {
         when (phase) {
             Phase.LOST -> reset()

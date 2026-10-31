@@ -52,8 +52,9 @@ within 300 ms and 80 dp of each other) marks the moment: a short buzz and
 a ring confirm it, and the recording gets a `mark` line with the time and
 game tick of each tap, for the player to point out a move (usually the
 one just before; on the lose screen, where the line says `after_death`,
-the last one). During the game the taps are logged as strokes too; on the
-lose screen the tap that retries waits out the double-tap window first.
+the last one). During the game the taps are logged as strokes too. A game
+starts, and starts again after a loss, only with the panel's button; a
+tap or a swipe anywhere else does nothing there (from v1.23).
 `tools/lab_report.py` keeps the marks as `Play.marks`.
 Temporary, debug mode only (from v1.21): every recorded game starts as
 if it had been going on for a while, David with a tail of 10 cells and

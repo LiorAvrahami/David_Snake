@@ -27,6 +27,7 @@ class MainActivity : Activity() {
     private lateinit var panel: LinearLayout
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
+    private lateinit var playButton: TextView
     private lateinit var exportButton: TextView
     private var panelText = ""
 
@@ -124,6 +125,26 @@ class MainActivity : Activity() {
         subtitleView.setPadding(0, dp(8), 0, 0)
         panel.addView(subtitleView)
 
+        // the one way to start, and to play again after a loss: a tap or a
+        // swipe anywhere else does nothing (in debug mode a double tap on
+        // the lose screen marks the game that just ended)
+        playButton = TextView(this)
+        playButton.textSize = 20f
+        playButton.setTypeface(Typeface.DEFAULT_BOLD)
+        playButton.setTextColor(Color.WHITE)
+        playButton.gravity = Gravity.CENTER
+        playButton.setPadding(dp(36), dp(12), dp(36), dp(12))
+        val pbg = GradientDrawable()
+        pbg.cornerRadius = dp(14).toFloat()
+        pbg.setColor(ink)
+        playButton.background = pbg
+        playButton.setOnClickListener { gameView.engine.play() }
+        val plp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        plp.topMargin = dp(16)
+        panel.addView(playButton, plp)
+
         // debug mode: close the test file from the lose screen
         exportButton = TextView(this)
         exportButton.text = getString(R.string.export_games)
@@ -168,9 +189,9 @@ class MainActivity : Activity() {
             GameEngine.Phase.READY -> {
                 panel.visibility = View.VISIBLE
                 titleView.text = getString(R.string.app_name)
-                subtitleView.text =
-                    getString(R.string.swipe_hint) + "\n" + getString(R.string.tap_to_start)
+                subtitleView.text = getString(R.string.swipe_hint)
                 panelText = subtitleView.text.toString()
+                playButton.text = getString(R.string.play)
                 exportButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
             }
             GameEngine.Phase.LOST -> {
@@ -181,10 +202,10 @@ class MainActivity : Activity() {
                 }
                 panel.visibility = View.VISIBLE
                 titleView.text = getString(R.string.you_lost)
-                var sub = getString(R.string.final_score, score, gameView.bestScore) +
-                    "\n" + getString(R.string.try_again)
+                val sub = getString(R.string.final_score, score, gameView.bestScore)
                 panelText = sub
                 subtitleView.text = sub
+                playButton.text = getString(R.string.play_again)
                 exportButton.visibility = if (gameView.recording) View.VISIBLE else View.GONE
             }
         }

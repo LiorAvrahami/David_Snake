@@ -5,6 +5,8 @@
     <string name="paused">הפסקה</string>
     <string name="tap_to_start">הקש כדי להתחיל</string>
     <string name="swipe_hint">החלק את האצבע כדי לכוון את דוד</string>
+    <string name="play">התחל</string>
+    <string name="play_again">שחק שוב</string>
     <string name="resume_hint">הקש כדי להמשיך</string>
     <string name="difficulty">רמת קושי</string>
     <string name="easy">קל</string>
