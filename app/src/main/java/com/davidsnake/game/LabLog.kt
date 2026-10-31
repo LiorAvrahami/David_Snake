@@ -111,7 +111,7 @@ object LabLog {
         .s("session", "device and screen; board = the 21x13 play area on screen in dp")
         .s("play", "a game starts: n = game number in the test, arm = input variant, arm_n = its play count; start (only when the game began with a head start): tail = the cells David's tail begins with, head-first, and ticks = how far the attackers' wave timer was run ahead; the score still counts from 0")
         .s("stroke", "one finger from down to up: pts = 'dt,x,y;...' dt ms since the previous sample (first since t0), x/y in 0.1dp; ih = per sample, the intended heading it was judged against; tk0 = game ticks done when the finger landed; tkd = per sample, game ticks done since the previous sample (a digit, or (n) from 10 on); end = up | cancel | steal (another finger took over)")
-        .s("mark", "the player double-tapped during the game to point out the moment (usually the move just before): t/tk = when the first tap landed and the game ticks done then; t2/tk2 = the same for the second tap; x,y = where the first tap landed, in dp. A tap lifts within 300 ms and 12 dp of landing; the second lands within 300 ms of the first one's lift and 80 dp of it. The two taps are also logged as strokes")
+        .s("mark", "the player double-tapped to point out the moment, usually the move just before: t/tk = when the first tap landed and the game ticks done then; t2/tk2 = the same for the second tap; x,y = where the first tap landed, in dp; after_death = 1 when the taps came on the lose screen, after the game ended (the ticks keep counting there), pointing out the last move. A tap lifts within 300 ms and 12 dp of landing; the second lands within 300 ms of the first one's lift and 80 dp of it. During the game the two taps are also logged as strokes")
         .s("model", "the input this game was played with, complete enough to rebuild it: arm, turn mode, recognizer and all its settings; a trained model adds its weights, features and how it was trained (code commit, training files with sha256, settings); app = app version")
         .s("cmd", "recognizer output: kind (orig | swipe | chain | lift | ml | uturn | reverse), dir, engine result res, heading hd before and hd2 after, intended heading ihd, head cell; tk = game ticks done")
         .s("step", "David moved: tk = game tick (45 ms each, counted from the game's start), head cell, d = direction moved, hd = heading after (a queued turn applies right after a step); flush = moved by a second quick turn (STEP modes)")
@@ -168,10 +168,14 @@ object LabLog {
         .s("pts", pts).s("ih", ih).n("tk0", tk0).s("tkd", tkd).toString()
 
     /** A double tap: [t]/[tk] the first tap's landing and the game ticks
-     *  done then, [t2]/[tk2] the second's, ([x], [y]) where the first landed (dp). */
-    fun mark(play: Int, t: Long, tk: Int, t2: Long, tk2: Int, x: Float, y: Float): String = Json()
-        .s("k", "mark").n("play", play).n("t", t).n("tk", tk).n("t2", t2).n("tk2", tk2)
-        .f("x", x).f("y", y).toString()
+     *  done then, [t2]/[tk2] the second's, ([x], [y]) where the first landed
+     *  (dp); [afterDeath] when it came on the lose screen. */
+    fun mark(play: Int, t: Long, tk: Int, t2: Long, tk2: Int, x: Float, y: Float, afterDeath: Boolean = false): String {
+        val j = Json().s("k", "mark").n("play", play).n("t", t).n("tk", tk).n("t2", t2).n("tk2", tk2)
+            .f("x", x).f("y", y)
+        if (afterDeath) j.n("after_death", 1)
+        return j.toString()
+    }
 
     /** [board] and the head cell are captured before the engine ran it. */
     fun cmd(

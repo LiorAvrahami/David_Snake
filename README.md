@@ -47,11 +47,14 @@ And yes — after you fall, they keep throwing. The original did that too.
 Debug mode is on when the app starts (for now): games are recorded, with
 the normal input (`MNW1`). Dragging along the very top
 edge of the screen from one side to the other turns it off, and on again. The top-right corner shows how many games are stored.
-A double tap during a recorded game (two taps within 300 ms and 80 dp of
-each other) marks the moment: a short buzz and a ring confirm it, and the
-recording gets a `mark` line with the time and game tick of each tap, for
-the player to point out a move (usually the one just before). The taps
-are logged as strokes too. `tools/lab_report.py` keeps them as `Play.marks`.
+A double tap during a recorded game, or on its lose screen (two taps
+within 300 ms and 80 dp of each other) marks the moment: a short buzz and
+a ring confirm it, and the recording gets a `mark` line with the time and
+game tick of each tap, for the player to point out a move (usually the
+one just before; on the lose screen, where the line says `after_death`,
+the last one). During the game the taps are logged as strokes too; on the
+lose screen the tap that retries waits out the double-tap window first.
+`tools/lab_report.py` keeps the marks as `Play.marks`.
 Temporary, debug mode only (from v1.21): every recorded game starts as
 if it had been going on for a while, David with a tail of 10 cells and
 the attackers' wave timer run ahead by 580 ticks, the time the recorded

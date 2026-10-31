@@ -77,8 +77,14 @@ class InputSession(
     private var tapX = 0f
     private var tapY = 0f
     private var tapTk = 0
-    /** Marks (double taps) in the current recorded game. */
+    /** The recorded game that just ended: a double tap on its lose screen
+     *  still marks it (0: none). */
+    private var endedPlayNo = 0
+    /** Marks (double taps) in the current recorded game, lose screen included. */
     var marks = 0
+        private set
+    /** The stroke that just ended was the second tap of a mark. */
+    var strokeMarked = false
         private set
     /** Called when a double tap marks the moment: its time and where the
      *  first tap landed (dp), for the screen's feedback. */
@@ -95,6 +101,7 @@ class InputSession(
         tickNo = 0
         marks = 0
         tapPlay = 0
+        endedPlayNo = 0
         knownSpears.clear()
         knownSpears.addAll(engine.spears)
         if (n > 0) {
@@ -111,6 +118,7 @@ class InputSession(
         lab(LabLog.death(playNo, t, tickNo, engine))
         lab(LabLog.playEnd(playNo, arm, t, engine.score, t - playStartT,
             engine.lostReason, playStrokes, playCmds))
+        endedPlayNo = playNo
         playNo = 0
         return true
     }
@@ -119,6 +127,7 @@ class InputSession(
         if (playNo == 0) return
         lab(LabLog.abort(playNo, t, why))
         playNo = 0
+        endedPlayNo = 0
     }
 
     /** One engine tick at time [t], logging what it moved. A recognizer
@@ -194,26 +203,33 @@ class InputSession(
         tap(t, how)
     }
 
-    /** A double tap during a recorded game marks the moment (a "mark"
-     *  line: the player points out something, usually the move just
-     *  before). The taps themselves are strokes like any other, logged and
-     *  read by the recognizer as usual. */
+    /** A double tap marks the moment, during a recorded game or on its
+     *  lose screen (a "mark" line: the player points out something, usually
+     *  the move just before, or the last one). During the game the taps
+     *  themselves are strokes like any other, logged and read by the
+     *  recognizer as usual. */
     private fun tap(t: Long, how: String) {
-        val isTap = how == "up" && t - t0 <= TAP_MS && maxDist <= TAP_DP &&
-            live && strokePlay > 0 && strokePlay == playNo
+        strokeMarked = false
+        val play = when {
+            live && strokePlay > 0 && strokePlay == playNo -> playNo
+            !live && strokePlay == 0 && engine.phase == GameEngine.Phase.LOST -> endedPlayNo
+            else -> 0
+        }
+        val isTap = play > 0 && how == "up" && t - t0 <= TAP_MS && maxDist <= TAP_DP
         if (!isTap) {
             tapPlay = 0
             return
         }
-        if (tapPlay == playNo && t0 - tapUpT <= DOUBLE_MS &&
+        if (tapPlay == play && t0 - tapUpT <= DOUBLE_MS &&
             hypot(downX - tapX, downY - tapY) <= DOUBLE_DP
         ) {
             marks++
-            lab(LabLog.mark(playNo, tapDownT, tapTk, t0, tk0, tapX, tapY))
+            strokeMarked = true
+            lab(LabLog.mark(play, tapDownT, tapTk, t0, tk0, tapX, tapY, afterDeath = playNo == 0))
             onMark?.invoke(t, tapX, tapY)
             tapPlay = 0
         } else {
-            tapPlay = playNo
+            tapPlay = play
             tapDownT = t0; tapUpT = t
             tapX = downX; tapY = downY
             tapTk = tk0
