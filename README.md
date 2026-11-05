@@ -47,9 +47,9 @@ And yes — after you fall, they keep throwing. The original did that too.
 Debug mode is on when the app starts (for now): games are recorded, with
 the normal input (`MNW1`). Dragging along the very top
 edge of the screen from one side to the other turns it off, and on again. The top-right corner shows how many games are stored.
-A double tap during a recorded game, or on its lose screen (two taps of
-30 to 300 ms, the second landing 50 to 300 ms after the first lifts and
-within 50 dp of it) marks the moment: a short buzz and
+A double tap during a recorded game, or on its lose screen (two taps
+within 300 ms of each other on the same spot, within 15 dp) marks the
+moment: a short buzz and
 a ring confirm it, and the recording gets a `mark` line with the time and
 game tick of each tap, for the player to point out a move (usually the
 one just before; on the lose screen, where the line says `after_death`,
