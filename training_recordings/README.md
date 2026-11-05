@@ -19,6 +19,7 @@ exactly, and rewrites this list. Files keep the name the app gave them.
 | 2026-10-09 09:59:17 | DavidSnake_Games_v1.15.87_2026-10-12_160745_55games.txt | 1.15.87 | ML-1 | 55 | 53 | 634fcb3c1229 |
 | 2026-10-17 00:57:07 | DavidSnake_Games_v1.18.99_2026-10-17_005758_1games.txt | 1.18.99 | MNL1 | 1 | 1 | 878aba4456bd |
 | 2026-10-24 09:20:53 | DavidSnake_Games_v1.19.117_2026-10-30_215247_45games.txt | 1.19.117 | MNL1, MNW2 | 45 | 41 | a1e0095732c7 |
+| 2026-11-06 00:25:38 | DavidSnake_Games_v1.23.121_2026-11-06_002824_4games.txt | 1.23.121 | MNW1 | 4 | 4 | 56111265b4ae |
 
-222 games, 210 of them with touches (a game started by accident and
+226 games, 214 of them with touches (a game started by accident and
 never touched has no gestures, so it adds nothing to scoring or training).

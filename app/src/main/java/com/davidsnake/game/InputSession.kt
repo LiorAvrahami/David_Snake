@@ -14,14 +14,19 @@ class InputSession(
 ) {
 
     companion object {
-        /** A tap: the finger up within [TAP_MS] of landing, never [TAP_DP]
-         *  from where it landed. A double tap, which marks the moment: a
-         *  second tap landing within [DOUBLE_MS] of the first one's lift
-         *  and [DOUBLE_DP] of where it landed. */
+        /** A tap: the finger up [TAP_MIN_MS] to [TAP_MS] after landing, never
+         *  [TAP_DP] from where it landed. A double tap, which marks the
+         *  moment: a second tap landing [DOUBLE_MIN_MS] to [DOUBLE_MS] after
+         *  the first one's lift and within [DOUBLE_DP] of where it landed.
+         *  The minimums keep out a light drag whose contact flickers: that
+         *  gives touches of 10-20 ms a few tens of ms apart, each a little
+         *  further along (seen in a recording). */
+        const val TAP_MIN_MS = 30L
         const val TAP_MS = 300L
         const val TAP_DP = 12f
+        const val DOUBLE_MIN_MS = 50L
         const val DOUBLE_MS = 300L
-        const val DOUBLE_DP = 80f
+        const val DOUBLE_DP = 50f
     }
 
     var arm: Arm = Arms.DEFAULT
@@ -215,12 +220,12 @@ class InputSession(
             !live && strokePlay == 0 && engine.phase == GameEngine.Phase.LOST -> endedPlayNo
             else -> 0
         }
-        val isTap = play > 0 && how == "up" && t - t0 <= TAP_MS && maxDist <= TAP_DP
+        val isTap = play > 0 && how == "up" && t - t0 in TAP_MIN_MS..TAP_MS && maxDist <= TAP_DP
         if (!isTap) {
             tapPlay = 0
             return
         }
-        if (tapPlay == play && t0 - tapUpT <= DOUBLE_MS &&
+        if (tapPlay == play && t0 - tapUpT in DOUBLE_MIN_MS..DOUBLE_MS &&
             hypot(downX - tapX, downY - tapY) <= DOUBLE_DP
         ) {
             marks++
